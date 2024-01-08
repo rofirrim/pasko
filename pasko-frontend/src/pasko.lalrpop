@@ -1,0 +1,592 @@
+use crate::span::{SpanLoc, Spanned, SpannedBox};
+use crate::ast;
+use crate::lexer;
+use crate::lexer::LexicalError;
+use std::str::FromStr;
+
+use lalrpop_util::ParseError;
+
+grammar;
+
+
+extern {
+    type Location = usize;
+    type Error = lexer::LexicalError;
+
+    enum lexer::Tok {
+        ":=" => lexer::Tok::Assign,
+        ":" => lexer::Tok::Colon,
+        "," => lexer::Tok::Comma,
+        "^" => lexer::Tok::Deref,
+        "<>" => lexer::Tok::Different,
+        "/" => lexer::Tok::Div,
+        "." => lexer::Tok::Dot,
+        ".." => lexer::Tok::Ellipsis,
+        "=" => lexer::Tok::Equal,
+        ">=" => lexer::Tok::GreaterOrEqualThan,
+        ">" => lexer::Tok::GreaterThan,
+        "(" => lexer::Tok::LeftParen,
+        "[" => lexer::Tok::LeftSquareBracket,
+        "<=" => lexer::Tok::LowerOrEqualThan,
+        "<" => lexer::Tok::LowerThan,
+        "-" => lexer::Tok::Minus,
+        "*" => lexer::Tok::Mul,
+        "+" => lexer::Tok::Plus,
+        ")" => lexer::Tok::RightParen,
+        "]" => lexer::Tok::RightSquareBracket,
+        ";" => lexer::Tok::Semicolon,
+        //
+        "identifier" => lexer::Tok::Identifier(<String>),
+        "integer-literal" => lexer::Tok::IntegerLiteral(<String>),
+        "real-literal" => lexer::Tok::RealLiteral(<String>),
+        "string-literal" => lexer::Tok::StringLiteral(<String>),
+        //
+        "and" => lexer::Tok::And,
+        "array" => lexer::Tok::Array,
+        "begin" => lexer::Tok::Begin,
+        "case" => lexer::Tok::Case,
+        "const" => lexer::Tok::Const,
+        "div" => lexer::Tok::IntegerDiv,
+        "do" => lexer::Tok::Do,
+        "downto" => lexer::Tok::DownTo,
+        "else" => lexer::Tok::Else,
+        "end" => lexer::Tok::End,
+        "file" => lexer::Tok::File,
+        "for" => lexer::Tok::For,
+        "forward" => lexer::Tok::Forward,
+        "function" => lexer::Tok::Function,
+        "goto" => lexer::Tok::Goto,
+        "if" => lexer::Tok::If,
+        "in" => lexer::Tok::In,
+        "label" => lexer::Tok::Label,
+        "mod" => lexer::Tok::Mod,
+        "nil" => lexer::Tok::Nil,
+        "not" => lexer::Tok::Not,
+        "of" => lexer::Tok::Of,
+        "or" => lexer::Tok::Or,
+        "packed" => lexer::Tok::Packed,
+        "procedure" => lexer::Tok::Procedure,
+        "program" => lexer::Tok::Program,
+        "record" => lexer::Tok::Record,
+        "rem" => lexer::Tok::Remainder,
+        "repeat" => lexer::Tok::Repeat,
+        "set" => lexer::Tok::Set,
+        "then" => lexer::Tok::Then,
+        "to" => lexer::Tok::To,
+        "type" => lexer::Tok::Type,
+        "until" => lexer::Tok::Until,
+        "var" => lexer::Tok::Var,
+        "while" => lexer::Tok::While,
+        "with" => lexer::Tok::With,
+    }
+}
+
+pub Program : SpannedBox<ast::Program> = { 
+    <start:@L> <heading:ProgramHeading> ";" <block:ProgramBlock> "." <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Program(heading, block)),
+};
+
+ProgramHeading : SpannedBox<ast::ProgramHeading> = { 
+    <start:@L> "program" <identifier:Identifier> <ppl:ProgramParameterList?> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::ProgramHeading(identifier, ppl.unwrap_or(vec![])))
+};
+
+ProgramParameterList : Vec<Spanned<String>> = {
+   "("  <il:IdentifierList> ")" => il
+};
+
+ProgramBlock : SpannedBox<ast::ProgramBlock> = {
+    <start:@L> <b:Block> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::ProgramBlock(b))
+};
+
+// label-declaration-part constant-de nition-part type-de nition-part
+// variable-declaration-part procedure-and-function-declaration-part
+// statement-part
+
+Block : SpannedBox<ast::Block> = {
+    <start:@L> 
+        <ldp:LabelDeclarationPart?>
+        <cdp:ConstantDefinitionPart?>
+        <tdp:TypeDefinitionPart?>
+        <vdp:VariableDeclarationPart?>
+        <pfdp:ProcedureAndFunctionDeclarationPart?>
+        <sp:StatementPart> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Block(ldp, 
+           cdp,
+           tdp,
+           vdp,
+           pfdp,
+           sp))
+};
+
+LabelDeclarationPart : SpannedBox<ast::LabelDeclarationPart> = {
+   <start:@L> "label" <ld:CommaSeparated<LabelLiteral>> ";" <end:@R> => SpannedBox::new(span_loc!(start, end), ast::LabelDeclarationPart(ld))
+};
+
+ConstantDefinitionPart : SpannedBox<ast::ConstantDefinitionPart> = {
+    <start:@L> "const" <cd:SemicolonTerminated<ConstantDefinition>> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::ConstantDefinitionPart(cd))
+};
+
+ConstantDefinition : SpannedBox<ast::ConstantDefinition> = {
+    <start:@L> <identifier:Identifier> "=" <constant:Const> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::ConstantDefinition(identifier, constant))
+};
+
+Const : SpannedBox<ast::Const> = {
+    <start:@L> <sign:Sign?> <number:UnsignedNumber> <end:@R> => {
+        match sign {
+            None => { number },
+            Some(x) => {
+               match x.get() {
+                &ast::Sign::Plus => { number },
+                &ast::Sign::Minus => { 
+                    match number.get() {
+                        ast::Const::Integer(s) => SpannedBox::new(span_loc!(start, end), ast::Const::Integer(
+                            ast::ConstInteger(Spanned::new(span_loc!(start, end), -s.0.get())))),
+                        ast::Const::Real(s) => SpannedBox::new(span_loc!(start, end), ast::Const::Real(
+                            ast::ConstReal(Spanned::new(span_loc!(start, end), -s.0.get())))),
+                        _ => { panic!("Invalid constant") },
+                    }
+                  }
+               }
+            }
+        }
+    },
+    <start:@L> <sign:Sign?> <identifier:Identifier> <end:@R> => {
+        match sign {
+            None => { SpannedBox::new(span_loc!(start, end), ast::Const::Named(ast::ConstNamed(identifier))) },
+            Some(x) => { 
+               match x.get() {
+                &ast::Sign::Plus => { SpannedBox::new(span_loc!(start, end), ast::Const::Named(ast::ConstNamed(identifier))) },
+                &ast::Sign::Minus => { SpannedBox::new(span_loc!(start, end), ast::Const::MinusNamed(ast::ConstMinusNamed(identifier))) },
+               }
+            }
+        }
+    },
+    <start:@L> <string:CharacterString> <end:@R> => {
+        SpannedBox::new(span_loc!(start, end), ast::Const::StringLiteral(ast::ConstStringLiteral(string)))
+    }
+};
+
+TypeDefinitionPart : SpannedBox<ast::TypeDefinitionPart> = {
+    <start:@L> "type" <td:SemicolonTerminated<TypeDefinition>> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::TypeDefinitionPart(td)),
+};
+
+TypeDefinition : SpannedBox<ast::TypeDefinition> = {
+    <start:@L> <identifier:Identifier> "=" <td:TypeDenoter> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::TypeDefinition(identifier, td)),
+};
+
+TypeDenoter : SpannedBox<ast::TypeDenoter> = {
+    <named:NamedTypeDenoter> => named,
+    <subrange:SubrangeTypeDenoter> => subrange,
+    <enumerated:EnumeratedTypeDenoter> => enumerated,
+    <start:@L> <packed:Packed?> "array" "[" <indexes:CommaSeparated<OrdinalTypeDenoter>> "]" "of" <element_type:TypeDenoter> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::ArrayType(ast::ArrayType(packed, indexes, element_type))),
+    <start:@L> <packed:Packed?> "record" <fixed_part:SemicolonSeparated<RecordSection>> "end" <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::RecordType(ast::RecordType(packed, fixed_part, None))),
+    <start:@L> <packed:Packed?> "set" "of" <base_type:OrdinalTypeDenoter> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::SetType(ast::SetType(packed, base_type))),
+    <start:@L> <packed:Packed?> "file" "of" <element_type:TypeDenoter> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::FileType(ast::FileType(packed, element_type))),
+};
+
+EnumeratedTypeDenoter : SpannedBox<ast::TypeDenoter> = {
+    <start:@L> "(" <identifiers:CommaSeparated<Identifier>> ")" <end:@R> => SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::EnumeratedType(ast::EnumeratedType(identifiers))),
+};
+
+SubrangeTypeDenoter : SpannedBox<ast::TypeDenoter> = {
+    <start:@L> <first:Const> ".." <last:Const> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::SubrangeType(ast::SubrangeType(first, last))),
+};
+
+NamedTypeDenoter : SpannedBox<ast::TypeDenoter> = {
+    <start:@L> <identifier:Identifier> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::TypeIdentifier(ast::TypeIdentifier(identifier))),
+};
+
+OrdinalTypeDenoter : SpannedBox<ast::TypeDenoter> = {
+    <named:NamedTypeDenoter> => named,
+    <subrange:SubrangeTypeDenoter> => subrange,
+    <enumerated:EnumeratedTypeDenoter> => enumerated,
+};
+
+RecordSection : SpannedBox<ast::RecordSection> = {
+    <start:@L> <identifiers:CommaSeparated<Identifier>> ":" <type_denoter:TypeDenoter> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::RecordSection(identifiers, type_denoter)),
+};
+
+VariableDeclaration : SpannedBox<ast::VariableDeclaration> = {
+    <start:@L> <identifiers:CommaSeparated<Identifier>> ":" <type_denoter:TypeDenoter> <end:@R> => SpannedBox::new(span_loc!(start, end),
+         ast::VariableDeclaration(identifiers, type_denoter))
+};
+
+VariableDeclarationPart : SpannedBox<ast::VariableDeclarationPart> = {
+    <start:@L> "var" <vd:SemicolonTerminated<VariableDeclaration>> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::VariableDeclarationPart(vd)),
+};
+
+
+//// 
+
+StatementPart : SpannedBox<ast::StatementPart> = {
+    <start:@L> <cs:CompoundStatement> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::StatementPart(cs))
+};
+
+CompoundStatement : SpannedBox<ast::Stmt> = {
+   <start:@L> "begin" <sequence:StatementSequence> "end" <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::Compound(ast::StmtCompound(sequence)))
+};
+
+StatementSequence : Vec<SpannedBox<ast::Stmt>> = {
+    <seq:SemicolonSeparatedOrEmpty<Statement>> => seq,
+};
+
+Statement : SpannedBox<ast::Stmt> = {
+    <s:ClosedStatement> => s,
+    <s:OpenStatement> => s,
+};
+
+ClosedStatement : SpannedBox<ast::Stmt> = {
+    <start:@L> <label:LabelLiteral?> <stmt:SimpleStatement> <end:@R> => {
+        match label {
+            None => stmt,
+            Some(l) => SpannedBox::new(span_loc!(start, end), ast::Stmt::Label(ast::StmtLabel(l, stmt))),
+        }
+    },
+    <start:@L> <label:LabelLiteral?> <stmt:ClosedStructuredStatement> <end:@R> => {
+        match label {
+            None => stmt,
+            Some(l) => SpannedBox::new(span_loc!(start, end), ast::Stmt::Label(ast::StmtLabel(l, stmt))),
+        }
+    }
+};
+
+OpenStatement : SpannedBox<ast::Stmt> = {
+    <start:@L> <label:LabelLiteral?> <stmt:OpenStructuredStatement> <end:@R> => {
+        match label {
+            None => stmt,
+            Some(l) => SpannedBox::new(span_loc!(start, end), ast::Stmt::Label(ast::StmtLabel(l, stmt))),
+        }
+    }
+};
+
+SimpleStatement : SpannedBox<ast::Stmt> = {
+    <start:@L> <assignee:Assignable> ":=" <expr:Expression> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::Assignment(ast::StmtAssignment(assignee, expr))),
+    <start:@L> <identifier:Identifier> <actual_parameters:ProcedureActualParameterList?>  <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::ProcedureCall(ast::StmtProcedureCall(identifier, actual_parameters))),
+    <start:@L> "goto" <label:LabelLiteral> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::Goto(ast::StmtGoto(label))),
+};
+
+ProcedureActualParameterList : Vec<SpannedBox<ast::Expr>> = {
+ "(" <actual_parameters:CommaSeparated<ProcedureActualParameter>> ")" => actual_parameters,
+};
+
+ProcedureActualParameter : SpannedBox<ast::Expr> = {
+    <expr:Expression> => expr,
+    <start:@L> <expr:Expression> ":" <total_width:Expression> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::Expr::WriteParameter(ast::ExprWriteParameter(expr, total_width, None))),
+    <start:@L> <expr:Expression> ":" <total_width:Expression> ":" <frac_digits:Expression> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::Expr::WriteParameter(ast::ExprWriteParameter(expr, total_width, Some(frac_digits)))),
+};
+
+Assignable : SpannedBox<ast::Assig> = {
+    <variable_access:VariableAccess> => variable_access,
+};
+
+VariableAccess : SpannedBox<ast::Assig> = {
+    <start:@L> <identifier:Identifier> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::Assig::Variable(ast::AssigVariable(identifier))),
+   <start:@L> <variable:VariableAccess> "[" <indexes:SemicolonSeparated<Expression>> "]" <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::Assig::ArrayAccess(ast::AssigArrayAccess(variable, indexes))),
+   <start:@L> <variable:VariableAccess> "." <field:Identifier> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::Assig::FieldAccess(ast::AssigFieldAccess(variable, field))),
+   <start:@L> <variable:VariableAccess> "^" <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::Assig::PointerDeref(ast::AssigPointerDeref(variable))),
+};
+
+IdentifierList = CommaSeparated<Identifier>;
+
+LabelLiteral : Spanned<usize> = <start:@L> <s:UnsignedInteger> <end:@L> =>? { 
+    let label = *s.get();
+    if label > 9999 {
+        Err(ParseError::User { error: LexicalError { start, end, message: format!("a label must be a value between 0 and 9999") } })
+    } else {
+        Ok(s)
+    }
+};
+
+ProcedureAndFunctionDeclarationPart : SpannedBox<ast::ProcedureAndFunctionDeclarationPart>  = {
+    <start:@L> <procedure_and_function_declaration:SemicolonTerminated<ProcedureAndFunctionDeclaration>> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::ProcedureAndFunctionDeclarationPart(procedure_and_function_declaration))
+};
+
+ProcedureAndFunctionDeclaration : SpannedBox<ast::ProcedureAndFunctionDeclaration> = {
+    <start:@L> <procedure_declaration:ProcedureDeclaration> <end:@R> =>
+       SpannedBox::new(span_loc!(start, end), ast::ProcedureAndFunctionDeclaration::Procedure(ast::Procedure(procedure_declaration))),
+    <start:@L> <function_declaration:FunctionDeclaration> <end:@R> =>
+       SpannedBox::new(span_loc!(start, end), ast::ProcedureAndFunctionDeclaration::Function(ast::Function(function_declaration))),
+};
+
+ProcedureDeclaration : SpannedBox<ast::ProcedureDeclaration> = {
+  <start:@L> "procedure" <identifier:Identifier> <formal_parameters:FormalParameterList?>  ";" "forward" <end:@R> => 
+    SpannedBox::new(span_loc!(start, end), ast::ProcedureDeclaration::Forward(ast::ProcedureForward(identifier, formal_parameters))),
+  <start:@L> "procedure" <identifier:Identifier> <formal_parameters:FormalParameterList?>  ";" <procedure_block:Block> <end:@R> => 
+    SpannedBox::new(span_loc!(start, end), ast::ProcedureDeclaration::Definition(ast::ProcedureDefinition(identifier, formal_parameters, procedure_block))),
+};
+
+FunctionDeclaration : SpannedBox<ast::FunctionDeclaration> = {
+  <start:@L> "function" <identifier:Identifier> <formal_parameters:FormalParameterList?> ":" <start_id:@L> <result_type:Identifier> <end_id:@R>";" "forward" <end:@R> => 
+    SpannedBox::new(span_loc!(start, end), ast::FunctionDeclaration::Forward(ast::FunctionForward(identifier, formal_parameters, 
+        SpannedBox::new(span_loc!(start_id, end_id), ast::TypeIdentifier(result_type))))),
+  <start:@L> "function" <identifier:Identifier> <formal_parameters:FormalParameterList?> ":" <start_id:@L> <result_type:Identifier> <end_id:@R> ";" <function_block:Block> <end:@R> => 
+    SpannedBox::new(span_loc!(start, end), ast::FunctionDeclaration::Definition(ast::FunctionDefinition(identifier, formal_parameters,
+         SpannedBox::new(span_loc!(start_id, end_id), ast::TypeIdentifier(result_type)), function_block))),
+  // This is an oddity with the way forward declaration works.
+  <start:@L> "function" <identifier:Identifier> ";" <function_block:Block> <end:@R> => 
+    SpannedBox::new(span_loc!(start, end), ast::FunctionDeclaration::LateDefinition(ast::FunctionLateDefinition(identifier, function_block))),
+};
+
+FormalParameterList : Vec<SpannedBox<ast::FormalParameter>> = {
+    "(" <list:SemicolonSeparated<FormalParameter>> ")" => list,
+};
+
+FormalParameter : SpannedBox<ast::FormalParameter> = {
+    <start:@L> <identifiers:CommaSeparated<Identifier>> ":" <start_id:@L> <type_identifier:Identifier> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::FormalParameter::Value(ast::FormalParameterValue(identifiers,
+              SpannedBox::new(span_loc!(start_id, end), ast::TypeIdentifier(type_identifier))))),
+    <start:@L> "var" <identifiers:CommaSeparated<Identifier>> ":" <start_id:@L> <type_identifier:Identifier> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::FormalParameter::Variable(ast::FormalParameterVariable(identifiers,
+              SpannedBox::new(span_loc!(start_id, end), ast::TypeIdentifier(type_identifier))))),
+    <start:@L> "procedure" <identifier:Identifier> <formal_parameters:FormalParameterList?> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::FormalParameter::Procedure(ast::FormalParameterProcedure(identifier, formal_parameters))),
+    <start:@L> "function" <identifier:Identifier> <formal_parameters:FormalParameterList?> ":" <start_id:@L> <result_type:Identifier> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::FormalParameter::Function(ast::FormalParameterFunction(identifier, formal_parameters, 
+              SpannedBox::new(span_loc!(start_id, end), ast::TypeIdentifier(result_type)))))
+};
+
+ClosedStructuredStatement : SpannedBox<ast::Stmt> = {
+    <cs:CompoundStatement> => cs,
+    <cs:CaseStatement> => cs,
+    <cs:ClosedIfStatement> => cs,
+    <rs:ClosedRepetitiveStatement> => rs,
+};
+
+OpenStructuredStatement : SpannedBox<ast::Stmt> = {
+    <cs:OpenIfStatement> => cs,
+    <rs:OpenRepetitiveStatement> => rs,
+};
+
+ClosedIfStatement : SpannedBox<ast::Stmt> = {
+    <start:@L> "if" <expr:Expression> "then" <then:ClosedStatement> "else" <els:ClosedStatement> <end:@R>  => 
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::If(ast::StmtIf(expr, then, Some(els)))),
+};
+
+OpenIfStatement : SpannedBox<ast::Stmt> = {
+    <start:@L> "if" <expr:Expression> "then" <then:Statement> <end:@R>  => 
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::If(ast::StmtIf(expr, then, None))),
+    <start:@L> "if" <expr:Expression> "then" <then:ClosedStatement> "else" <els:OpenStatement> <end:@R>  => 
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::If(ast::StmtIf(expr, then, Some(els)))),
+};
+
+CaseStatement : SpannedBox<ast::Stmt> = {
+    <start:@L> "case" <index:Expression> "of" <cs:SemicolonSeparated<CaseListElement>> "end" <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::Case(ast::StmtCase(index, cs)))
+};
+
+CaseListElement : SpannedBox<ast::CaseListElement> = {
+    <start:@L> <cs:CommaSeparated<Const>> ":" <stmt:Statement> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::CaseListElement(cs, stmt))
+};
+
+ClosedRepetitiveStatement : SpannedBox<ast::Stmt> = {
+    <start:@L> "repeat" <seq:StatementSequence> "until" <expr:Expression> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::RepeatUntil(ast::StmtRepeatUntil(seq, expr))),
+    <start:@L> "while" <expr:Expression> "do" <body:ClosedStatement> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::WhileDo(ast::StmtWhileDo(expr, body))),
+    <start:@L> "for" <start_var:@L> <control_var:Identifier> <end_var:@R> ":=" <initial_value:Expression> "to" <final_value:Expression> "do" <body:ClosedStatement> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::For(ast::StmtFor(ast::ForKind::To,
+            SpannedBox::new(span_loc!(start_var, end_var), ast::AssigVariable(control_var)),
+            initial_value, final_value, body))),
+    <start:@L> "for" <start_var:@L> <control_var:Identifier>  <end_var:@R>":=" <initial_value:Expression> "downto" <final_value:Expression> "do" <body:ClosedStatement> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::For(ast::StmtFor(ast::ForKind::DownTo, 
+            SpannedBox::new(span_loc!(start_var, end_var), ast::AssigVariable(control_var)),
+            initial_value, final_value, body))),
+    <start:@L> "with" <variables:CommaSeparated<Identifier>> "do" <body:ClosedStatement> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::With(ast::StmtWith(variables, body)))
+};
+
+OpenRepetitiveStatement : SpannedBox<ast::Stmt> = {
+    <start:@L> "while" <expr:Expression> "do" <body:OpenStatement> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::WhileDo(ast::StmtWhileDo(expr, body))),
+    <start:@L> "for" <start_var:@L> <control_var:Identifier> <end_var:@R> ":=" <initial_value:Expression> "to" <final_value:Expression> "do" <body:OpenStatement> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::For(ast::StmtFor(ast::ForKind::To,
+            SpannedBox::new(span_loc!(start_var, end_var), ast::AssigVariable(control_var)),
+            initial_value, final_value, body))),
+    <start:@L> "for" <start_var:@L> <control_var:Identifier>  <end_var:@R> ":=" <initial_value:Expression> "downto" <final_value:Expression> "do" <body:OpenStatement> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::For(ast::StmtFor(ast::ForKind::DownTo, 
+            SpannedBox::new(span_loc!(start_var, end_var), ast::AssigVariable(control_var)),
+            initial_value, final_value, body))),
+    <start:@L> "with" <variables:CommaSeparated<Identifier>> "do" <body:OpenStatement> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::With(ast::StmtWith(variables, body)))
+};
+
+// Tokens
+
+Identifier : Spanned<String> = <start:@L> <s:"identifier"> <end:@R> => Spanned::new(span_loc!(start, end), s.to_string()); 
+
+Sign : Spanned<ast::Sign> = {
+    <start:@L> "+" <end:@R> => Spanned::new(span_loc!(start, end), ast::Sign::Plus),
+    <start:@L> "-" <end:@R> => Spanned::new(span_loc!(start, end), ast::Sign::Minus), 
+};
+
+UnsignedInteger : Spanned<usize> = <start:@L> <s:"integer-literal"> <end:@R> =>? { 
+    if let Ok(number) = usize::from_str(s.as_str()) {
+       // This is lame.
+       assert!(isize::MAX == 9223372036854775807isize);
+       if number > isize::MAX as usize {
+           Err(ParseError::User { error: LexicalError { start, end, message: format!("an unsigned number must be a number between 0 and 9223372036854775807") } })
+       } else {
+           Ok( Spanned::new(span_loc!(start, end), number) )
+       }
+    } else {
+        // 
+        Err(ParseError::User { error: LexicalError { start, end, message: format!("an unsigned number must be a number between 0 and 9223372036854775807") } })
+    }
+};
+
+UnsignedReal : Spanned<f64> = <start:@L> <s:"real-literal"> <end:@R> =>? {
+    if let Ok(real) = f64::from_str(s.as_str()) {
+        Ok(Spanned::new(span_loc!(start, end), real))
+    } else {
+        Err(ParseError::User { error: LexicalError { start, end, message: format!("real number is out of bounds") } })
+    }
+};
+
+UnsignedNumber : SpannedBox<ast::Const> = {
+  <unsigned_integer:UnsignedInteger> =>
+    SpannedBox::new(*unsigned_integer.loc(),
+      ast::Const::Integer(
+        ast::ConstInteger(Spanned::new(*unsigned_integer.loc(), *unsigned_integer.get() as isize)))),
+  <unsigned_real:UnsignedReal> => 
+    SpannedBox::new(*unsigned_real.loc(),
+      ast::Const::Real(
+        ast::ConstReal(Spanned::new(*unsigned_real.loc(), *unsigned_real.get())))),
+};
+
+UnsignedConst : SpannedBox<ast::Const> = {
+    <unsigned_number:UnsignedNumber> => unsigned_number,
+    <character_string:CharacterString> =>
+        SpannedBox::new(*character_string.loc(),
+            ast::Const::StringLiteral(ast::ConstStringLiteral(Spanned::new(*character_string.loc(), character_string.get().clone())))),
+    <start:@L> "nil" <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Const::Nil(ast::ConstNil())),
+};
+
+CharacterString : Spanned<String> = {
+    <start:@L> <s:"string-literal"> <end:@R>  => {
+        Spanned::new(span_loc!(start, end), s.to_string())
+    }
+};
+
+Packed : Spanned<String> = {
+    <start:@L> "packed" <end:@R> => Spanned::new(span_loc!(start, end), "packed".to_string()),
+}
+
+Expression : SpannedBox<ast::Expr> = {
+  <simple_expression:AdditiveExpression> => simple_expression,
+  <start:@L> <lhs:AdditiveExpression> <operator:RelationalOperator> <rhs:AdditiveExpression> <end:@R> => 
+    SpannedBox::new(span_loc!(start, end), ast::Expr::BinOp(ast::ExprBinOp(operator, lhs, rhs))),
+};
+
+AdditiveExpression : SpannedBox<ast::Expr> = {
+    <start:@L> <lhs:AdditiveExpression> <op:AddingOperator> <rhs:UnarySignExpression> <end:@R> => {
+        SpannedBox::new(span_loc!(start, end), ast::Expr::BinOp(ast::ExprBinOp(op, lhs, rhs)))
+    },
+    <operand:UnarySignExpression> => operand,
+};
+
+UnarySignExpression : SpannedBox<ast::Expr> = {
+    <start:@L> <sign:Sign?> <end_op:@R> <operand:MultiplicativeExpression> <end:@R> => {
+        match sign {
+            None => operand,
+            Some(x) => {
+                match x.get() {
+                    ast::Sign::Plus => SpannedBox::new(span_loc!(start, end), ast::Expr::UnOp(ast::ExprUnOp(Spanned::new(span_loc!(start, end_op), ast::UnaryOp::Plus), operand))),
+                    ast::Sign::Minus => SpannedBox::new(span_loc!(start, end), ast::Expr::UnOp(ast::ExprUnOp(Spanned::new(span_loc!(start, end_op), ast::UnaryOp::Negation), operand))),
+                }
+            }
+        }
+    }
+};
+
+MultiplicativeExpression : SpannedBox<ast::Expr> = {
+    <start:@L> <lhs:MultiplicativeExpression> <operator:MultiplicativeOperator> <rhs:SingleExpression> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::Expr::BinOp(ast::ExprBinOp(operator, lhs, rhs))),
+    <operand:SingleExpression> => operand,
+};
+
+SingleExpression : SpannedBox<ast::Expr> = {
+    <start:@L> <variable:VariableAccess> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::Variable(ast::ExprVariable(variable))),
+    <start:@L> "(" <expr:Expression> ")" <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::Parentheses(ast::ExprParentheses(expr))),
+    <start:@L> <constant:UnsignedConst> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::Const(ast::ExprConst(constant))),
+    <start:@L> "[" <members:CommaSeparated<SetMember>> "]" <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::SetLiteral(ast::ExprSetLiteral(members))),
+    <start:@L> "not" <end_op:@R> <operand:SingleExpression> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::UnOp(ast::ExprUnOp(Spanned::new(span_loc!(start, end_op), ast::UnaryOp::LogicalNot), operand))),
+    <start:@L> <identifier:Identifier> "(" <arguments:CommaSeparated<Expression>> ")" <end:@R> =>
+       SpannedBox::new(span_loc!(start, end), ast::Expr::FunctionCall(ast::ExprFunctionCall(identifier, arguments)))
+};
+
+SetMember : SpannedBox<ast::Expr> = {
+    <expr:Expression> => expr,
+    <start:@L> <lower:Expression> ".." <upper:Expression> <end:@R> =>
+       SpannedBox::new(span_loc!(start, end), ast::Expr::Range(ast::ExprRange(lower, upper))),
+}
+
+RelationalOperator : Spanned<ast::BinOperand> = {
+    <start:@L> ">" <end:@R> => Spanned::new(span_loc!(start, end), ast::BinOperand::GreaterThan),
+    <start:@L> ">=" <end:@R> => Spanned::new(span_loc!(start, end), ast::BinOperand::GreaterOrEqualThan),
+    <start:@L> "<" <end:@R> => Spanned::new(span_loc!(start, end), ast::BinOperand::LowerThan),
+    <start:@L> "<=" <end:@R> => Spanned::new(span_loc!(start, end), ast::BinOperand::LowerOrEqualThan),
+    <start:@L> "=" <end:@R> => Spanned::new(span_loc!(start, end), ast::BinOperand::Equal),
+    <start:@L> "<>" <end:@R> => Spanned::new(span_loc!(start, end), ast::BinOperand::Different),
+    <start:@L> "in" <end:@R> => Spanned::new(span_loc!(start, end), ast::BinOperand::InSet),
+};
+
+AddingOperator : Spanned<ast::BinOperand> = {
+    <start:@L> "+" <end:@R> => Spanned::new(span_loc!(start, end), ast::BinOperand::Addition),
+    <start:@L> "-" <end:@R> => Spanned::new(span_loc!(start, end), ast::BinOperand::Subtraction),
+    <start:@L> "or" <end:@R> => Spanned::new(span_loc!(start, end), ast::BinOperand::LogicalOr),
+};
+
+MultiplicativeOperator : Spanned<ast::BinOperand> = {
+    <start:@L> "*" <end:@R> => Spanned::new(span_loc!(start, end), ast::BinOperand::Multiplication),
+    <start:@L> "/" <end:@R> => Spanned::new(span_loc!(start, end), ast::BinOperand::RealDivision),
+    <start:@L> "div" <end:@R> => Spanned::new(span_loc!(start, end), ast::BinOperand::IntegerDivision),
+    <start:@L> "mod" <end:@R> => Spanned::new(span_loc!(start, end), ast::BinOperand::Modulo),
+    <start:@L> "and" <end:@R> => Spanned::new(span_loc!(start, end), ast::BinOperand::LogicalAnd),
+};
+
+// Macros
+
+CommaSeparated<T>: Vec<T> = {
+    <mut v:(<T> ",")*> <e:T> =>  { 
+        v.push(e);
+        v
+    }
+};
+
+SemicolonSeparated<T>: Vec<T> = {
+    <mut v:(<T> ";")*> <e:T> =>  { 
+        v.push(e);
+        v
+    }
+};
+
+// Taken from lalrpop's documentation.
+SemicolonSeparatedOrEmpty<T>: Vec<T> = {
+    <mut v:(<T> ";")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};
+
+SemicolonTerminated<T> : Vec<T> = {
+    <v:(<T> ";")+> => v
+};
+

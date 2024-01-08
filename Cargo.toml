@@ -1,0 +1,3 @@
+[workspace]
+members = ["pasko-frontend", "pasko-codegen", "pasko-driver", "pasko-testing"]
+resolver = "2"
