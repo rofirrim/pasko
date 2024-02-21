@@ -95,6 +95,7 @@ From inside the build-directory
 | Total digits and fraction width in `write` / `writeln` | ❌     | Runtime is ready. Crashes in codegen.                       |
 | `input` and `output` support in `program`              | ❌     | They are ignored                                            |
 | Conformable arrays in functions and procedures         | ❌     |                                                             |
+| Nested procedures and functions                        |       |                                                             |
 
 ##### I found a bug / I want to contribute
 
