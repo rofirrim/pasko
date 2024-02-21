@@ -1,6 +1,6 @@
 # Pasko compiler
 
-This is a very simple compiler whos goal is to implement [ISO 7185:1990](https://archive.org/details/iso-iec-7185-1990-Pascal).
+This is a very simple compiler whose goal is to implement [ISO 7185:1990](https://archive.org/details/iso-iec-7185-1990-Pascal).
 
 > ⚠️ This is still very much in MVP state, so don't expect much yet. ⚠️
 
