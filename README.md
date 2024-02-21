@@ -70,7 +70,7 @@ The main testsuite is in `pasko-testing/testsuite`.
 
 From inside the build-directory
 
-1. `cargo run -- myprogram.pas --pasko-runtime=<top-level-dir>/pask runtime/builddir`
+1. `cargo run -- myprogram.pas --pasko-runtime=<top-level-dir>/pasko-runtime/builddir`
 
 2. If this succeeds you will have a `myprogram` file that you can execute
 
@@ -91,7 +91,7 @@ From inside the build-directory
 | Switch statement                                       | ❌     |                                                             |
 | Required procedures/functions: Math                    | ❌     |                                                             |
 | Required procedures/functions: File functions          | ❌     |                                                             |
-| Required procedures/functions: I/O                     | ⚠️    | Only `writeln` and `readln`without a file  are implemented. |
+| Required procedures/functions: I/O                     | ⚠️    | Only `writeln` and `readln` without a file  are implemented. |
 | Total digits and fraction width in `write` / `writeln` | ❌     | Runtime is ready. Crashes in codegen.                       |
 | `input` and `output` support in `program`              | ❌     | They are ignored                                            |
 | Conformable arrays in functions and procedures         | ❌     |                                                             |
