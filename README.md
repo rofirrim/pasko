@@ -100,7 +100,7 @@ From inside the build-directory
 
 Please send me an email.
 
-In order to keep my sanity at bay, this project does not have issues or merge requests enabled.
+In order to keep my sanity at bay, this project does not have issues enabled.
 
 #### Licence
 
