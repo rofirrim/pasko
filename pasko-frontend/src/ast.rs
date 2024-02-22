@@ -60,6 +60,9 @@ pub struct StmtFor(
 pub struct StmtWith(pub Vec<Spanned<String>>, pub SpannedBox<Stmt>);
 
 #[derive(Debug)]
+pub struct StmtEmpty;
+
+#[derive(Debug)]
 pub enum Stmt {
     Label(StmtLabel),
     Assignment(StmtAssignment),
@@ -72,6 +75,7 @@ pub enum Stmt {
     WhileDo(StmtWhileDo),
     For(StmtFor),
     With(StmtWith),
+    Empty(StmtEmpty),
 }
 
 #[derive(Debug)]

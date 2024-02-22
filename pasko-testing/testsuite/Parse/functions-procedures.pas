@@ -6,7 +6,7 @@ program main;
 
 function foo(a: integer; b: real) : boolean;
 begin
-  foo := true;
+  foo := true
 end;
 
 procedure bar(var a: boolean; var b: integer);
@@ -18,7 +18,7 @@ end.
 
 {
 
-CHECK: Program 5:1 
+CHECK:      Program 5:1 
 CHECK-NEXT: ├─╴ProgramHeading 5:1 "main" []
 CHECK-NEXT: └─╴ProgramBlock 7:1 
 CHECK-NEXT:    └─╴Block 7:1 
@@ -46,7 +46,10 @@ CHECK-NEXT:       │        │  └─╴TypeIdentifier 12:38 "integer" <<no-t
 CHECK-NEXT:       │        └─╴Block 13:1 
 CHECK-NEXT:       │           └─╴Statement 13:1 
 CHECK-NEXT:       │              └─╴StmtCompound 13:1 
+CHECK-NEXT:       │                 └─╴StmtEmpty 14:1 
 CHECK-NEXT:       └─╴Statement 16:1 
 CHECK-NEXT:          └─╴StmtCompound 16:1 
+CHECK-NEXT:             └─╴StmtEmpty 17:1 
 
 }
+

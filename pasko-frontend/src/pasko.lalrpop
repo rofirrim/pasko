@@ -231,7 +231,7 @@ CompoundStatement : SpannedBox<ast::Stmt> = {
 };
 
 StatementSequence : Vec<SpannedBox<ast::Stmt>> = {
-    <seq:SemicolonSeparatedOrEmpty<Statement>> => seq,
+    <seq:SemicolonSeparated<Statement>> => seq,
 };
 
 Statement : SpannedBox<ast::Stmt> = {
@@ -270,6 +270,8 @@ SimpleStatement : SpannedBox<ast::Stmt> = {
         SpannedBox::new(span_loc!(start, end), ast::Stmt::ProcedureCall(ast::StmtProcedureCall(identifier, actual_parameters))),
     <start:@L> "goto" <label:LabelLiteral> <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::Stmt::Goto(ast::StmtGoto(label))),
+    <start:@L> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::Empty(ast::StmtEmpty)),
 };
 
 ProcedureActualParameterList : Vec<SpannedBox<ast::Expr>> = {
@@ -572,17 +574,6 @@ SemicolonSeparated<T>: Vec<T> = {
     <mut v:(<T> ";")*> <e:T> =>  { 
         v.push(e);
         v
-    }
-};
-
-// Taken from lalrpop's documentation.
-SemicolonSeparatedOrEmpty<T>: Vec<T> = {
-    <mut v:(<T> ";")*> <e:T?> => match e {
-        None => v,
-        Some(e) => {
-            v.push(e);
-            v
-        }
     }
 };
 

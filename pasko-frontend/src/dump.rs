@@ -265,6 +265,10 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         false
     }
 
+    fn visit_stmt_empty(&mut self,_n: &ast::StmtEmpty,span: &span::SpanLoc,id:span::SpanId) {
+        self.emit_line("StmtEmpty", span, id);
+    }
+
     fn visit_pre_stmt_for(
         &mut self,
         n: &ast::StmtFor,

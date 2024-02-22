@@ -18,14 +18,14 @@ begin
 
   repeat
     a := 3;
-    a := 4;
+    a := 4
   until b;
 
   for i := 1 to 10 do
     a := 3;
 
   for i := 10 downto 1 do
-    a := 3;
+    a := 3
   
 end.
 

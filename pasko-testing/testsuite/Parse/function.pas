@@ -22,7 +22,7 @@ begin
    estimate := x;
    repeat
      old := estimate;
-     estimate := (old + x / old) * 0.5;
+     estimate := (old + x / old) * 0.5
    until abs(estimate - old) < eps * estimate;
   { eps being a global constant }
   Sqrt := estimate
