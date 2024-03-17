@@ -88,7 +88,6 @@ From inside the build-directory
 | Ranges                                                 | ❌     |                                                             |
 | Enumerated types                                       | ❌     |                                                             |
 | File type                                              | ❌     |                                                             |
-| Switch statement                                       | ❌     |                                                             |
 | Required procedures/functions: Math                    | ❌     |                                                             |
 | Required procedures/functions: File functions          | ❌     |                                                             |
 | Required procedures/functions: I/O                     | ⚠️    | Only `writeln` and `readln` without a file  are implemented. |
