@@ -386,7 +386,7 @@ OpenIfStatement : SpannedBox<ast::Stmt> = {
 };
 
 CaseStatement : SpannedBox<ast::Stmt> = {
-    <start:@L> "case" <index:Expression> "of" <cs:SemicolonSeparated<CaseListElement>> "end" <end:@R> =>
+    <start:@L> "case" <index:Expression> "of" <cs:SemicolonSeparatedOptionallyTerminated<CaseListElement>> "end" <end:@R> =>
         SpannedBox::new(span_loc!(start, end), ast::Stmt::Case(ast::StmtCase(index, cs)))
 };
 
@@ -572,6 +572,13 @@ CommaSeparated<T>: Vec<T> = {
 
 SemicolonSeparated<T>: Vec<T> = {
     <mut v:(<T> ";")*> <e:T> =>  { 
+        v.push(e);
+        v
+    }
+};
+
+SemicolonSeparatedOptionallyTerminated<T>: Vec<T> = {
+    <mut v:(<T> ";")*> <e:T> ";"? =>  { 
         v.push(e);
         v
     }

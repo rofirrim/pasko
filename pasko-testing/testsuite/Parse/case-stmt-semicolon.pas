@@ -9,7 +9,7 @@ begin
 	readln(a);
 	case a of
 		1, 3: writeln('Number one or three');
-		2: writeln('Number two')
+		2: writeln('Number two');
 	end
 end.
 
