@@ -125,7 +125,7 @@ var
 begin
    x := 3;
    y := 2.3;
-   z := x + y;
+   z := x + y
 end.
 "#
         .trim(),
