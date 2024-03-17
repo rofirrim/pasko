@@ -241,6 +241,24 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         false
     }
 
+    fn visit_pre_stmt_case(&mut self, n: &ast::StmtCase,span: &span::SpanLoc,id:span::SpanId) -> bool {
+        self.emit_line("StmtCase", span, id);
+
+        self.walk_child(&n.0);
+        self.walk_vec_child(&n.1);
+
+        false
+    }
+
+    fn visit_pre_case_list_element(&mut self, n: &ast::CaseListElement,span: &span::SpanLoc,id:span::SpanId) -> bool {
+        self.emit_line("CaseListElement", span, id);
+
+        n.0.iter().for_each(|x| self.walk_child(x));
+        self.walk_last_child(&n.1);
+
+        false
+    }
+
     fn visit_pre_stmt_compound(
         &mut self,
         n: &ast::StmtCompound,

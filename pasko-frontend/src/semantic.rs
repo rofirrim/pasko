@@ -1817,14 +1817,63 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         true
     }
 
-    fn visit_pre_stmt_case(
+    fn visit_post_stmt_case(
         &mut self,
-        _n: &mut ast::StmtCase,
-        span: &span::SpanLoc,
+        n: &mut ast::StmtCase,
+        _span: &span::SpanLoc,
         _id: span::SpanId,
-    ) -> bool {
-        self.unimplemented(*span, "case statements");
-        false
+    ) {
+        let case_expr = &n.0;
+        let cases = &n.1;
+
+        let mut case_expr_err = false;
+
+        let expr_ty = self.ctx.get_ast_type(case_expr.id()).unwrap();
+        if !self.ctx.is_ordinal_type(expr_ty) {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *case_expr.loc(),
+                format!("expression must be of ordinal type",),
+            );
+            case_expr_err = true;
+        }
+
+        let mut const_set = HashMap::new();
+
+        for case in cases {
+            let case_ast = case.get();
+            let case_consts = &case_ast.0;
+            for case_const in case_consts {
+                let const_ty = self.ctx.get_ast_type(case_const.id()).unwrap();
+                if const_ty != expr_ty && !case_expr_err {
+                    self.diagnostics.add_with_extra(
+                        DiagnosticKind::Error,
+                        *case_const.loc(),
+                        format!("constant of case must be of same ordinal type as case expression"),
+                        vec![*case_expr.loc()],
+                        vec![]
+                    );
+                }
+                match self.ctx.get_ast_value(case_const.id()).unwrap() {
+                    Constant::Integer(x) => { 
+                        if let Some(prev_loc) = const_set.insert(x, case_const.loc()) {
+                        let previous_const = Diagnostic::new(
+                            DiagnosticKind::Info,
+                            *prev_loc,
+                            format!("previous case")
+                        );
+                        self.diagnostics.add_with_extra(
+                            DiagnosticKind::Error,
+                            *case_const.loc(),
+                            format!("case repeated"),
+                            vec![],
+                            vec![previous_const]);
+                        }
+                    },
+                    _ => { panic!("Unexpected constant"); }
+                }
+            }
+        }
     }
 
     fn visit_pre_stmt_with(

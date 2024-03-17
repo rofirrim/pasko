@@ -124,7 +124,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             value_map: HashMap::new(),
             var_counter: 0,
             entry_block: None,
-            data_references : HashMap::new(),
+            data_references: HashMap::new(),
             function_references: HashMap::new(),
         }
     }
@@ -1186,6 +1186,89 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         self.block_stack.push(after_for_block);
         self.builder().switch_to_block(after_for_block);
+
+        false
+    }
+
+    fn visit_pre_stmt_case(
+        &mut self,
+        n: &ast::StmtCase,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        let case_expr = &n.0;
+
+        case_expr
+            .get()
+            .walk_mut(self, case_expr.loc(), case_expr.id());
+        let case_val = self.get_value(case_expr.id());
+
+        let case_elems = &n.1;
+
+        // Emit first the switch itself.
+        let mut switch = cranelift_frontend::Switch::new();
+        let case_block_stmts: Vec<_> = case_elems
+            .iter()
+            .map(|case_elem| {
+                let case_elem = case_elem.get();
+
+                let case_block = self.builder().create_block();
+
+                let case_stmt = &case_elem.1;
+
+                let case_consts = &case_elem.0;
+                let case_const_vals: Vec<_> = case_consts
+                    .iter()
+                    .map(
+                        |x| match self.codegen.semantic_context.get_ast_value(x.id()).unwrap() {
+                            pasko_frontend::constant::Constant::Integer(x) => x,
+                            _ => panic!("Unexpected value"),
+                        },
+                    )
+                    .collect();
+
+                case_const_vals.iter().for_each(|x| {
+                    switch.set_entry(*x as u128, case_block);
+                });
+
+                (case_stmt, case_block)
+            })
+            .collect();
+
+        let after_case = self.builder().create_block();
+        let otherwise = self.builder().create_block();
+        switch.emit(self.builder(), case_val, otherwise);
+
+        // Now emit code for the blocks.
+        for case_block_stmt in case_block_stmts {
+            let case_stmt = case_block_stmt.0;
+            let case_block = case_block_stmt.1;
+
+            self.block_stack.pop();
+            self.block_stack.push(case_block);
+
+            self.builder().switch_to_block(case_block);
+
+            case_stmt
+                .get()
+                .walk_mut(self, case_stmt.loc(), case_stmt.id());
+            self.builder().ins().jump(after_case, &[]);
+        }
+
+        self.block_stack.pop();
+        self.block_stack.push(otherwise);
+        self.builder().switch_to_block(otherwise);
+
+        // The "otherwise" block is an error in Basic Pascal.
+        // FIXME: This is a bit radical, think of something more user-friendly.
+        self.builder()
+            .ins()
+            .trap(cranelift_codegen::ir::TrapCode::UnreachableCodeReached);
+
+        self.block_stack.pop();
+        self.block_stack.push(after_case);
+
+        self.builder().switch_to_block(after_case);
 
         false
     }
