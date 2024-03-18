@@ -17,7 +17,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Setup
-      run: sudo apt-get --yes install pipx llvm-14-tools && pipx install lit && ln -s /usr/lib/llvm-14/bin/FileCheck $HOME/.local/bin/FileCheck
+      run: sudo apt-get --yes install pipx llvm-14-tools && pipx install lit && sudo ln -s /usr/lib/llvm-14/bin/FileCheck /usr/bin/FileCheck
     - name: Build
       run: cargo build --verbose
     - name: Run tests
