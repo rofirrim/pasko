@@ -348,6 +348,10 @@ impl<'a> SemanticCheckerVisitor<'a> {
         false
     }
 
+    fn same_type(&self, a: TypeId, b: TypeId) -> bool {
+        self.ctx.same_type(a, b)
+    }
+
     fn is_assignment_compatible(&self, lhs_type_id: TypeId, rhs_type_id: TypeId) -> bool {
         if self.ctx.same_type(lhs_type_id, rhs_type_id) {
             return self.ctx.is_valid_component_type_of_file_type(lhs_type_id);
@@ -770,13 +774,106 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         self.ctx.set_ast_symbol(n.0.id(), new_sym);
     }
 
-    fn visit_pre_type_definition_part(
+    fn visit_post_type_definition(
         &mut self,
-        _n: &mut ast::TypeDefinitionPart,
+        n: &mut ast::TypeDefinition,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) {
+        let name = n.0.get();
+
+        let sym = self.scope.lookup_current_scope(name);
+
+        match sym {
+            Some(x) => {
+                let extra = self.extra_diag_previous_location(self.ctx.get_symbol(x));
+                self.diagnostics.add_with_extra(
+                    DiagnosticKind::Error,
+                    *n.0.loc(),
+                    format!(
+                        "identifier '{}' has already been declared in this scope",
+                        n.0.get()
+                    ),
+                    vec![],
+                    extra,
+                );
+                return;
+            }
+            None => {}
+        }
+
+        let type_denoter = self.ctx.get_ast_type(n.1.id()).unwrap();
+        if self.ctx.is_error_type(type_denoter) {
+            return;
+        }
+
+        let mut new_sym = Symbol::new();
+        new_sym.set_name(name);
+        new_sym.set_kind(SymbolKind::Type);
+        new_sym.set_defining_point(*n.0.loc());
+        new_sym.set_type(type_denoter);
+
+        let new_sym = self.ctx.new_symbol(new_sym);
+        self.scope.add_entry(name, new_sym);
+        self.ctx.set_ast_symbol(n.0.id(), new_sym);
+    }
+
+    fn visit_enumerated_type(
+        &mut self,
+        _n: &mut ast::EnumeratedType,
+        span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) {
+        self.unimplemented(*span, "enumerated types");
+    }
+
+    fn visit_pre_subrange_type(
+        &mut self,
+        _n: &mut ast::SubrangeType,
         span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
-        self.unimplemented(*span, "declaration of types");
+        self.unimplemented(*span, "subrange types");
+        false
+    }
+
+    fn visit_pre_array_type(
+        &mut self,
+        _n: &mut ast::ArrayType,
+        span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        self.unimplemented(*span, "array types");
+        false
+    }
+
+    fn visit_pre_record_type(
+        &mut self,
+        _n: &mut ast::RecordType,
+        span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        self.unimplemented(*span, "record types");
+        false
+    }
+
+    fn visit_pre_set_type(
+        &mut self,
+        _n: &mut ast::SetType,
+        span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        self.unimplemented(*span, "set types");
+        false
+    }
+
+    fn visit_pre_file_type(
+        &mut self,
+        _n: &mut ast::FileType,
+        span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        self.unimplemented(*span, "file types");
         false
     }
 
@@ -1158,7 +1255,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         if neither_is_err_type {
             if self.is_assignment_compatible(lhs_type, rhs_type) {
                 self.ctx.set_ast_type(id, lhs_type);
-                if lhs_type != rhs_type {
+                if !self.same_type(lhs_type, rhs_type) {
                     let conversion = SemanticCheckerVisitor::create_conversion_expr(rhs.take());
                     rhs.reset(conversion);
                     self.ctx.set_ast_type(rhs.id(), lhs_type);
@@ -1851,26 +1948,29 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         *case_const.loc(),
                         format!("constant of case must be of same ordinal type as case expression"),
                         vec![*case_expr.loc()],
-                        vec![]
+                        vec![],
                     );
                 }
                 match self.ctx.get_ast_value(case_const.id()).unwrap() {
-                    Constant::Integer(x) => { 
+                    Constant::Integer(x) => {
                         if let Some(prev_loc) = const_set.insert(x, case_const.loc()) {
-                        let previous_const = Diagnostic::new(
-                            DiagnosticKind::Info,
-                            *prev_loc,
-                            format!("previous case")
-                        );
-                        self.diagnostics.add_with_extra(
-                            DiagnosticKind::Error,
-                            *case_const.loc(),
-                            format!("case repeated"),
-                            vec![],
-                            vec![previous_const]);
+                            let previous_const = Diagnostic::new(
+                                DiagnosticKind::Info,
+                                *prev_loc,
+                                format!("previous case"),
+                            );
+                            self.diagnostics.add_with_extra(
+                                DiagnosticKind::Error,
+                                *case_const.loc(),
+                                format!("case repeated"),
+                                vec![],
+                                vec![previous_const],
+                            );
                         }
-                    },
-                    _ => { panic!("Unexpected constant"); }
+                    }
+                    _ => {
+                        panic!("Unexpected constant");
+                    }
                 }
             }
         }
