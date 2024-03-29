@@ -217,12 +217,13 @@ impl SemanticContext {
             TypeKind::NamedType(sym_id) => {
                 let sym = self.get_symbol(sym_id);
                 assert!(!self.is_builtin_type_name(sym.get_name()));
-                sym.get_name().clone()
+                let aliased_to = self.get_type_name(self.ultimate_type(id));
+                format!("'{}' (an alias of {})", sym.get_name().clone(), aliased_to)
             }
-            TypeKind::Integer => "integer".to_string(),
-            TypeKind::Real => "real".to_string(),
-            TypeKind::Bool => "boolean".to_string(),
-            TypeKind::String(len) => format!("string of {} characters", len),
+            TypeKind::Integer => "'integer'".to_string(),
+            TypeKind::Real => "'real'".to_string(),
+            TypeKind::Bool => "'boolean'".to_string(),
+            TypeKind::String(len) => format!("'string of {} characters'", len),
             _ => {
                 unreachable!("Cannot print name of type {:?}", ty.get_kind());
             }
@@ -278,7 +279,7 @@ impl SemanticContext {
             1
         } else {
             panic!(
-                "Unexpected size request for type '{}'",
+                "Unexpected size request for type {}",
                 self.get_type_name(ty)
             );
         }
@@ -477,7 +478,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
             DiagnosticKind::Error,
             operator_loc,
             format!(
-                "operator '{}' cannot be applied to operands of type '{}' and '{}'",
+                "operator '{}' cannot be applied to operands of type {} and {}",
                 operator_name,
                 self.ctx.get_type_name(lhs_ty),
                 self.ctx.get_type_name(rhs_ty)
@@ -500,7 +501,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
             DiagnosticKind::Error,
             operator_loc,
             format!(
-                "operator '{}' cannot be applied to operand of type '{}'",
+                "operator '{}' cannot be applied to operand of type {}",
                 operator_name,
                 self.ctx.get_type_name(op_ty)
             ),
@@ -1265,7 +1266,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 self.ctx.set_ast_type(id, self.ctx.get_error_type());
                 let lhs_type_name = self.ctx.get_type_name(lhs_type);
                 let rhs_type_name = self.ctx.get_type_name(rhs_type);
-                self.diagnostics.add(DiagnosticKind::Error, *span, format!("left-hand side of this assignment has type '{}' that is not assignment-compatible with the type '{}' of the right-hand side", lhs_type_name, rhs_type_name));
+                self.diagnostics.add(DiagnosticKind::Error, *span, format!("left-hand side of this assignment has type {} that is not assignment-compatible with the type {} of the right-hand side", lhs_type_name, rhs_type_name));
             }
         } else {
             self.ctx.set_ast_type(id, self.ctx.get_error_type());

@@ -150,7 +150,7 @@ impl<'a> CodegenVisitor<'a> {
             I8
         } else {
             panic!(
-                "Unexpected type '{}' when mapping to cranelift type",
+                "Unexpected type {} when mapping to cranelift type",
                 self.semantic_context.get_type_name(ty)
             );
         }
@@ -472,7 +472,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                     .insert(sym_id, DataLocation::GlobalVar(data_id));
             } else {
                 panic!(
-                    "Unexpected type '{}' in variable declaration",
+                    "Unexpected type {} in variable declaration",
                     self.semantic_context.get_type_name(ty)
                 );
             }

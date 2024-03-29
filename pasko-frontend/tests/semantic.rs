@@ -142,27 +142,27 @@ Program 1:1
    └─╴Block 2:1 
       ├─╴VariableDeclarationPart 2:1 
       │  ├─╴VariableDeclaration 3:3 ["x"]
-      │  │  └─╴TypeIdentifier 3:7 "integer" integer
+      │  │  └─╴TypeIdentifier 3:7 "integer" 'integer'
       │  └─╴VariableDeclaration 4:3 ["y", "z"]
-      │     └─╴TypeIdentifier 4:10 "real" real
+      │     └─╴TypeIdentifier 4:10 "real" 'real'
       └─╴Statement 5:1 
          └─╴StmtCompound 5:1 
-            ├─╴StmtAssignment 6:4 lhs integer rhs integer
-            │  ├─╴AssigVariable 6:4 "x" integer
-            │  └─╴ExprConst 6:9 "integer" <<no const>>
-            │     └─╴ConstInteger 6:9 3 integer
-            ├─╴StmtAssignment 7:4 lhs real rhs real
-            │  ├─╴AssigVariable 7:4 "y" real
-            │  └─╴ExprConst 7:9 "real" <<no const>>
-            │     └─╴ConstReal 7:9 2.3 real
-            └─╴StmtAssignment 8:4 lhs real rhs real
-               ├─╴AssigVariable 8:4 "z" real
-               └─╴BinOp 8:9 + real
-                  ├─╴Conversion 8:9 real
-                  │  └─╴ExprVariable 8:9 integer
-                  │     └─╴AssigVariable 8:9 "x" integer
-                  └─╴ExprVariable 8:13 real
-                     └─╴AssigVariable 8:13 "y" real
+            ├─╴StmtAssignment 6:4 lhs 'integer' rhs 'integer'
+            │  ├─╴AssigVariable 6:4 "x" 'integer'
+            │  └─╴ExprConst 6:9 "'integer'" <<no const>>
+            │     └─╴ConstInteger 6:9 3 'integer'
+            ├─╴StmtAssignment 7:4 lhs 'real' rhs 'real'
+            │  ├─╴AssigVariable 7:4 "y" 'real'
+            │  └─╴ExprConst 7:9 "'real'" <<no const>>
+            │     └─╴ConstReal 7:9 2.3 'real'
+            └─╴StmtAssignment 8:4 lhs 'real' rhs 'real'
+               ├─╴AssigVariable 8:4 "z" 'real'
+               └─╴BinOp 8:9 + 'real'
+                  ├─╴Conversion 8:9 'real'
+                  │  └─╴ExprVariable 8:9 'integer'
+                  │     └─╴AssigVariable 8:9 "x" 'integer'
+                  └─╴ExprVariable 8:13 'real'
+                     └─╴AssigVariable 8:13 "y" 'real'
 "#
         .trim()
     );
