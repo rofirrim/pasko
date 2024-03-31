@@ -823,18 +823,20 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         &mut self,
         _n: &mut ast::EnumeratedType,
         span: &span::SpanLoc,
-        _id: span::SpanId,
+        id: span::SpanId,
     ) {
         self.unimplemented(*span, "enumerated types");
+        self.ctx.set_ast_type(id, self.ctx.get_error_type());
     }
 
     fn visit_pre_subrange_type(
         &mut self,
         _n: &mut ast::SubrangeType,
         span: &span::SpanLoc,
-        _id: span::SpanId,
+        id: span::SpanId,
     ) -> bool {
         self.unimplemented(*span, "subrange types");
+        self.ctx.set_ast_type(id, self.ctx.get_error_type());
         false
     }
 
@@ -842,9 +844,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         &mut self,
         _n: &mut ast::ArrayType,
         span: &span::SpanLoc,
-        _id: span::SpanId,
+        id: span::SpanId,
     ) -> bool {
         self.unimplemented(*span, "array types");
+        self.ctx.set_ast_type(id, self.ctx.get_error_type());
         false
     }
 
@@ -852,9 +855,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         &mut self,
         _n: &mut ast::RecordType,
         span: &span::SpanLoc,
-        _id: span::SpanId,
+        id: span::SpanId,
     ) -> bool {
         self.unimplemented(*span, "record types");
+        self.ctx.set_ast_type(id, self.ctx.get_error_type());
         false
     }
 
@@ -862,9 +866,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         &mut self,
         _n: &mut ast::SetType,
         span: &span::SpanLoc,
-        _id: span::SpanId,
+        id: span::SpanId,
     ) -> bool {
         self.unimplemented(*span, "set types");
+        self.ctx.set_ast_type(id, self.ctx.get_error_type());
         false
     }
 
@@ -872,9 +877,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         &mut self,
         _n: &mut ast::FileType,
         span: &span::SpanLoc,
-        _id: span::SpanId,
+        id: span::SpanId,
     ) -> bool {
         self.unimplemented(*span, "file types");
+        self.ctx.set_ast_type(id, self.ctx.get_error_type());
         false
     }
 
