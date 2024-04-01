@@ -1,3 +1,4 @@
+use crate::constant;
 use crate::symbol;
 use crate::utils;
 use std::hash::{Hash, Hasher};
@@ -27,6 +28,7 @@ pub enum TypeKind {
     NamedType(symbol::SymbolId),
     String(usize),
     Enum(Vec<symbol::SymbolId>),
+    SubRange(TypeId, constant::Constant, constant::Constant)
 }
 
 #[derive(Debug, Default, Hash, PartialEq, Eq)]
@@ -69,8 +71,22 @@ impl Type {
 
     pub fn is_enum_type(&self) -> bool {
         match self.info.kind {
-            TypeKind::Enum(_) => true,
+            TypeKind::Enum(..) => true,
             _ => false,
+        }
+    }
+
+    pub fn is_subrange_type(&self) -> bool {
+        match self.info.kind {
+            TypeKind::SubRange(..) => true,
+            _ => false,
+        }
+    }
+    
+    pub fn get_host_type(&self) -> TypeId {
+        match self.info.kind {
+            TypeKind::SubRange(ty, ..) => ty,
+            _ => panic!("This type has no host type")
         }
     }
 
@@ -109,14 +125,14 @@ impl Type {
         match self.info.kind {
             TypeKind::Integer => true,
             TypeKind::Bool => true,
-            TypeKind::Enum(_) => true,
+            TypeKind::Enum(..) => true,
             _ => false,
         }
     }
 
     pub fn is_string_type(&self) -> bool {
         match self.info.kind {
-            TypeKind::String(_) => true,
+            TypeKind::String(..) => true,
             _ => false,
         }
     }
