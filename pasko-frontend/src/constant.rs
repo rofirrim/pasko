@@ -1,4 +1,4 @@
-use std::cmp::{Eq, PartialEq};
+use std::cmp::{Eq, PartialEq, PartialOrd, Ordering};
 use std::convert::From;
 use std::hash::{Hash, Hasher};
 
@@ -55,6 +55,18 @@ impl PartialEq for Constant {
 }
 
 impl Eq for Constant {}
+
+// Manually implement PartialOrd
+impl PartialOrd for Constant {
+    fn partial_cmp(&self, other: &Constant) -> Option<Ordering> {
+        match (self, other) {
+            (Constant::Integer(x), Constant::Integer(y)) => x.partial_cmp(y),
+            (Constant::Bool(x), Constant::Bool(y)) => x.partial_cmp(y),
+            (Constant::Real(x), Constant::Real(y)) => x.partial_cmp(y),
+            _ => None,
+        }
+    }
+}
 
 // Allow constants be hashable.
 impl Hash for Constant {
