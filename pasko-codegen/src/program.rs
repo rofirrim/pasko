@@ -142,7 +142,7 @@ impl<'a> CodegenVisitor<'a> {
     }
 
     pub fn type_to_cranelift_type(&self, ty: TypeId) -> cranelift_codegen::ir::Type {
-        if self.semantic_context.is_integer_type(ty) {
+        if self.semantic_context.is_integer_type(ty) || self.semantic_context.is_enum_type(ty) {
             I64
         } else if self.semantic_context.is_real_type(ty) {
             F64
@@ -450,6 +450,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             if self.semantic_context.is_integer_type(ty)
                 || self.semantic_context.is_real_type(ty)
                 || self.semantic_context.is_bool_type(ty)
+                || self.semantic_context.is_enum_type(ty)
             {
                 let data_id = self
                     .object_module

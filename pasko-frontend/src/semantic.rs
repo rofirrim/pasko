@@ -53,6 +53,8 @@ impl SemanticContext {
     pub fn new() -> SemanticContext {
         let mut types = HashMap::new();
 
+        // We cannot use SemanticContext::new_type here, so we manually
+        // add the builtin types into a temporary hashmap.
         let mut integer_type = Type::default();
         integer_type.set_kind(TypeKind::Integer);
         let integer_type_id = integer_type.id();
@@ -154,6 +156,13 @@ impl SemanticContext {
         ty.is_integer_type()
     }
 
+    pub fn is_enum_type(&self, ty: TypeId) -> bool {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.is_enum_type()
+    }
+
     pub fn get_real_type(&self) -> TypeId {
         self.real_type_id
     }
@@ -217,13 +226,19 @@ impl SemanticContext {
             TypeKind::NamedType(sym_id) => {
                 let sym = self.get_symbol(sym_id);
                 assert!(!self.is_builtin_type_name(sym.get_name()));
-                let aliased_to = self.get_type_name(self.ultimate_type(id));
-                format!("'{}' (an alias of {})", sym.get_name().clone(), aliased_to)
+                let ult_ty = self.ultimate_type(id);
+                if !self.is_enum_type(ult_ty) {
+                    let aliased_to = self.get_type_name(self.ultimate_type(id));
+                    return format!("'{}' (an alias of {})", sym.get_name().clone(), aliased_to);
+                } else {
+                    return format!("'{}'", sym.get_name().clone());
+                }
             }
             TypeKind::Integer => "'integer'".to_string(),
             TypeKind::Real => "'real'".to_string(),
             TypeKind::Bool => "'boolean'".to_string(),
             TypeKind::String(len) => format!("'string of {} characters'", len),
+            TypeKind::Enum(_) => format!("'enumerated type'"),
             _ => {
                 unreachable!("Cannot print name of type {:?}", ty.get_kind());
             }
@@ -273,7 +288,7 @@ impl SemanticContext {
     }
 
     pub fn size_in_bytes(&self, ty: TypeId) -> usize {
-        if self.is_real_type(ty) || self.is_integer_type(ty) {
+        if self.is_real_type(ty) || self.is_integer_type(ty) || self.is_enum_type(ty) {
             8
         } else if self.is_bool_type(ty) {
             1
@@ -897,15 +912,12 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         self.ctx.set_ast_symbol(n.0.id(), new_sym);
 
         // Walk the type definition itself.
-        let type_def_loc  = *n.1.loc();
+        let type_def_loc = *n.1.loc();
         let type_def_id = n.1.id();
-        n.1.get_mut().mutating_walk_mut(self, &type_def_loc, type_def_id);
+        n.1.get_mut()
+            .mutating_walk_mut(self, &type_def_loc, type_def_id);
 
         let type_denoter = self.ctx.get_ast_type(n.1.id()).unwrap();
-        if self.ctx.is_error_type(type_denoter) {
-            return false;
-        }
-
         // Update the type stored in the type symbol.
         self.ctx.get_symbol_mut(new_sym).set_type(type_denoter);
 
@@ -914,12 +926,53 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
     fn visit_enumerated_type(
         &mut self,
-        _n: &mut ast::EnumeratedType,
-        span: &span::SpanLoc,
+        n: &mut ast::EnumeratedType,
+        _span: &span::SpanLoc,
         id: span::SpanId,
     ) {
-        self.unimplemented(*span, "enumerated types");
-        self.ctx.set_ast_type(id, self.ctx.get_error_type());
+        let mut enum_ids = vec![];
+
+        let mut enum_error = false;
+
+        for (idx, constant) in n.0.iter().enumerate() {
+            let constant_name = constant.get();
+            if self.diagnose_redeclared_symbol(constant.get(), constant.loc()) {
+                enum_error = true;
+                continue;
+            }
+
+            let mut new_sym = Symbol::new();
+            new_sym.set_name(constant_name);
+            new_sym.set_kind(SymbolKind::Const);
+            new_sym.set_defining_point(*constant.loc());
+            new_sym.set_const(Constant::Integer(idx as isize));
+
+            let new_sym = self.ctx.new_symbol(new_sym);
+            self.scope.add_entry(constant_name, new_sym);
+            self.ctx.set_ast_symbol(constant.id(), new_sym);
+
+            enum_ids.push(new_sym);
+        }
+
+        if enum_error {
+            self.ctx.set_ast_type(id, self.ctx.get_error_type());
+            return;
+        }
+
+        let mut enum_type = Type::default();
+        enum_type.set_kind(TypeKind::Enum(enum_ids.clone()));
+
+        // Note, technically the enumerators should not be redeclared at all, but for consistency
+        // with the way we expect the typesystem work, we will assume it might be possible to create
+        // enumerators with the same enumerator ids. Hence the dance below.
+        let enum_type_id = self.ctx.new_type(enum_type);
+
+        // Now link the enumerators to its enum type.
+        enum_ids
+            .iter()
+            .for_each(|enum_id| self.ctx.get_symbol_mut(*enum_id).set_type(enum_type_id));
+
+        self.ctx.set_ast_type(id, enum_type_id);
     }
 
     fn visit_pre_subrange_type(
@@ -2027,7 +2080,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             let case_consts = &case_ast.0;
             for case_const in case_consts {
                 let const_ty = self.ctx.get_ast_type(case_const.id()).unwrap();
-                if const_ty != expr_ty && !case_expr_err {
+                if !self.ctx.same_type(const_ty, expr_ty) && !case_expr_err {
                     self.diagnostics.add_with_extra(
                         DiagnosticKind::Error,
                         *case_const.loc(),

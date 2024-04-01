@@ -26,6 +26,7 @@ pub enum TypeKind {
     Error,
     NamedType(symbol::SymbolId),
     String(usize),
+    Enum(Vec<symbol::SymbolId>),
 }
 
 #[derive(Debug, Default, Hash, PartialEq, Eq)]
@@ -66,6 +67,13 @@ impl Type {
         }
     }
 
+    pub fn is_enum_type(&self) -> bool {
+        match self.info.kind {
+            TypeKind::Enum(_) => true,
+            _ => false,
+        }
+    }
+
     pub fn is_real_type(&self) -> bool {
         match self.info.kind {
             TypeKind::Real => true,
@@ -88,10 +96,11 @@ impl Type {
     }
 
     pub fn is_simple_type(&self) -> bool {
+        if self.is_ordinal_type() {
+            return true;
+        }
         match self.info.kind {
-            TypeKind::Integer => true,
             TypeKind::Real => true,
-            TypeKind::Bool => true,
             _ => false,
         }
     }
@@ -100,6 +109,7 @@ impl Type {
         match self.info.kind {
             TypeKind::Integer => true,
             TypeKind::Bool => true,
+            TypeKind::Enum(_) => true,
             _ => false,
         }
     }
