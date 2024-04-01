@@ -1403,7 +1403,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 self.ctx.set_ast_type(id, self.ctx.get_error_type());
                 let lhs_type_name = self.ctx.get_type_name(lhs_type);
                 let rhs_type_name = self.ctx.get_type_name(rhs_type);
-                self.diagnostics.add(DiagnosticKind::Error, *span, format!("left-hand side of this assignment has type {} that is not assignment-compatible with the type {} of the right-hand side", lhs_type_name, rhs_type_name));
+                self.diagnostics.add_with_extra(DiagnosticKind::Error, lhs_loc,
+                format!("left-hand side of this assignment has type {} that is not assignment-compatible with the type {} of the right-hand side", lhs_type_name, rhs_type_name),
+            vec![rhs_loc], vec![]);
             }
         } else {
             self.ctx.set_ast_type(id, self.ctx.get_error_type());
