@@ -870,32 +870,46 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         self.ctx.set_ast_symbol(n.0.id(), new_sym);
     }
 
-    fn visit_post_type_definition(
+    fn visit_pre_type_definition(
         &mut self,
         n: &mut ast::TypeDefinition,
         _span: &span::SpanLoc,
         _id: span::SpanId,
-    ) {
+    ) -> bool {
+        // We do this in the pre visitor because we want to diagnose
+        // redeclarations in the right order.
         let name = n.0.get();
-
         if self.diagnose_redeclared_symbol(name, n.0.loc()) {
-            return;
-        }
-
-        let type_denoter = self.ctx.get_ast_type(n.1.id()).unwrap();
-        if self.ctx.is_error_type(type_denoter) {
-            return;
+            return false;
         }
 
         let mut new_sym = Symbol::new();
         new_sym.set_name(name);
         new_sym.set_kind(SymbolKind::Type);
         new_sym.set_defining_point(*n.0.loc());
-        new_sym.set_type(type_denoter);
+        // Set a placeholder type until we can set the right type.
+        // FIXME: For recursive definitions involving pointers
+        // we need to think a bit more.
+        new_sym.set_type(self.ctx.get_error_type());
 
         let new_sym = self.ctx.new_symbol(new_sym);
         self.scope.add_entry(name, new_sym);
         self.ctx.set_ast_symbol(n.0.id(), new_sym);
+
+        // Walk the type definition itself.
+        let type_def_loc  = *n.1.loc();
+        let type_def_id = n.1.id();
+        n.1.get_mut().mutating_walk_mut(self, &type_def_loc, type_def_id);
+
+        let type_denoter = self.ctx.get_ast_type(n.1.id()).unwrap();
+        if self.ctx.is_error_type(type_denoter) {
+            return false;
+        }
+
+        // Update the type stored in the type symbol.
+        self.ctx.get_symbol_mut(new_sym).set_type(type_denoter);
+
+        false
     }
 
     fn visit_enumerated_type(
