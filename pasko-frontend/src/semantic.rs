@@ -292,6 +292,18 @@ struct SemanticCheckerVisitor<'a> {
     scope: &'a mut scope::Scope,
 }
 
+enum FunctionProcedureDeclarationStatus {
+    /// The identifier has not been declared.
+    NotDeclared,
+    /// The identifier has been forward declared as a compatible symbol kind and
+    /// should be checked for compatibility against its definition.
+    ForwardDeclared,
+    /// Already declared as something else. This is an error.
+    AlreadyDeclared,
+    /// Already defined. This is an error.
+    AlreadyDefined,
+}
+
 impl<'a> SemanticCheckerVisitor<'a> {
     fn lookup_symbol(&mut self, name: &str, span: &span::SpanLoc) -> Option<SymbolId> {
         let query = self.scope.lookup(name);
@@ -333,6 +345,105 @@ impl<'a> SemanticCheckerVisitor<'a> {
         }
 
         extra
+    }
+
+    fn diagnose_redeclared_symbol(&mut self, name: &String, span: &span::SpanLoc) -> bool {
+        let sym = self.scope.lookup_current_scope(name);
+        match sym {
+            Some(x) => {
+                let extra = self.extra_diag_previous_location(self.ctx.get_symbol(x));
+                self.diagnostics.add_with_extra(
+                    DiagnosticKind::Error,
+                    *span,
+                    format!(
+                        "identifier '{}' has already been declared in this scope",
+                        name
+                    ),
+                    vec![],
+                    extra,
+                );
+                return true;
+            }
+            None => {
+                return false;
+            }
+        }
+    }
+
+    fn diagnose_reintroduced_procedure_or_function(
+        &mut self,
+        name: &String,
+        span: &span::SpanLoc,
+        is_procedure: bool,
+    ) -> FunctionProcedureDeclarationStatus {
+        if let Some(sym_id) = self.scope.lookup_current_scope(&name) {
+            let sym = self.ctx.get_symbol(sym_id);
+
+            match sym.get_kind() {
+                SymbolKind::Function if !is_procedure => {
+                    if sym.is_defined() {
+                        let extra = self.extra_diag_previous_location(sym);
+                        self.diagnostics.add_with_extra(
+                            DiagnosticKind::Error,
+                            *span,
+                            format!("function '{}' has already been defined", name),
+                            vec![],
+                            extra,
+                        );
+                        return FunctionProcedureDeclarationStatus::AlreadyDefined;
+                    } else {
+                        return FunctionProcedureDeclarationStatus::ForwardDeclared;
+                    }
+                }
+                SymbolKind::Procedure if is_procedure => {
+                    if sym.is_defined() {
+                        let extra = self.extra_diag_previous_location(sym);
+                        self.diagnostics.add_with_extra(
+                            DiagnosticKind::Error,
+                            *span,
+                            format!("procedure '{}' has already been defined", name),
+                            vec![],
+                            extra,
+                        );
+                        return FunctionProcedureDeclarationStatus::AlreadyDefined;
+                    } else {
+                        return FunctionProcedureDeclarationStatus::ForwardDeclared;
+                    }
+                }
+                _ => {
+                    // Already declared
+                    let extra = self.extra_diag_previous_location(sym);
+                    self.diagnostics.add_with_extra(
+                        DiagnosticKind::Error,
+                        *span,
+                        format!(
+                            "identifier '{}' has already been declared in this scope",
+                            name
+                        ),
+                        vec![],
+                        extra,
+                    );
+                    return FunctionProcedureDeclarationStatus::AlreadyDeclared;
+                }
+            }
+        }
+        FunctionProcedureDeclarationStatus::NotDeclared
+    }
+
+    fn diagnose_reintroduced_procedure(
+        &mut self,
+        name: &String,
+        span: &span::SpanLoc,
+    ) -> FunctionProcedureDeclarationStatus {
+        self.diagnose_reintroduced_procedure_or_function(name, span, true)
+    }
+
+    fn diagnose_reintroduced_function(
+        &mut self,
+        name: &String,
+        span: &span::SpanLoc,
+    ) -> FunctionProcedureDeclarationStatus {
+        self.diagnose_reintroduced_procedure_or_function(name, span, false)
     }
 
     fn is_compatible(&self, lhs_type_id: TypeId, rhs_type_id: TypeId) -> bool {
@@ -738,24 +849,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let name = n.0.get();
         let const_ty = self.ctx.get_ast_type(n.1.id()).unwrap();
 
-        let sym = self.scope.lookup_current_scope(name);
-
-        match sym {
-            Some(x) => {
-                let extra = self.extra_diag_previous_location(self.ctx.get_symbol(x));
-                self.diagnostics.add_with_extra(
-                    DiagnosticKind::Error,
-                    *n.0.loc(),
-                    format!(
-                        "identifier '{}' has already been declared in this scope",
-                        n.0.get()
-                    ),
-                    vec![],
-                    extra,
-                );
-                return;
-            }
-            None => {}
+        if self.diagnose_redeclared_symbol(name, n.0.loc()) {
+            return;
         }
 
         let mut new_sym = Symbol::new();
@@ -783,24 +878,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     ) {
         let name = n.0.get();
 
-        let sym = self.scope.lookup_current_scope(name);
-
-        match sym {
-            Some(x) => {
-                let extra = self.extra_diag_previous_location(self.ctx.get_symbol(x));
-                self.diagnostics.add_with_extra(
-                    DiagnosticKind::Error,
-                    *n.0.loc(),
-                    format!(
-                        "identifier '{}' has already been declared in this scope",
-                        n.0.get()
-                    ),
-                    vec![],
-                    extra,
-                );
-                return;
-            }
-            None => {}
+        if self.diagnose_redeclared_symbol(name, n.0.loc()) {
+            return;
         }
 
         let type_denoter = self.ctx.get_ast_type(n.1.id()).unwrap();
@@ -966,23 +1045,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     ) {
         let ty = self.ctx.get_ast_type(n.1.id()).unwrap();
         n.0.iter().for_each(|e| {
-            let sym = self.scope.lookup_current_scope(e.get());
-            match sym {
-                Some(x) => {
-                    let extra = self.extra_diag_previous_location(self.ctx.get_symbol(x));
-                    self.diagnostics.add_with_extra(
-                        DiagnosticKind::Error,
-                        *e.loc(),
-                        format!(
-                            "identifier '{}' has already been declared in this scope",
-                            e.get()
-                        ),
-                        vec![],
-                        extra,
-                    );
-                    return;
-                }
-                None => {}
+            if self.diagnose_redeclared_symbol(e.get(), e.loc()) {
+                return;
             }
 
             let mut new_sym = Symbol::new();
@@ -2140,43 +2204,23 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     ) -> bool {
         let function_name = n.0.get();
 
-        if let Some(sym_id) = self.scope.lookup_current_scope(&function_name) {
-            //
-            let sym = self.ctx.get_symbol(sym_id);
-
-            match sym.get_kind() {
-                SymbolKind::Function => {
-                    if sym.is_defined() {
-                        let extra = self.extra_diag_previous_location(sym);
-                        self.diagnostics.add_with_extra(
-                            DiagnosticKind::Error,
-                            *n.0.loc(),
-                            format!("function '{}' has already been defined", n.0.get()),
-                            vec![],
-                            extra,
-                        );
-                    } else {
-                        // FIXME: Check that the parameters and return match with an earlier declaration.
-                    }
-                }
-                _ => {
-                    // Already declared
-                    let extra = self.extra_diag_previous_location(sym);
-                    self.diagnostics.add_with_extra(
-                        DiagnosticKind::Error,
-                        *n.0.loc(),
-                        format!(
-                            "identifier '{}' has already been declared in this scope",
-                            n.0.get()
-                        ),
-                        vec![],
-                        extra,
-                    );
-                    // Do not attempt to semantically check anything else.
-                    return false;
-                }
+        match self.diagnose_reintroduced_function(function_name, n.0.loc()) {
+            FunctionProcedureDeclarationStatus::AlreadyDeclared
+            | FunctionProcedureDeclarationStatus::AlreadyDefined => {
+                // This is an error.
+                return false;
             }
-        } else if is_required_procedure_or_function(&function_name) {
+            FunctionProcedureDeclarationStatus::ForwardDeclared => {
+                // FIXME: Check for compatibility
+                self.unimplemented(*n.0.loc(), "forward declared functions");
+                return false;
+            }
+            FunctionProcedureDeclarationStatus::NotDeclared => {
+                // Fine
+            }
+        }
+
+        if is_required_procedure_or_function(&function_name) {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *n.0.loc(),
@@ -2273,43 +2317,22 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     ) -> bool {
         let proc_name = n.0.get();
 
-        if let Some(sym_id) = self.scope.lookup_current_scope(&proc_name) {
-            //
-            let sym = self.ctx.get_symbol(sym_id);
-
-            match sym.get_kind() {
-                SymbolKind::Procedure => {
-                    if sym.is_defined() {
-                        let extra = self.extra_diag_previous_location(sym);
-                        self.diagnostics.add_with_extra(
-                            DiagnosticKind::Error,
-                            *n.0.loc(),
-                            format!("procedure '{}' has already been defined", n.0.get()),
-                            vec![],
-                            extra,
-                        );
-                    } else {
-                        // FIXME: Check that the parameters match with an earlier declaration.
-                    }
-                }
-                _ => {
-                    // Already declared
-                    let extra = self.extra_diag_previous_location(sym);
-                    self.diagnostics.add_with_extra(
-                        DiagnosticKind::Error,
-                        *n.0.loc(),
-                        format!(
-                            "identifier '{}' has already been declared in this scope",
-                            n.0.get()
-                        ),
-                        vec![],
-                        extra,
-                    );
-                    // Do not attempt to semantically check anything else.
-                    return false;
-                }
+        match self.diagnose_reintroduced_procedure(proc_name, n.0.loc()) {
+            FunctionProcedureDeclarationStatus::AlreadyDeclared
+            | FunctionProcedureDeclarationStatus::AlreadyDefined => {
+                return false;
             }
-        } else if is_required_procedure_or_function(&proc_name) {
+            FunctionProcedureDeclarationStatus::ForwardDeclared => {
+                // FIXME: Check for compatibility
+                self.unimplemented(*n.0.loc(), "forward declared functions");
+                return false;
+            }
+            FunctionProcedureDeclarationStatus::NotDeclared => {
+                // Fine
+            }
+        }
+
+        if is_required_procedure_or_function(&proc_name) {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *n.0.loc(),
