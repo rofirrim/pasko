@@ -439,15 +439,14 @@ Sign : Spanned<ast::Sign> = {
 UnsignedInteger : Spanned<usize> = <start:@L> <s:"integer-literal"> <end:@R> =>? { 
     if let Ok(number) = usize::from_str(s.as_str()) {
        // This is lame.
-       assert!(isize::MAX == 9223372036854775807isize);
        if number > isize::MAX as usize {
-           Err(ParseError::User { error: LexicalError { start, end, message: format!("an unsigned number must be a number between 0 and 9223372036854775807") } })
+           Err(ParseError::User { error: LexicalError { start, end, message: format!("an unsigned number must be a number between 0 and {}", isize::MAX) } })
        } else {
            Ok( Spanned::new(span_loc!(start, end), number) )
        }
     } else {
         // 
-        Err(ParseError::User { error: LexicalError { start, end, message: format!("an unsigned number must be a number between 0 and 9223372036854775807") } })
+        Err(ParseError::User { error: LexicalError { start, end, message: format!("an unsigned number must be a number between 0 and {}", isize::MAX) } })
     }
 };
 
@@ -463,7 +462,7 @@ UnsignedNumber : SpannedBox<ast::Const> = {
   <unsigned_integer:UnsignedInteger> =>
     SpannedBox::new(*unsigned_integer.loc(),
       ast::Const::Integer(
-        ast::ConstInteger(Spanned::new(*unsigned_integer.loc(), *unsigned_integer.get() as isize)))),
+        ast::ConstInteger(Spanned::new(*unsigned_integer.loc(), *unsigned_integer.get() as i64)))),
   <unsigned_real:UnsignedReal> => 
     SpannedBox::new(*unsigned_real.loc(),
       ast::Const::Real(

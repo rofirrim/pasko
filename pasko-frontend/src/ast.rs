@@ -111,7 +111,7 @@ pub enum Sign {
 }
 
 #[derive(Debug)]
-pub struct ConstInteger(pub Spanned<isize>);
+pub struct ConstInteger(pub Spanned<i64>);
 #[derive(Debug)]
 pub struct ConstReal(pub Spanned<f64>);
 #[derive(Debug)]

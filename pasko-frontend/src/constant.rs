@@ -4,14 +4,13 @@ use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone)]
 pub enum Constant {
-    // FIXME: we use isize where we should use i64
-    Integer(isize),
+    Integer(i64),
     Real(f64),
     Bool(bool),
 }
 
-impl From<isize> for Constant {
-    fn from(v: isize) -> Constant {
+impl From<i64> for Constant {
+    fn from(v: i64) -> Constant {
         Constant::Integer(v)
     }
 }

@@ -934,7 +934,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
         let mut enum_error = false;
 
-        for (idx, constant) in n.0.iter().enumerate() {
+        for (idx, constant) in (0i64..).zip(n.0.iter()) {
             let constant_name = constant.get();
             if self.diagnose_redeclared_symbol(constant.get(), constant.loc()) {
                 enum_error = true;
@@ -945,7 +945,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             new_sym.set_name(constant_name);
             new_sym.set_kind(SymbolKind::Const);
             new_sym.set_defining_point(*constant.loc());
-            new_sym.set_const(Constant::Integer(idx as isize));
+            new_sym.set_const(Constant::Integer(idx));
 
             let new_sym = self.ctx.new_symbol(new_sym);
             self.scope.add_entry(constant_name, new_sym);
