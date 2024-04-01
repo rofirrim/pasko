@@ -134,7 +134,16 @@ Const : SpannedBox<ast::Const> = {
             None => { number },
             Some(x) => {
                match x.get() {
-                &ast::Sign::Plus => { number },
+                &ast::Sign::Plus => {
+                    // We could just use `number` but then the location information would be wrong.
+                    match number.get() {
+                        ast::Const::Integer(s) => SpannedBox::new(span_loc!(start, end), ast::Const::Integer(
+                            ast::ConstInteger(Spanned::new(span_loc!(start, end), *s.0.get())))),
+                        ast::Const::Real(s) => SpannedBox::new(span_loc!(start, end), ast::Const::Real(
+                            ast::ConstReal(Spanned::new(span_loc!(start, end), *s.0.get())))),
+                        _ => { panic!("Invalid constant") },
+                    }
+                },
                 &ast::Sign::Minus => { 
                     match number.get() {
                         ast::Const::Integer(s) => SpannedBox::new(span_loc!(start, end), ast::Const::Integer(
