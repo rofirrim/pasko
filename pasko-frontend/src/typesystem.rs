@@ -28,7 +28,7 @@ pub enum TypeKind {
     NamedType(symbol::SymbolId),
     String(usize),
     Enum(Vec<symbol::SymbolId>),
-    SubRange(TypeId, constant::Constant, constant::Constant)
+    SubRange(TypeId, constant::Constant, constant::Constant),
 }
 
 #[derive(Debug, Default, Hash, PartialEq, Eq)]
@@ -82,11 +82,11 @@ impl Type {
             _ => false,
         }
     }
-    
+
     pub fn get_host_type(&self) -> TypeId {
         match self.info.kind {
             TypeKind::SubRange(ty, ..) => ty,
-            _ => panic!("This type has no host type")
+            _ => panic!("This type has no host type"),
         }
     }
 
@@ -123,9 +123,9 @@ impl Type {
 
     pub fn is_ordinal_type(&self) -> bool {
         match self.info.kind {
-            TypeKind::Integer => true,
-            TypeKind::Bool => true,
-            TypeKind::Enum(..) => true,
+            TypeKind::Integer | TypeKind::Bool | TypeKind::Enum(..) | TypeKind::SubRange(..) => {
+                true
+            }
             _ => false,
         }
     }

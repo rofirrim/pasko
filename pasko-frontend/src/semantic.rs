@@ -163,6 +163,20 @@ impl SemanticContext {
         ty.is_enum_type()
     }
 
+    pub fn is_subrange_type(&self, ty: TypeId) -> bool {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.is_subrange_type()
+    }
+
+    pub fn get_host_type(&self, ty: TypeId) -> TypeId {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.get_host_type()
+    }
+
     pub fn get_real_type(&self) -> TypeId {
         self.real_type_id
     }
@@ -227,7 +241,9 @@ impl SemanticContext {
                 let sym = self.get_symbol(sym_id);
                 assert!(!self.is_builtin_type_name(sym.get_name()));
                 let ult_ty = self.ultimate_type(id);
-                if !self.is_enum_type(ult_ty) {
+                // FIXME: we seem to cut-off a bit too much here and we might be able
+                // to be a bit more informative for named types of types with structure.
+                if !self.is_enum_type(ult_ty) && !self.is_subrange_type(ult_ty) {
                     let aliased_to = self.get_type_name(self.ultimate_type(id));
                     return format!("'{}' (an alias of {})", sym.get_name().clone(), aliased_to);
                 } else {
@@ -292,6 +308,8 @@ impl SemanticContext {
             8
         } else if self.is_bool_type(ty) {
             1
+        } else if self.is_subrange_type(ty) {
+            return self.size_in_bytes(self.get_host_type(ty))
         } else {
             panic!(
                 "Unexpected size request for type {}",
@@ -466,17 +484,30 @@ impl<'a> SemanticCheckerVisitor<'a> {
             return true;
         }
 
-        // TODO: lhs is a subrange of rhs, or rhs is a subrange of lhs, or both lhs and rhs are subranges of the same host-type.
+        // lhs is a subrange of rhs, or rhs is a subrange of lhs, or both lhs and rhs are subranges of the same host-type.
+        if (self.ctx.is_subrange_type(lhs_type_id)
+            && self
+                .ctx
+                .same_type(rhs_type_id, self.ctx.get_host_type(lhs_type_id)))
+            || (self.ctx.is_subrange_type(rhs_type_id)
+                && self
+                    .ctx
+                    .same_type(lhs_type_id, self.ctx.get_host_type(rhs_type_id)))
+            || (self.ctx.is_subrange_type(rhs_type_id)
+                && self.ctx.is_subrange_type(lhs_type_id)
+                && self.ctx.same_type(
+                    self.ctx.get_host_type(lhs_type_id),
+                    self.ctx.get_host_type(rhs_type_id),
+                ))
+        {
+            return true;
+        }
 
         // TODO: lhs and rhs are set-types of compatible base-types, and either both lhs and rhs are designated packed or neither lhs nor rhs is designated packed.
 
         // TODO: lhs and rhs are string-types with the same number of components
 
         false
-    }
-
-    fn same_type(&self, a: TypeId, b: TypeId) -> bool {
-        self.ctx.same_type(a, b)
     }
 
     fn is_assignment_compatible(&self, lhs_type_id: TypeId, rhs_type_id: TypeId) -> bool {
@@ -488,13 +519,24 @@ impl<'a> SemanticCheckerVisitor<'a> {
             return true;
         }
 
-        // TODO: types are compatible ordinal types and the value of rhs is in the closed interval of lhs
+        // types are compatible ordinal types and the value of rhs is in the closed interval of lhs
+        if self.ctx.is_ordinal_type(lhs_type_id)
+            && self.ctx.is_ordinal_type(rhs_type_id)
+            && self.is_compatible(lhs_type_id, rhs_type_id)
+        {
+            // FIXME: There are cases that we might be able to diagnose here statically.
+            return true;
+        }
 
         // TODO: types are compatible set types and all the members of rhs are in the closed interval specified by lhs
 
         // TODO: lhs and rhs are compatible string types
 
         false
+    }
+
+    fn second_needs_conversion_to_first(&self, lhs_type_id: TypeId, rhs_type_id : TypeId) -> bool {
+        self.ctx.is_real_type(lhs_type_id) && self.ctx.is_integer_type(rhs_type_id)
     }
 
     fn common_arith_type(&self, lhs_ty: TypeId, rhs_ty: TypeId) -> Option<TypeId> {
@@ -975,15 +1017,60 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         self.ctx.set_ast_type(id, enum_type_id);
     }
 
-    fn visit_pre_subrange_type(
+    fn visit_post_subrange_type(
         &mut self,
-        _n: &mut ast::SubrangeType,
-        span: &span::SpanLoc,
+        n: &mut ast::SubrangeType,
+        _span: &span::SpanLoc,
         id: span::SpanId,
-    ) -> bool {
-        self.unimplemented(*span, "subrange types");
-        self.ctx.set_ast_type(id, self.ctx.get_error_type());
-        false
+    ) {
+        let lower = &n.0;
+        let upper = &n.1;
+
+        let lower_ty = self.ctx.get_ast_type(lower.id()).unwrap();
+        let upper_ty = self.ctx.get_ast_type(lower.id()).unwrap();
+        if !self.ctx.same_type(lower_ty, upper_ty) {
+            self.diagnostics.add_with_extra(
+                DiagnosticKind::Error,
+                *lower.loc(),
+                "in a subrange type the two constants must be of the same ordinal type".to_string(),
+                vec![*upper.loc()],
+                vec![],
+            );
+            self.ctx.set_ast_type(id, self.ctx.get_error_type());
+            return;
+        }
+
+        let lower_const = self.ctx.get_ast_value(lower.id()).unwrap();
+        let upper_const = self.ctx.get_ast_value(upper.id()).unwrap();
+
+        if !lower_const.le(&upper_const) {
+            self.diagnostics.add_with_extra(
+                DiagnosticKind::Error,
+                *lower.loc(),
+                "in a subrange type the first constant must be lower or equal than the second one"
+                    .to_string(),
+                vec![*upper.loc()],
+                vec![],
+            );
+            self.ctx.set_ast_type(id, self.ctx.get_error_type());
+            return;
+        }
+
+        // Use the ultimate type as the host for simplicity.
+        let ult_type = self.ctx.ultimate_type(lower_ty);
+
+        let mut subrange_type = Type::default();
+        subrange_type.set_kind(TypeKind::SubRange(ult_type, lower_const, upper_const));
+
+        // This deserves a bit of explanation because it is subtle. Two declarations like this
+        //   type a = 1..100, b = 1..100;
+        // will denote the same TypeId after new_type. This means that the
+        // typesystem will assume they are the same type. This is fine for
+        // subranges due to their compatibility rules but it will not be for
+        // structures as they should have name-equality and not structural
+        // equality. Bear this in mind when implementing structures.
+        let subrange_type_id = self.ctx.new_type(subrange_type);
+        self.ctx.set_ast_type(id, subrange_type_id);
     }
 
     fn visit_pre_array_type(
@@ -1325,7 +1412,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     fn visit_pre_stmt_assignment(
         &mut self,
         node: &mut ast::StmtAssignment,
-        span: &span::SpanLoc,
+        _span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
         // Handle lhs or walk it.
@@ -1393,12 +1480,11 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         if neither_is_err_type {
             if self.is_assignment_compatible(lhs_type, rhs_type) {
                 self.ctx.set_ast_type(id, lhs_type);
-                if !self.same_type(lhs_type, rhs_type) {
+                if self.second_needs_conversion_to_first(lhs_type, rhs_type) {
                     let conversion = SemanticCheckerVisitor::create_conversion_expr(rhs.take());
                     rhs.reset(conversion);
                     self.ctx.set_ast_type(rhs.id(), lhs_type);
                 }
-                // FIXME: Conversions???
             } else {
                 self.ctx.set_ast_type(id, self.ctx.get_error_type());
                 let lhs_type_name = self.ctx.get_type_name(lhs_type);
@@ -1527,16 +1613,16 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 let op_type = self.valid_for_relational_equality(lhs_ty, rhs_ty);
                 match op_type {
                     Some(operand_type) => {
-                        if lhs_ty != operand_type {
+                        if self.second_needs_conversion_to_first(operand_type, lhs_ty) {
                             assert!(
-                                operand_type == rhs_ty,
+                                !self.second_needs_conversion_to_first(operand_type, rhs_ty),
                                 "there is an extra conversion happening in the RHS?"
                             );
                             let conversion =
                                 SemanticCheckerVisitor::create_conversion_expr(node.1.take());
                             node.1.reset(conversion);
                             self.ctx.set_ast_type(node.1.id(), operand_type);
-                        } else if rhs_ty != operand_type {
+                        } else if self.second_needs_conversion_to_first(operand_type, rhs_ty) {
                             let conversion =
                                 SemanticCheckerVisitor::create_conversion_expr(node.2.take());
                             node.2.reset(conversion);
@@ -1561,16 +1647,16 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 let op_type = self.valid_for_relational(lhs_ty, rhs_ty);
                 match op_type {
                     Some(operand_type) => {
-                        if lhs_ty != operand_type {
+                        if self.second_needs_conversion_to_first(operand_type, lhs_ty) {
                             assert!(
-                                operand_type == rhs_ty,
+                                !self.second_needs_conversion_to_first(operand_type, rhs_ty),
                                 "there is an extra conversion happening in the RHS?"
                             );
                             let conversion =
                                 SemanticCheckerVisitor::create_conversion_expr(node.1.take());
                             node.1.reset(conversion);
                             self.ctx.set_ast_type(node.1.id(), operand_type);
-                        } else if rhs_ty != operand_type {
+                        } else if self.second_needs_conversion_to_first(operand_type, rhs_ty) {
                             let conversion =
                                 SemanticCheckerVisitor::create_conversion_expr(node.2.take());
                             node.2.reset(conversion);
@@ -1595,16 +1681,16 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 let op_type = self.valid_for_equality(lhs_ty, rhs_ty);
                 match op_type {
                     Some(operand_type) => {
-                        if lhs_ty != operand_type {
+                        if self.second_needs_conversion_to_first(operand_type, lhs_ty) {
                             assert!(
-                                operand_type == rhs_ty,
+                                !self.second_needs_conversion_to_first(operand_type, rhs_ty),
                                 "there is an extra conversion happening in the RHS?"
                             );
                             let conversion =
                                 SemanticCheckerVisitor::create_conversion_expr(node.1.take());
                             node.1.reset(conversion);
                             self.ctx.set_ast_type(node.1.id(), operand_type);
-                        } else if rhs_ty != operand_type {
+                        } else if self.second_needs_conversion_to_first(operand_type, rhs_ty) {
                             let conversion =
                                 SemanticCheckerVisitor::create_conversion_expr(node.2.take());
                             node.2.reset(conversion);
@@ -1633,16 +1719,16 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 let op_type = self.common_arith_type(lhs_ty, rhs_ty);
                 match op_type {
                     Some(result_type) => {
-                        if result_type != lhs_ty {
+                        if self.second_needs_conversion_to_first(result_type, lhs_ty) {
                             assert!(
-                                result_type == rhs_ty,
+                                !self.second_needs_conversion_to_first(result_type, rhs_ty),
                                 "there is an extra conversion happening in the RHS?"
                             );
                             let conversion =
                                 SemanticCheckerVisitor::create_conversion_expr(node.1.take());
                             node.1.reset(conversion);
                             self.ctx.set_ast_type(node.1.id(), result_type);
-                        } else if result_type != rhs_ty {
+                        } else if self.second_needs_conversion_to_first(result_type, rhs_ty) {
                             let conversion =
                                 SemanticCheckerVisitor::create_conversion_expr(node.2.take());
                             node.2.reset(conversion);
@@ -1688,13 +1774,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 let op_type = self.real_arith_type(lhs_ty, rhs_ty);
                 match op_type {
                     Some(result_type) => {
-                        if result_type != lhs_ty {
+                        if self.second_needs_conversion_to_first(result_type, lhs_ty) {
                             let conversion =
                                 SemanticCheckerVisitor::create_conversion_expr(node.1.take());
                             node.1.reset(conversion);
                             self.ctx.set_ast_type(node.1.id(), result_type);
                         }
-                        if result_type != rhs_ty {
+                        if self.second_needs_conversion_to_first(result_type, rhs_ty) {
                             let conversion =
                                 SemanticCheckerVisitor::create_conversion_expr(node.2.take());
                             node.2.reset(conversion);

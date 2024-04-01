@@ -148,6 +148,8 @@ impl<'a> CodegenVisitor<'a> {
             F64
         } else if self.semantic_context.is_bool_type(ty) {
             I8
+        } else if self.semantic_context.is_subrange_type(ty) {
+            self.type_to_cranelift_type(self.semantic_context.get_host_type(ty))
         } else {
             panic!(
                 "Unexpected type {} when mapping to cranelift type",
@@ -451,6 +453,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                 || self.semantic_context.is_real_type(ty)
                 || self.semantic_context.is_bool_type(ty)
                 || self.semantic_context.is_enum_type(ty)
+                || self.semantic_context.is_subrange_type(ty)
             {
                 let data_id = self
                     .object_module
