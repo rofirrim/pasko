@@ -26,8 +26,8 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::program::CodegenVisitor;
 use crate::datalocation::DataLocation;
+use crate::program::CodegenVisitor;
 
 pub fn codegen(
     program: &span::SpannedBox<ast::Program>,

@@ -1,4 +1,4 @@
-use std::cmp::{Eq, PartialEq, PartialOrd, Ordering};
+use std::cmp::{Eq, Ordering, PartialEq, PartialOrd};
 use std::convert::From;
 use std::hash::{Hash, Hasher};
 

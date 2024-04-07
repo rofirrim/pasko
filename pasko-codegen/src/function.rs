@@ -1,6 +1,8 @@
 #![allow(unused_imports)]
 
+use cranelift_codegen::ir::StackSlot;
 use cranelift_codegen::settings::Configurable;
+use cranelift_object::object::read::elf::ElfSectionIterator32;
 use cranelift_object::object::SymbolKind;
 use pasko_frontend::ast;
 use pasko_frontend::ast::UnaryOp;
@@ -9,6 +11,7 @@ use pasko_frontend::semantic;
 use pasko_frontend::semantic::SemanticContext;
 use pasko_frontend::span;
 use pasko_frontend::symbol;
+use pasko_frontend::symbol::ParameterKind;
 use pasko_frontend::typesystem::TypeId;
 use pasko_frontend::visitor::{Visitable, VisitorMut};
 
@@ -28,11 +31,13 @@ use cranelift_codegen::verifier::verify_function;
 use cranelift_module::Linkage;
 use cranelift_object; // ::{ObjectBuilder, ObjectModule};
 
+use std::array;
 use std::collections::btree_map::VacantEntry;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
+use std::thread::current;
 
 use crate::datalocation::DataLocation;
 use crate::program::CodegenVisitor;
@@ -89,6 +94,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         self.block_stack.len() == 1
     }
 
+    pub fn emit_const_char(&mut self, i: u32) -> cranelift_codegen::ir::Value {
+        self.builder().ins().iconst(I32, i64::from(i))
+    }
+
     pub fn emit_const_integer(&mut self, i: i64) -> cranelift_codegen::ir::Value {
         self.builder().ins().iconst(I64, i)
     }
@@ -137,17 +146,21 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         v
     }
 
+    pub fn allocate_storage_in_stack(&mut self, size: u32) -> StackSlot {
+        self.builder_obj
+            .as_mut()
+            .unwrap()
+            .create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, size))
+    }
+
     pub fn allocate_value_in_stack(&mut self, sym_id: pasko_frontend::symbol::SymbolId) {
         let symbol = self.codegen.semantic_context.get_symbol(sym_id);
+        let symbol = symbol.borrow();
         let symbol_type = symbol.get_type().unwrap();
 
         let size = self.codegen.semantic_context.size_in_bytes(symbol_type) as u32;
 
-        let stack_slot = self
-            .builder_obj
-            .as_mut()
-            .unwrap()
-            .create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, size));
+        let stack_slot = self.allocate_storage_in_stack(size);
 
         self.codegen
             .data_location
@@ -157,11 +170,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
     pub fn allocate_address_in_stack(&mut self, sym_id: pasko_frontend::symbol::SymbolId) {
         let size = self.codegen.pointer_type.bytes();
 
-        let stack_slot = self
-            .builder_obj
-            .as_mut()
-            .unwrap()
-            .create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, size));
+        let stack_slot = self.allocate_storage_in_stack(size);
 
         self.codegen
             .data_location
@@ -217,6 +226,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                         .stack_addr(self.codegen.pointer_type, *stack_slot, 0);
 
                 let symbol = self.codegen.semantic_context.get_symbol(sym_id);
+                let symbol = symbol.borrow();
                 let ty = symbol.get_type().unwrap();
 
                 let cranelift_ty = self.codegen.type_to_cranelift_type(ty);
@@ -248,6 +258,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 );
 
                 let symbol = self.codegen.semantic_context.get_symbol(sym_id);
+                let symbol = symbol.borrow();
                 let ty = symbol.get_type().unwrap();
 
                 let cranelift_ty = self.codegen.type_to_cranelift_type(ty);
@@ -308,6 +319,64 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
         func_ref
     }
+
+    fn call_pass_arguments(
+        &mut self,
+        args: Vec<(&span::SpannedBox<ast::Expr>, ParameterKind)>,
+    ) -> Vec<cranelift_codegen::ir::Value> {
+        args.iter()
+            .map(|item| {
+                let (arg, param_kind) = item;
+                let arg_ty = self
+                    .codegen
+                    .semantic_context
+                    .get_ast_type(arg.id())
+                    .unwrap();
+                let arg_value = *self.value_map.get(&arg.id()).unwrap();
+                if *param_kind == ParameterKind::Variable
+                    || self
+                        .codegen
+                        .semantic_context
+                        .type_system
+                        .is_simple_type(arg_ty)
+                {
+                    arg_value
+                } else if self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .is_array_type(arg_ty)
+                {
+                    // We need to do a copy in.
+                    let arg_type_size = self.codegen.semantic_context.size_in_bytes(arg_ty);
+                    let stack_slot = self.allocate_storage_in_stack(arg_type_size as u32);
+                    let pointer = self.codegen.pointer_type;
+                    let stack_addr = self.builder().ins().stack_addr(pointer, stack_slot, 0);
+                    // Now copy
+                    let target_config = {
+                        let object_module = self.codegen.object_module.as_ref().unwrap();
+                        object_module.target_config()
+                    };
+                    let arg_type_size_value = self.emit_const_integer(arg_type_size as i64);
+                    self.builder().call_memcpy(
+                        target_config,
+                        stack_addr,
+                        arg_value,
+                        arg_type_size_value,
+                    );
+                    stack_addr
+                } else {
+                    panic!(
+                        "Unexpected type in argument pass {}",
+                        self.codegen
+                            .semantic_context
+                            .type_system
+                            .get_type_name(arg_ty)
+                    );
+                }
+            })
+            .collect()
+    }
 }
 
 impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
@@ -361,28 +430,60 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 }
                             };
 
-                            if self.codegen.semantic_context.is_integer_type(type_id) {
+                            if self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .is_integer_type(type_id)
+                            {
                                 let func_id = self.codegen.rt.write_i64.unwrap();
                                 let func_ref = self.get_function_reference(func_id);
                                 self.builder().ins().call(func_ref, &[v, total_width]);
-                            } else if self.codegen.semantic_context.is_real_type(type_id) {
+                            } else if self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .is_real_type(type_id)
+                            {
                                 let func_id = self.codegen.rt.write_f64.unwrap();
                                 let func_ref = self.get_function_reference(func_id);
                                 self.builder()
                                     .ins()
                                     .call(func_ref, &[v, total_width, fract_digits]);
-                            } else if self.codegen.semantic_context.is_string_type(type_id) {
+                            } else if self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .is_string_type(type_id)
+                            {
                                 let func_id = self.codegen.rt.write_str.unwrap();
                                 let func_ref = self.get_function_reference(func_id);
                                 self.builder().ins().call(func_ref, &[v]);
-                            } else if self.codegen.semantic_context.is_bool_type(type_id) {
+                            } else if self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .is_bool_type(type_id)
+                            {
                                 let func_id = self.codegen.rt.write_bool.unwrap();
+                                let func_ref = self.get_function_reference(func_id);
+                                self.builder().ins().call(func_ref, &[v]);
+                            } else if self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .is_char_type(type_id)
+                            {
+                                let func_id = self.codegen.rt.write_char.unwrap();
                                 let func_ref = self.get_function_reference(func_id);
                                 self.builder().ins().call(func_ref, &[v]);
                             } else {
                                 panic!(
                                     "Unexpected type for writeln {}",
-                                    self.codegen.semantic_context.get_type_name(type_id)
+                                    self.codegen
+                                        .semantic_context
+                                        .type_system
+                                        .get_type_name(type_id)
                                 );
                             }
                         }
@@ -410,12 +511,21 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                         .get_ast_type(var.id())
                                         .unwrap();
 
-                                    if self.codegen.semantic_context.is_integer_type(var_ty)
-                                        || self.codegen.semantic_context.is_real_type(var_ty)
+                                    if self
+                                        .codegen
+                                        .semantic_context
+                                        .type_system
+                                        .is_integer_type(var_ty)
+                                        || self
+                                            .codegen
+                                            .semantic_context
+                                            .type_system
+                                            .is_real_type(var_ty)
                                     {
                                         let func_id = if self
                                             .codegen
                                             .semantic_context
+                                            .type_system
                                             .is_integer_type(var_ty)
                                         {
                                             self.codegen.rt.read_i64.unwrap()
@@ -443,7 +553,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                     } else {
                                         panic!(
                                             "Unexpected type for readln {}",
-                                            self.codegen.semantic_context.get_type_name(var_ty)
+                                            self.codegen
+                                                .semantic_context
+                                                .type_system
+                                                .get_type_name(var_ty)
                                         );
                                     }
                                 }
@@ -481,6 +594,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 .semantic_context
                 .get_ast_symbol(callee.id())
                 .unwrap();
+            let callee_sym = self.codegen.semantic_context.get_symbol(callee_sym_id);
+            let callee_sym = callee_sym.borrow();
+            let callee_parameters = callee_sym.get_formal_parameters().unwrap();
 
             let func_id = *self
                 .codegen
@@ -490,11 +606,18 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
             let func_ref = self.get_function_reference(func_id);
 
-            // Now get the values of the arguments.
-            let arg_values: Vec<_> = if let Some(args) = args {
-                args.iter()
-                    .map(|arg| *self.value_map.get(&arg.id()).unwrap())
-                    .collect()
+            let arg_values = if let Some(args) = args {
+                assert!(args.len() == callee_parameters.len());
+                let args = args
+                    .iter()
+                    .zip(callee_parameters)
+                    .map(|(value, param)| {
+                        let param_symbol = self.codegen.semantic_context.get_symbol(param);
+                        let param_symbol = param_symbol.borrow();
+                        (value, param_symbol.get_parameter().unwrap())
+                    })
+                    .collect::<Vec<_>>();
+                self.call_pass_arguments(args)
             } else {
                 vec![]
             };
@@ -537,40 +660,76 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         _span: &span::SpanLoc,
         id: span::SpanId,
     ) {
-        let data_id = match self.codegen.string_table.entry(n.0.get().to_owned()) {
-            std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                let data_id = self
-                    .codegen
-                    .object_module
-                    .as_mut()
-                    .unwrap()
-                    .declare_anonymous_data(false, false)
-                    .unwrap();
-                entry.insert(data_id);
+        let literal_ty = self.codegen.semantic_context.get_ast_type(id).unwrap();
 
-                let mut data_desc = cranelift_module::DataDescription::new();
-                let mut bytes = n.0.get().bytes().collect::<Vec<u8>>();
-                bytes.push(0); // Null.
-                data_desc.define(bytes.into_boxed_slice());
+        if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_char_type(literal_ty)
+        {
+            let x = n.0.get().chars().collect::<Vec<_>>();
+            assert!(x.len() == 1);
+            let x = u32::from(x[0]);
 
+            let v = self.emit_const_char(x);
+            self.set_value(id, v);
+        } else if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_string_type(literal_ty)
+        {
+            let data_id = match self.codegen.string_table.entry(n.0.get().to_owned()) {
+                std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    let data_id = self
+                        .codegen
+                        .object_module
+                        .as_mut()
+                        .unwrap()
+                        .declare_anonymous_data(false, false)
+                        .unwrap();
+                    entry.insert(data_id);
+
+                    let mut data_desc = cranelift_module::DataDescription::new();
+                    let mut unicode_points =
+                        n.0.get().chars().map(|x| u32::from(x)).collect::<Vec<_>>();
+                    unicode_points.push(0); // NULL.
+                    let bytes = unicode_points
+                        .iter()
+                        // FIXME: endianness is dependent of the platform
+                        .map(|x| x.to_le_bytes())
+                        .flatten()
+                        .collect::<Vec<_>>();
+                    data_desc.define(bytes.into_boxed_slice());
+
+                    self.codegen
+                        .object_module
+                        .as_mut()
+                        .unwrap()
+                        .define_data(data_id, &data_desc)
+                        .unwrap();
+
+                    data_id
+                }
+            };
+
+            let pointer_type = self.codegen.pointer_type;
+            let gv = self.get_global_value(data_id);
+
+            // This is the address???
+            let v = self.builder().ins().global_value(pointer_type, gv);
+            self.set_value(id, v);
+        } else {
+            panic!(
+                "Unexpected type {} for string literal",
                 self.codegen
-                    .object_module
-                    .as_mut()
-                    .unwrap()
-                    .define_data(data_id, &data_desc)
-                    .unwrap();
-
-                data_id
-            }
-        };
-
-        let pointer_type = self.codegen.pointer_type;
-        let gv = self.get_global_value(data_id);
-
-        // This is the address???
-        let v = self.builder().ins().global_value(pointer_type, gv);
-        self.set_value(id, v);
+                    .semantic_context
+                    .type_system
+                    .get_type_name(literal_ty)
+            );
+        }
     }
 
     fn visit_const_named(&mut self, _n: &ast::ConstNamed, _span: &span::SpanLoc, id: span::SpanId) {
@@ -590,10 +749,41 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
         let addr = self.get_value(n.0.id());
+        let ty = self
+            .codegen
+            .semantic_context
+            .get_ast_type(n.0.id())
+            .unwrap();
 
-        self.builder()
-            .ins()
-            .store(cranelift_codegen::ir::MemFlags::new(), value, addr, 0);
+        if self.codegen.semantic_context.type_system.is_simple_type(ty) {
+            self.builder()
+                .ins()
+                .store(cranelift_codegen::ir::MemFlags::new(), value, addr, 0);
+        } else if self.codegen.semantic_context.type_system.is_array_type(ty) {
+            let rhs_ty = self
+                .codegen
+                .semantic_context
+                .get_ast_type(n.1.id())
+                .unwrap();
+            assert!(
+                self.codegen.semantic_context.size_in_bytes(ty)
+                    == self.codegen.semantic_context.size_in_bytes(rhs_ty),
+                "Type sizes must match"
+            );
+            let size =
+                self.emit_const_integer(self.codegen.semantic_context.size_in_bytes(ty) as i64);
+            let target_config = {
+                let object_module = self.codegen.object_module.as_ref().unwrap();
+                object_module.target_config()
+            };
+            self.builder()
+                .call_memmove(target_config, addr, value, size);
+        } else {
+            panic!(
+                "Do not know how to assign a value of type {}",
+                self.codegen.semantic_context.type_system.get_type_name(ty)
+            );
+        }
 
         false
     }
@@ -613,16 +803,21 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .get_ast_type(n.0.id())
             .unwrap();
 
-        let cranelift_ty = self.codegen.type_to_cranelift_type(ty);
+        if self.codegen.semantic_context.type_system.is_simple_type(ty) {
+            let cranelift_ty = self.codegen.type_to_cranelift_type(ty);
 
-        let v = self.builder().ins().load(
-            cranelift_ty,
-            cranelift_codegen::ir::MemFlags::new(),
-            addr,
-            0,
-        );
+            let v = self.builder().ins().load(
+                cranelift_ty,
+                cranelift_codegen::ir::MemFlags::new(),
+                addr,
+                0,
+            );
 
-        self.set_value(id, v);
+            self.set_value(id, v);
+        } else {
+            // Structured types cannot have value semantics in the cranelift IR.
+            self.set_value(id, addr);
+        }
 
         false
     }
@@ -651,6 +846,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         //
         let sym_id = self.codegen.semantic_context.get_ast_symbol(id).unwrap();
         let sym = self.codegen.semantic_context.get_symbol(sym_id);
+        let sym = sym.borrow();
 
         let addr_value = match sym.get_kind() {
             symbol::SymbolKind::Variable => {
@@ -699,6 +895,119 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         };
 
         self.set_value(id, addr_value);
+    }
+
+    fn visit_pre_assig_array_access(
+        &mut self,
+        n: &ast::AssigArrayAccess,
+        _span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        // Walk the left hand side.
+        n.0.get().walk_mut(self, n.0.loc(), n.0.id());
+        let array_addr = self.get_value(n.0.id());
+        let array_ty = self
+            .codegen
+            .semantic_context
+            .get_ast_type(n.0.id())
+            .unwrap();
+
+        let num_idx = n.1.len();
+        let (_final_type, index_type_sizes, index_type_lower_bounds) = n.1.iter().enumerate().fold(
+            (array_ty, Vec::new(), Vec::new()),
+            |acc, (current_idx, ..)| {
+                let current_array_type = acc.0;
+
+                let current_array_index_type = self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .array_type_get_index_type(current_array_type);
+                let lower_bound = self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .ordinal_type_lower_bound(current_array_index_type);
+
+                let current_array_component_type = self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .array_type_get_component_type(current_array_type);
+
+                let (index_type_size, index_type_lb) = if current_idx + 1 == num_idx {
+                    (
+                        self.codegen
+                            .semantic_context
+                            .size_in_bytes(current_array_component_type)
+                            as i64,
+                        lower_bound,
+                    )
+                } else {
+                    if self
+                        .codegen
+                        .semantic_context
+                        .type_system
+                        .is_array_type(current_array_component_type)
+                    {
+                        let index_type = self
+                            .codegen
+                            .semantic_context
+                            .type_system
+                            .array_type_get_index_type(current_array_component_type);
+                        let extent = self
+                            .codegen
+                            .semantic_context
+                            .type_system
+                            .ordinal_type_extent(index_type);
+                        (extent, lower_bound)
+                    } else {
+                        panic!("Expecting an array type");
+                    }
+                };
+
+                let mut index_type_sizes = acc.1;
+                index_type_sizes.push(index_type_size);
+
+                let mut index_type_lbs = acc.2;
+                index_type_lbs.push(index_type_lb);
+
+                (
+                    current_array_component_type,
+                    index_type_sizes,
+                    index_type_lbs,
+                )
+            },
+        );
+
+        let mut linear_index_bytes = None;
+        for ((index, index_size), lb) in
+            n.1.iter()
+                .zip(index_type_sizes)
+                .zip(index_type_lower_bounds)
+        {
+            index.get().walk_mut(self, index.loc(), index.id());
+            let index_value = self.get_value(index.id());
+
+            let lb_value = self.emit_const_integer(lb);
+            let offset = self.builder().ins().isub(index_value, lb_value);
+            let offset = if let Some(linear_index_bytes) = linear_index_bytes {
+                self.builder().ins().iadd(index_value, linear_index_bytes)
+            } else {
+                offset
+            };
+
+            let index_size_value = self.emit_const_integer(index_size);
+            linear_index_bytes = Some(self.builder().ins().imul(offset, index_size_value));
+        }
+
+        let linear_index_bytes = linear_index_bytes.unwrap();
+
+        let addr = self.builder().ins().iadd(array_addr, linear_index_bytes);
+
+        self.set_value(id, addr);
+
+        false
     }
 
     fn visit_pre_expr_parentheses(
@@ -755,9 +1064,21 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         let lhs_value = self.get_value(n.1.id());
         let rhs_value = self.get_value(n.2.id());
         let op_type = self.codegen.semantic_context.get_ast_type(id).unwrap();
-        let is_integer = self.codegen.semantic_context.is_integer_type(op_type);
-        let is_real = self.codegen.semantic_context.is_real_type(op_type);
-        let is_bool = self.codegen.semantic_context.is_bool_type(op_type);
+        let is_integer = self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_integer_type(op_type);
+        let is_real = self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_real_type(op_type);
+        let is_bool = self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_bool_type(op_type);
         if is_integer {
             match operator {
                 ast::BinOperand::Addition => {
@@ -788,7 +1109,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     panic!(
                         "Unexpected operator {} for type {}",
                         operator,
-                        self.codegen.semantic_context.get_type_name(op_type)
+                        self.codegen
+                            .semantic_context
+                            .type_system
+                            .get_type_name(op_type)
                     );
                 }
             }
@@ -814,7 +1138,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     panic!(
                         "Unexpected operator {} for type {}",
                         operator,
-                        self.codegen.semantic_context.get_type_name(op_type)
+                        self.codegen
+                            .semantic_context
+                            .type_system
+                            .get_type_name(op_type)
                     );
                 }
             }
@@ -838,8 +1165,16 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         .unwrap();
                     assert!(lhs_type == rhs_type, "Invalid types in comparison");
 
-                    if self.codegen.semantic_context.is_integer_type(lhs_type)
-                        || self.codegen.semantic_context.is_bool_type(lhs_type)
+                    if self
+                        .codegen
+                        .semantic_context
+                        .type_system
+                        .is_integer_type(lhs_type)
+                        || self
+                            .codegen
+                            .semantic_context
+                            .type_system
+                            .is_bool_type(lhs_type)
                     {
                         let cond = match operator {
                             ast::BinOperand::Equal => IntCC::Equal,
@@ -852,7 +1187,12 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         };
                         let result = self.builder().ins().icmp(cond, lhs_value, rhs_value);
                         self.set_value(id, result);
-                    } else if self.codegen.semantic_context.is_real_type(rhs_type) {
+                    } else if self
+                        .codegen
+                        .semantic_context
+                        .type_system
+                        .is_real_type(rhs_type)
+                    {
                         let cond = match operator {
                             ast::BinOperand::Equal => FloatCC::Equal,
                             ast::BinOperand::Different => FloatCC::NotEqual,
@@ -868,7 +1208,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         panic!(
                             "Unexpected operator {} for type {}",
                             operator,
-                            self.codegen.semantic_context.get_type_name(op_type)
+                            self.codegen
+                                .semantic_context
+                                .type_system
+                                .get_type_name(op_type)
                         );
                     }
                 }
@@ -884,7 +1227,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     panic!(
                         "Unexpected operator {} for type {}",
                         operator,
-                        self.codegen.semantic_context.get_type_name(op_type)
+                        self.codegen
+                            .semantic_context
+                            .type_system
+                            .get_type_name(op_type)
                     );
                 }
             }
@@ -911,16 +1257,30 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         let src_value = self.get_value(n.0.id());
 
-        if self.codegen.semantic_context.is_real_type(dest_ty)
-            && self.codegen.semantic_context.is_integer_type(src_ty)
+        if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_real_type(dest_ty)
+            && self
+                .codegen
+                .semantic_context
+                .type_system
+                .is_integer_type(src_ty)
         {
             let value = self.builder().ins().fcvt_from_sint(F64, src_value);
             self.set_value(id, value);
         } else {
             panic!(
                 "Unexpected conversion from {} to {}",
-                self.codegen.semantic_context.get_type_name(src_ty),
-                self.codegen.semantic_context.get_type_name(dest_ty)
+                self.codegen
+                    .semantic_context
+                    .type_system
+                    .get_type_name(src_ty),
+                self.codegen
+                    .semantic_context
+                    .type_system
+                    .get_type_name(dest_ty)
             );
         }
 
@@ -1286,17 +1646,29 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 .get_ast_symbol(sym.id())
                 .unwrap();
             let sym = self.codegen.semantic_context.get_symbol(sym_id);
+            let sym = sym.borrow();
             let ty = sym.get_type().unwrap();
 
-            if self.codegen.semantic_context.is_integer_type(ty)
-                || self.codegen.semantic_context.is_real_type(ty)
-                || self.codegen.semantic_context.is_bool_type(ty)
+            if self
+                .codegen
+                .semantic_context
+                .type_system
+                .is_integer_type(ty)
+                || self.codegen.semantic_context.type_system.is_real_type(ty)
+                || self.codegen.semantic_context.type_system.is_bool_type(ty)
+                || self.codegen.semantic_context.type_system.is_enum_type(ty)
+                || self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .is_subrange_type(ty)
+                || self.codegen.semantic_context.type_system.is_array_type(ty)
             {
                 self.allocate_value_in_stack(sym_id);
             } else {
                 panic!(
                     "Unexpected type '{}' in variable declaration",
-                    self.codegen.semantic_context.get_type_name(ty)
+                    self.codegen.semantic_context.type_system.get_type_name(ty)
                 );
             }
         }
@@ -1322,6 +1694,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .semantic_context
             .get_ast_symbol(callee.id())
             .unwrap();
+        let callee_sym = self.codegen.semantic_context.get_symbol(callee_sym_id);
+        let callee_sym = callee_sym.borrow();
+        let callee_parameters = callee_sym.get_formal_parameters().unwrap();
 
         let func_id = *self
             .codegen
@@ -1331,11 +1706,18 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         let func_ref = self.get_function_reference(func_id);
 
-        // Now get the values of the arguments.
-        let arg_values: Vec<_> = args
+        assert!(args.len() == callee_parameters.len());
+        let args = args
             .iter()
-            .map(|arg| *self.value_map.get(&arg.id()).unwrap())
-            .collect();
+            .zip(callee_parameters)
+            .map(|(value, param)| {
+                let param_symbol = self.codegen.semantic_context.get_symbol(param);
+                let param_symbol = param_symbol.borrow();
+                (value, param_symbol.get_parameter().unwrap())
+            })
+            .collect::<Vec<_>>();
+
+        let arg_values = self.call_pass_arguments(args);
 
         let call = self.builder().ins().call(func_ref, arg_values.as_slice());
         let result = {

@@ -2,7 +2,9 @@ use crate::constant::Constant;
 use crate::span;
 use crate::typesystem::TypeId;
 use crate::utils;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::rc::Rc;
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
 pub struct SymbolId(utils::Identifier);
@@ -169,5 +171,38 @@ impl Symbol {
 
     pub fn get_return_symbol(&self) -> Option<SymbolId> {
         self.info.return_symbol
+    }
+}
+
+pub type SymbolMap = Rc<RefCell<SymbolMapImpl>>;
+pub type SymbolRef = Rc<RefCell<Symbol>>;
+
+#[derive(Default)]
+pub struct SymbolMapImpl {
+    symbols: HashMap<SymbolId, SymbolRef>,
+}
+
+impl SymbolMapImpl {
+    pub fn new() -> SymbolMap {
+        let x = SymbolMapImpl::default();
+
+        Rc::new(RefCell::new(x))
+    }
+
+    pub fn new_symbol(&mut self, sym: Symbol) -> SymbolId {
+        if let Some(sym) = self.symbols.get(&sym.id()) {
+            return sym.borrow().id();
+        }
+        let new_id = sym.id();
+        self.symbols.insert(new_id, Rc::new(RefCell::new(sym)));
+        new_id
+    }
+
+    pub fn get_symbol(&self, id: SymbolId) -> SymbolRef {
+        self.symbols.get(&id).unwrap().clone()
+    }
+
+    pub fn get_symbol_mut(&mut self, id: SymbolId) -> SymbolRef {
+        self.symbols.get_mut(&id).unwrap().clone()
     }
 }

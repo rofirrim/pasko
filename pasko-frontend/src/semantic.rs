@@ -4,28 +4,22 @@ use crate::constant::Constant;
 use crate::diagnostics::{Diagnostic, DiagnosticKind, Diagnostics};
 use crate::scope;
 use crate::span;
-use crate::symbol::{ParameterKind, Symbol, SymbolId, SymbolKind};
-use crate::typesystem::{Type, TypeId, TypeKind};
+use crate::symbol::{
+    ParameterKind, Symbol, SymbolId, SymbolKind, SymbolMap, SymbolMapImpl, SymbolRef,
+};
+use crate::typesystem::{Type, TypeId, TypeKind, TypeSystem};
 use crate::visitor::MutatingVisitable;
 use crate::visitor::MutatingVisitorMut;
 
-use std::collections::{HashMap, HashSet};
-
-use std::rc::Rc;
+use std::collections::HashMap;
 
 pub struct SemanticContext {
-    types: HashMap<TypeId, Rc<Type>>,
-    derived_types: HashSet<Rc<Type>>,
-    symbols: HashMap<SymbolId, Symbol>,
+    symbol_map: SymbolMap,
+    pub type_system: TypeSystem,
 
     ast_types: HashMap<span::SpanId, TypeId>,
     ast_symbols: HashMap<span::SpanId, SymbolId>,
     ast_values: HashMap<span::SpanId, Constant>,
-
-    integer_type_id: TypeId,
-    real_type_id: TypeId,
-    bool_type_id: TypeId,
-    error_type_id: TypeId,
 }
 
 const REQUIRED_PROCEDURES: &[&str] = &[
@@ -51,57 +45,19 @@ pub fn is_required_procedure_or_function(name: &str) -> bool {
 
 impl SemanticContext {
     pub fn new() -> SemanticContext {
-        let mut types = HashMap::new();
+        let symbol_map = SymbolMapImpl::new();
+        let type_system = TypeSystem::new(symbol_map.clone());
 
-        // We cannot use SemanticContext::new_type here, so we manually
-        // add the builtin types into a temporary hashmap.
-        let mut integer_type = Type::default();
-        integer_type.set_kind(TypeKind::Integer);
-        let integer_type_id = integer_type.id();
-        types.insert(integer_type_id, Rc::new(integer_type));
-
-        let mut real_type = Type::default();
-        real_type.set_kind(TypeKind::Real);
-        let real_type_id = real_type.id();
-        types.insert(real_type_id, Rc::new(real_type));
-
-        let mut bool_type = Type::default();
-        bool_type.set_kind(TypeKind::Bool);
-        let bool_type_id = bool_type.id();
-        types.insert(bool_type_id, Rc::new(bool_type));
-
-        let mut error_type = Type::default();
-        error_type.set_kind(TypeKind::Error);
-        let error_type_id = error_type.id();
-        types.insert(error_type_id, Rc::new(error_type));
-
-        SemanticContext {
-            types,
-            derived_types: HashSet::new(),
-            symbols: HashMap::new(),
+        let sc = SemanticContext {
+            symbol_map,
+            type_system,
 
             ast_types: HashMap::new(),
             ast_symbols: HashMap::new(),
             ast_values: HashMap::new(),
+        };
 
-            integer_type_id,
-            real_type_id,
-            bool_type_id,
-            error_type_id,
-        }
-    }
-
-    pub fn new_type(&mut self, ty: Type) -> TypeId {
-        if let Some(ty) = self.types.get(&ty.id()) {
-            return ty.id();
-        }
-        let new_id = ty.id();
-        self.types.insert(new_id, Rc::new(ty));
-        new_id
-    }
-
-    fn get_type_internal(&self, id: TypeId) -> &Type {
-        self.types.get(&id).unwrap()
+        sc
     }
 
     pub fn get_ast_type(&self, id: span::SpanId) -> Option<TypeId> {
@@ -121,20 +77,15 @@ impl SemanticContext {
     }
 
     pub fn new_symbol(&mut self, sym: Symbol) -> SymbolId {
-        if let Some(sym) = self.symbols.get(&sym.id()) {
-            return sym.id();
-        }
-        let new_id = sym.id();
-        self.symbols.insert(new_id, sym);
-        new_id
+        self.symbol_map.borrow_mut().new_symbol(sym)
     }
 
-    pub fn get_symbol(&self, id: SymbolId) -> &Symbol {
-        self.symbols.get(&id).unwrap()
+    pub fn get_symbol(&self, id: SymbolId) -> SymbolRef {
+        self.symbol_map.borrow().get_symbol(id)
     }
 
-    pub fn get_symbol_mut(&mut self, id: SymbolId) -> &mut Symbol {
-        self.symbols.get_mut(&id).unwrap()
+    pub fn get_symbol_mut(&mut self, id: SymbolId) -> SymbolRef {
+        self.symbol_map.borrow_mut().get_symbol_mut(id)
     }
 
     pub fn set_ast_symbol(&mut self, id: span::SpanId, sym: SymbolId) {
@@ -145,175 +96,35 @@ impl SemanticContext {
         self.ast_symbols.get(&id).cloned()
     }
 
-    pub fn get_integer_type(&self) -> TypeId {
-        self.integer_type_id
-    }
-
-    pub fn is_integer_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
-        let ty = self.get_type_internal(ty);
-
-        ty.is_integer_type()
-    }
-
-    pub fn is_enum_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
-        let ty = self.get_type_internal(ty);
-
-        ty.is_enum_type()
-    }
-
-    pub fn is_subrange_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
-        let ty = self.get_type_internal(ty);
-
-        ty.is_subrange_type()
-    }
-
-    pub fn get_host_type(&self, ty: TypeId) -> TypeId {
-        let ty = self.ultimate_type(ty);
-        let ty = self.get_type_internal(ty);
-
-        ty.get_host_type()
-    }
-
-    pub fn get_real_type(&self) -> TypeId {
-        self.real_type_id
-    }
-
-    pub fn is_real_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
-        let ty = self.get_type_internal(ty);
-
-        ty.is_real_type()
-    }
-
-    pub fn get_bool_type(&self) -> TypeId {
-        self.bool_type_id
-    }
-
-    pub fn is_bool_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
-        let ty = self.get_type_internal(ty);
-
-        ty.is_bool_type()
-    }
-
-    pub fn get_error_type(&self) -> TypeId {
-        self.error_type_id
-    }
-
-    pub fn is_error_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
-        let ty = self.get_type_internal(ty);
-
-        ty.is_error_type()
-    }
-
-    pub fn get_string_type(&mut self, len: usize) -> TypeId {
-        let mut new_string_type = Type::default();
-        new_string_type.set_kind(TypeKind::String(len));
-
-        let new_string_type = Rc::new(new_string_type);
-        match self.derived_types.get(&new_string_type.clone()) {
-            Some(x) => return x.id(),
-            _ => {}
-        }
-
-        let new_id = new_string_type.id();
-
-        self.derived_types.insert(new_string_type.clone());
-        self.types.insert(new_id, new_string_type);
-
-        new_id
-    }
-
-    pub fn is_string_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
-        let ty = self.get_type_internal(ty);
-        return ty.is_string_type();
-    }
-
-    pub fn get_type_name(&self, id: TypeId) -> String {
-        let ty = self.get_type_internal(id);
-        match ty.get_kind() {
-            TypeKind::NamedType(sym_id) => {
-                let sym = self.get_symbol(sym_id);
-                assert!(!self.is_builtin_type_name(sym.get_name()));
-                let ult_ty = self.ultimate_type(id);
-                // FIXME: we seem to cut-off a bit too much here and we might be able
-                // to be a bit more informative for named types of types with structure.
-                if !self.is_enum_type(ult_ty) && !self.is_subrange_type(ult_ty) {
-                    let aliased_to = self.get_type_name(self.ultimate_type(id));
-                    return format!("'{}' (an alias of {})", sym.get_name().clone(), aliased_to);
-                } else {
-                    return format!("'{}'", sym.get_name().clone());
-                }
-            }
-            TypeKind::Integer => "'integer'".to_string(),
-            TypeKind::Real => "'real'".to_string(),
-            TypeKind::Bool => "'boolean'".to_string(),
-            TypeKind::String(len) => format!("'string of {} characters'", len),
-            TypeKind::Enum(_) => format!("'enumerated type'"),
-            _ => {
-                unreachable!("Cannot print name of type {:?}", ty.get_kind());
-            }
-        }
-    }
-
-    pub fn is_builtin_type_name(&self, name: &str) -> bool {
-        match name {
-            "integer" | "real" | "boolean" => true,
-            _ => false,
-        }
-    }
-
-    fn ultimate_type(&self, ty: TypeId) -> TypeId {
-        let lhs_type = self.get_type_internal(ty);
-        if let Some(sym_id) = lhs_type.get_symbol_of_named_type() {
-            let sym = self.get_symbol(sym_id);
-            return self.ultimate_type(sym.get_type().unwrap());
-        }
-        ty
-    }
-
-    pub fn same_type(&self, a: TypeId, b: TypeId) -> bool {
-        let a = self.ultimate_type(a);
-        let b = self.ultimate_type(b);
-
-        a == b
-    }
-
-    pub fn is_valid_component_type_of_file_type(&self, _ty: TypeId) -> bool {
-        // TODO:
-        true
-    }
-
-    pub fn is_simple_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
-        let ty = self.get_type_internal(ty);
-
-        ty.is_simple_type()
-    }
-
-    pub fn is_ordinal_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
-        let ty = self.get_type_internal(ty);
-
-        ty.is_ordinal_type()
-    }
-
     pub fn size_in_bytes(&self, ty: TypeId) -> usize {
-        if self.is_real_type(ty) || self.is_integer_type(ty) || self.is_enum_type(ty) {
+        if self.type_system.is_real_type(ty)
+            || self.type_system.is_integer_type(ty)
+            || self.type_system.is_enum_type(ty)
+        {
             8
-        } else if self.is_bool_type(ty) {
+        } else if self.type_system.is_char_type(ty) {
+            4
+        } else if self.type_system.is_bool_type(ty) {
             1
-        } else if self.is_subrange_type(ty) {
-            return self.size_in_bytes(self.get_host_type(ty))
+        } else if self.type_system.is_subrange_type(ty) {
+            return self.size_in_bytes(self.type_system.get_host_type(ty));
+        } else if self.type_system.is_array_type(ty) {
+            let component_size =
+                self.size_in_bytes(self.type_system.array_type_get_component_type(ty));
+            let index_ty = self.type_system.array_type_get_index_type(ty);
+            let index_size = self.type_system.ordinal_type_extent(index_ty);
+            if let Some(x) = component_size.checked_mul(index_size as usize) {
+                x
+            } else {
+                panic!(
+                    "Overflow while computing the size of type {}",
+                    self.type_system.get_type_name(ty)
+                );
+            }
         } else {
             panic!(
                 "Unexpected size request for type {}",
-                self.get_type_name(ty)
+                self.type_system.get_type_name(ty)
             );
         }
     }
@@ -384,7 +195,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
         let sym = self.scope.lookup_current_scope(name);
         match sym {
             Some(x) => {
-                let extra = self.extra_diag_previous_location(self.ctx.get_symbol(x));
+                let extra = self.extra_diag_previous_location(&self.ctx.get_symbol(x).borrow());
                 self.diagnostics.add_with_extra(
                     DiagnosticKind::Error,
                     *span,
@@ -411,11 +222,12 @@ impl<'a> SemanticCheckerVisitor<'a> {
     ) -> FunctionProcedureDeclarationStatus {
         if let Some(sym_id) = self.scope.lookup_current_scope(&name) {
             let sym = self.ctx.get_symbol(sym_id);
+            let sym = sym.borrow();
 
             match sym.get_kind() {
                 SymbolKind::Function if !is_procedure => {
                     if sym.is_defined() {
-                        let extra = self.extra_diag_previous_location(sym);
+                        let extra = self.extra_diag_previous_location(&sym);
                         self.diagnostics.add_with_extra(
                             DiagnosticKind::Error,
                             *span,
@@ -430,7 +242,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                 }
                 SymbolKind::Procedure if is_procedure => {
                     if sym.is_defined() {
-                        let extra = self.extra_diag_previous_location(sym);
+                        let extra = self.extra_diag_previous_location(&sym);
                         self.diagnostics.add_with_extra(
                             DiagnosticKind::Error,
                             *span,
@@ -445,7 +257,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                 }
                 _ => {
                     // Already declared
-                    let extra = self.extra_diag_previous_location(sym);
+                    let extra = self.extra_diag_previous_location(&sym);
                     self.diagnostics.add_with_extra(
                         DiagnosticKind::Error,
                         *span,
@@ -480,24 +292,26 @@ impl<'a> SemanticCheckerVisitor<'a> {
     }
 
     fn is_compatible(&self, lhs_type_id: TypeId, rhs_type_id: TypeId) -> bool {
-        if self.ctx.same_type(lhs_type_id, rhs_type_id) {
+        if self.ctx.type_system.same_type(lhs_type_id, rhs_type_id) {
             return true;
         }
 
         // lhs is a subrange of rhs, or rhs is a subrange of lhs, or both lhs and rhs are subranges of the same host-type.
-        if (self.ctx.is_subrange_type(lhs_type_id)
+        if (self.ctx.type_system.is_subrange_type(lhs_type_id)
             && self
                 .ctx
-                .same_type(rhs_type_id, self.ctx.get_host_type(lhs_type_id)))
-            || (self.ctx.is_subrange_type(rhs_type_id)
+                .type_system
+                .same_type(rhs_type_id, self.ctx.type_system.get_host_type(lhs_type_id)))
+            || (self.ctx.type_system.is_subrange_type(rhs_type_id)
                 && self
                     .ctx
-                    .same_type(lhs_type_id, self.ctx.get_host_type(rhs_type_id)))
-            || (self.ctx.is_subrange_type(rhs_type_id)
-                && self.ctx.is_subrange_type(lhs_type_id)
-                && self.ctx.same_type(
-                    self.ctx.get_host_type(lhs_type_id),
-                    self.ctx.get_host_type(rhs_type_id),
+                    .type_system
+                    .same_type(lhs_type_id, self.ctx.type_system.get_host_type(rhs_type_id)))
+            || (self.ctx.type_system.is_subrange_type(rhs_type_id)
+                && self.ctx.type_system.is_subrange_type(lhs_type_id)
+                && self.ctx.type_system.same_type(
+                    self.ctx.type_system.get_host_type(lhs_type_id),
+                    self.ctx.type_system.get_host_type(rhs_type_id),
                 ))
         {
             return true;
@@ -511,17 +325,22 @@ impl<'a> SemanticCheckerVisitor<'a> {
     }
 
     fn is_assignment_compatible(&self, lhs_type_id: TypeId, rhs_type_id: TypeId) -> bool {
-        if self.ctx.same_type(lhs_type_id, rhs_type_id) {
-            return self.ctx.is_valid_component_type_of_file_type(lhs_type_id);
+        if self.ctx.type_system.same_type(lhs_type_id, rhs_type_id) {
+            return self
+                .ctx
+                .type_system
+                .is_valid_component_type_of_file_type(lhs_type_id);
         }
 
-        if self.ctx.is_real_type(lhs_type_id) && self.ctx.is_integer_type(rhs_type_id) {
+        if self.ctx.type_system.is_real_type(lhs_type_id)
+            && self.ctx.type_system.is_integer_type(rhs_type_id)
+        {
             return true;
         }
 
         // types are compatible ordinal types and the value of rhs is in the closed interval of lhs
-        if self.ctx.is_ordinal_type(lhs_type_id)
-            && self.ctx.is_ordinal_type(rhs_type_id)
+        if self.ctx.type_system.is_ordinal_type(lhs_type_id)
+            && self.ctx.type_system.is_ordinal_type(rhs_type_id)
             && self.is_compatible(lhs_type_id, rhs_type_id)
         {
             // FIXME: There are cases that we might be able to diagnose here statically.
@@ -535,45 +354,56 @@ impl<'a> SemanticCheckerVisitor<'a> {
         false
     }
 
-    fn second_needs_conversion_to_first(&self, lhs_type_id: TypeId, rhs_type_id : TypeId) -> bool {
-        self.ctx.is_real_type(lhs_type_id) && self.ctx.is_integer_type(rhs_type_id)
+    fn second_needs_conversion_to_first(&self, lhs_type_id: TypeId, rhs_type_id: TypeId) -> bool {
+        self.ctx.type_system.is_real_type(lhs_type_id)
+            && self.ctx.type_system.is_integer_type(rhs_type_id)
     }
 
     fn common_arith_type(&self, lhs_ty: TypeId, rhs_ty: TypeId) -> Option<TypeId> {
-        if self.ctx.is_integer_type(lhs_ty) && self.ctx.is_integer_type(rhs_ty) {
-            return Some(self.ctx.get_integer_type());
+        if self.ctx.type_system.is_integer_type(lhs_ty)
+            && self.ctx.type_system.is_integer_type(rhs_ty)
+        {
+            return Some(self.ctx.type_system.get_integer_type());
         }
 
-        if self.ctx.is_real_type(lhs_ty) && self.ctx.is_real_type(rhs_ty)
-            || self.ctx.is_integer_type(lhs_ty) && self.ctx.is_real_type(rhs_ty)
-            || self.ctx.is_real_type(lhs_ty) && self.ctx.is_integer_type(rhs_ty)
+        if self.ctx.type_system.is_real_type(lhs_ty) && self.ctx.type_system.is_real_type(rhs_ty)
+            || self.ctx.type_system.is_integer_type(lhs_ty)
+                && self.ctx.type_system.is_real_type(rhs_ty)
+            || self.ctx.type_system.is_real_type(lhs_ty)
+                && self.ctx.type_system.is_integer_type(rhs_ty)
         {
-            return Some(self.ctx.get_real_type());
+            return Some(self.ctx.type_system.get_real_type());
         }
         None
     }
 
     fn real_arith_type(&self, lhs_ty: TypeId, rhs_ty: TypeId) -> Option<TypeId> {
-        if self.ctx.is_integer_type(lhs_ty) && self.ctx.is_integer_type(rhs_ty)
-            || self.ctx.is_real_type(lhs_ty) && self.ctx.is_real_type(rhs_ty)
-            || self.ctx.is_integer_type(lhs_ty) && self.ctx.is_real_type(rhs_ty)
-            || self.ctx.is_real_type(lhs_ty) && self.ctx.is_integer_type(rhs_ty)
+        if self.ctx.type_system.is_integer_type(lhs_ty)
+            && self.ctx.type_system.is_integer_type(rhs_ty)
+            || self.ctx.type_system.is_real_type(lhs_ty)
+                && self.ctx.type_system.is_real_type(rhs_ty)
+            || self.ctx.type_system.is_integer_type(lhs_ty)
+                && self.ctx.type_system.is_real_type(rhs_ty)
+            || self.ctx.type_system.is_real_type(lhs_ty)
+                && self.ctx.type_system.is_integer_type(rhs_ty)
         {
-            return Some(self.ctx.get_real_type());
+            return Some(self.ctx.type_system.get_real_type());
         }
         None
     }
 
     fn both_integer_type(&self, lhs_ty: TypeId, rhs_ty: TypeId) -> Option<TypeId> {
-        if self.ctx.is_integer_type(lhs_ty) && self.ctx.is_integer_type(rhs_ty) {
-            return Some(self.ctx.get_integer_type());
+        if self.ctx.type_system.is_integer_type(lhs_ty)
+            && self.ctx.type_system.is_integer_type(rhs_ty)
+        {
+            return Some(self.ctx.type_system.get_integer_type());
         }
         None
     }
 
     fn both_bool_type(&self, lhs_ty: TypeId, rhs_ty: TypeId) -> Option<TypeId> {
-        if self.ctx.is_bool_type(lhs_ty) && self.ctx.is_bool_type(rhs_ty) {
-            return Some(self.ctx.get_bool_type());
+        if self.ctx.type_system.is_bool_type(lhs_ty) && self.ctx.type_system.is_bool_type(rhs_ty) {
+            return Some(self.ctx.type_system.get_bool_type());
         }
         None
     }
@@ -582,9 +412,13 @@ impl<'a> SemanticCheckerVisitor<'a> {
         // TODO: set-types
         if self.is_compatible(lhs_type_id, rhs_type_id) {
             return Some(lhs_type_id);
-        } else if self.ctx.is_integer_type(lhs_type_id) && self.ctx.is_real_type(rhs_type_id) {
+        } else if self.ctx.type_system.is_integer_type(lhs_type_id)
+            && self.ctx.type_system.is_real_type(rhs_type_id)
+        {
             return Some(rhs_type_id);
-        } else if self.ctx.is_real_type(lhs_type_id) || self.ctx.is_integer_type(rhs_type_id) {
+        } else if self.ctx.type_system.is_real_type(lhs_type_id)
+            || self.ctx.type_system.is_integer_type(rhs_type_id)
+        {
             return Some(lhs_type_id);
         }
 
@@ -593,7 +427,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
 
     fn valid_for_relational(&self, lhs_type_id: TypeId, rhs_type_id: TypeId) -> Option<TypeId> {
         let valid_type = |ty: TypeId| {
-            self.ctx.is_simple_type(ty) // || ty.is_string_type()
+            self.ctx.type_system.is_simple_type(ty) // || ty.is_string_type()
         };
 
         if !valid_type(lhs_type_id) || !valid_type(rhs_type_id) {
@@ -609,7 +443,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
         rhs_type_id: TypeId,
     ) -> Option<TypeId> {
         let valid_type = |ty: TypeId| {
-            self.ctx.is_simple_type(ty) // || ty.is_string_type()
+            self.ctx.type_system.is_simple_type(ty) // || ty.is_string_type()
         };
 
         if !valid_type(lhs_type_id) || !valid_type(rhs_type_id) {
@@ -621,7 +455,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
 
     fn valid_for_equality(&self, lhs_type_id: TypeId, rhs_type_id: TypeId) -> Option<TypeId> {
         let valid_type = |ty: TypeId| {
-            self.ctx.is_simple_type(ty) // || ty.is_string_type()
+            self.ctx.type_system.is_simple_type(ty) // || ty.is_string_type()
         };
 
         if !valid_type(lhs_type_id) || !valid_type(rhs_type_id) {
@@ -641,15 +475,16 @@ impl<'a> SemanticCheckerVisitor<'a> {
         lhs_loc: span::SpanLoc,
         rhs_loc: span::SpanLoc,
     ) {
-        self.ctx.set_ast_type(id, self.ctx.get_error_type());
+        self.ctx
+            .set_ast_type(id, self.ctx.type_system.get_error_type());
         self.diagnostics.add_with_extra(
             DiagnosticKind::Error,
             operator_loc,
             format!(
                 "operator '{}' cannot be applied to operands of type {} and {}",
                 operator_name,
-                self.ctx.get_type_name(lhs_ty),
-                self.ctx.get_type_name(rhs_ty)
+                self.ctx.type_system.get_type_name(lhs_ty),
+                self.ctx.type_system.get_type_name(rhs_ty)
             ),
             vec![lhs_loc, rhs_loc],
             vec![],
@@ -664,14 +499,15 @@ impl<'a> SemanticCheckerVisitor<'a> {
         operator_loc: span::SpanLoc,
         op_loc: span::SpanLoc,
     ) {
-        self.ctx.set_ast_type(id, self.ctx.get_error_type());
+        self.ctx
+            .set_ast_type(id, self.ctx.type_system.get_error_type());
         self.diagnostics.add_with_extra(
             DiagnosticKind::Error,
             operator_loc,
             format!(
                 "operator '{}' cannot be applied to operand of type {}",
                 operator_name,
-                self.ctx.get_type_name(op_ty)
+                self.ctx.type_system.get_type_name(op_ty)
             ),
             vec![op_loc],
             vec![],
@@ -735,19 +571,26 @@ impl<'a> SemanticCheckerVisitor<'a> {
             .collect();
 
         // If any argument of the call is wrong, give up.
-        if arguments.iter().any(|arg| self.ctx.is_error_type(arg.2)) {
+        if arguments
+            .iter()
+            .any(|arg| self.ctx.type_system.is_error_type(arg.2))
+        {
             return false;
         }
 
         let params = {
             let callee_symbol = self.ctx.get_symbol(callee_symbol_id);
+            let callee_symbol = callee_symbol.borrow();
             callee_symbol.get_formal_parameters().unwrap()
         };
 
         // If any parameter of the function declaration was already wrong, give up.
         if params.iter().any(|param| {
             let param_sym = self.ctx.get_symbol(*param);
-            self.ctx.is_error_type(param_sym.get_type().unwrap())
+            let param_sym = param_sym.borrow();
+            self.ctx
+                .type_system
+                .is_error_type(param_sym.get_type().unwrap())
         }) {
             return false;
         }
@@ -775,6 +618,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
         let mut argument_error = false;
         for (idx, (arg, param_sym_id)) in arguments.iter().zip(params).enumerate() {
             let param_sym = self.ctx.get_symbol(param_sym_id);
+            let param_sym = param_sym.borrow();
             let param_kind = param_sym.get_parameter().unwrap();
             let param_type_id = param_sym.get_type().unwrap();
             match param_kind {
@@ -785,9 +629,9 @@ impl<'a> SemanticCheckerVisitor<'a> {
                                                 arg.1,
                                                 format!(
                                                     "argument has type {} that is not assignment compatible with value parameter '{}' of type {}",
-                                                    self.ctx.get_type_name(arg.2),
+                                                    self.ctx.type_system.get_type_name(arg.2),
                                                     param_sym.get_name(),
-                                                    self.ctx.get_type_name(param_type_id)
+                                                    self.ctx.type_system.get_type_name(param_type_id)
                                                 ),
                                             );
                         argument_error = true;
@@ -817,9 +661,9 @@ impl<'a> SemanticCheckerVisitor<'a> {
                                                 arg.1,
                                                 format!(
                                                     "argument has type {} but it is different to variable parameter '{}' of type {}",
-                                                    self.ctx.get_type_name(arg.2),
+                                                    self.ctx.type_system.get_type_name(arg.2),
                                                     param_sym.get_name(),
-                                                    self.ctx.get_type_name(param_type_id)
+                                                    self.ctx.type_system.get_type_name(param_type_id)
                                                 ),
                                             );
                         argument_error = true;
@@ -919,7 +763,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         if let Some(val) = self.ctx.get_ast_value(n.1.id()) {
             new_sym.set_const(val);
         } else {
-            assert!(self.ctx.is_error_type(const_ty));
+            assert!(self.ctx.type_system.is_error_type(const_ty));
         }
 
         let new_sym = self.ctx.new_symbol(new_sym);
@@ -947,7 +791,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         // Set a placeholder type until we can set the right type.
         // FIXME: For recursive definitions involving pointers
         // we need to think a bit more.
-        new_sym.set_type(self.ctx.get_error_type());
+        new_sym.set_type(self.ctx.type_system.get_error_type());
 
         let new_sym = self.ctx.new_symbol(new_sym);
         self.scope.add_entry(name, new_sym);
@@ -961,7 +805,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
         let type_denoter = self.ctx.get_ast_type(n.1.id()).unwrap();
         // Update the type stored in the type symbol.
-        self.ctx.get_symbol_mut(new_sym).set_type(type_denoter);
+        self.ctx
+            .get_symbol_mut(new_sym)
+            .borrow_mut()
+            .set_type(type_denoter);
 
         false
     }
@@ -997,7 +844,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         }
 
         if enum_error {
-            self.ctx.set_ast_type(id, self.ctx.get_error_type());
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
             return;
         }
 
@@ -1007,12 +855,15 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         // Note, technically the enumerators should not be redeclared at all, but for consistency
         // with the way we expect the typesystem work, we will assume it might be possible to create
         // enumerators with the same enumerator ids. Hence the dance below.
-        let enum_type_id = self.ctx.new_type(enum_type);
+        let enum_type_id = self.ctx.type_system.new_type(enum_type);
 
         // Now link the enumerators to its enum type.
-        enum_ids
-            .iter()
-            .for_each(|enum_id| self.ctx.get_symbol_mut(*enum_id).set_type(enum_type_id));
+        enum_ids.iter().for_each(|enum_id| {
+            self.ctx
+                .get_symbol_mut(*enum_id)
+                .borrow_mut()
+                .set_type(enum_type_id)
+        });
 
         self.ctx.set_ast_type(id, enum_type_id);
     }
@@ -1028,7 +879,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
         let lower_ty = self.ctx.get_ast_type(lower.id()).unwrap();
         let upper_ty = self.ctx.get_ast_type(lower.id()).unwrap();
-        if !self.ctx.same_type(lower_ty, upper_ty) {
+        if !self.ctx.type_system.same_type(lower_ty, upper_ty) {
             self.diagnostics.add_with_extra(
                 DiagnosticKind::Error,
                 *lower.loc(),
@@ -1036,7 +887,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 vec![*upper.loc()],
                 vec![],
             );
-            self.ctx.set_ast_type(id, self.ctx.get_error_type());
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
             return;
         }
 
@@ -1052,12 +904,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 vec![*upper.loc()],
                 vec![],
             );
-            self.ctx.set_ast_type(id, self.ctx.get_error_type());
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
             return;
         }
 
         // Use the ultimate type as the host for simplicity.
-        let ult_type = self.ctx.ultimate_type(lower_ty);
+        let ult_type = self.ctx.type_system.ultimate_type(lower_ty);
 
         let mut subrange_type = Type::default();
         subrange_type.set_kind(TypeKind::SubRange(ult_type, lower_const, upper_const));
@@ -1069,19 +922,39 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         // subranges due to their compatibility rules but it will not be for
         // structures as they should have name-equality and not structural
         // equality. Bear this in mind when implementing structures.
-        let subrange_type_id = self.ctx.new_type(subrange_type);
+        let subrange_type_id = self.ctx.type_system.new_type(subrange_type);
         self.ctx.set_ast_type(id, subrange_type_id);
     }
 
-    fn visit_pre_array_type(
+    fn visit_post_array_type(
         &mut self,
-        _n: &mut ast::ArrayType,
-        span: &span::SpanLoc,
+        n: &mut ast::ArrayType,
+        _span: &span::SpanLoc,
         id: span::SpanId,
-    ) -> bool {
-        self.unimplemented(*span, "array types");
-        self.ctx.set_ast_type(id, self.ctx.get_error_type());
-        false
+    ) {
+        let packed = n.0.is_some();
+
+        let index_types = &n.1;
+        assert!(index_types.len() > 0);
+
+        let component_type = self.ctx.get_ast_type(n.2.id()).unwrap();
+
+        let mut array_type = component_type;
+
+        for ty in index_types.iter().rev() {
+            let index = self.ctx.get_ast_type(ty.id()).unwrap();
+
+            let mut new_array = Type::default();
+            new_array.set_kind(TypeKind::Array {
+                packed,
+                index,
+                component: array_type,
+            });
+
+            array_type = self.ctx.type_system.new_type(new_array);
+        }
+
+        self.ctx.set_ast_type(id, array_type);
     }
 
     fn visit_pre_record_type(
@@ -1091,7 +964,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         id: span::SpanId,
     ) -> bool {
         self.unimplemented(*span, "record types");
-        self.ctx.set_ast_type(id, self.ctx.get_error_type());
+        self.ctx
+            .set_ast_type(id, self.ctx.type_system.get_error_type());
         false
     }
 
@@ -1102,7 +976,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         id: span::SpanId,
     ) -> bool {
         self.unimplemented(*span, "set types");
-        self.ctx.set_ast_type(id, self.ctx.get_error_type());
+        self.ctx
+            .set_ast_type(id, self.ctx.type_system.get_error_type());
         false
     }
 
@@ -1113,7 +988,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         id: span::SpanId,
     ) -> bool {
         self.unimplemented(*span, "file types");
-        self.ctx.set_ast_type(id, self.ctx.get_error_type());
+        self.ctx
+            .set_ast_type(id, self.ctx.type_system.get_error_type());
         false
     }
 
@@ -1155,25 +1031,32 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     ) {
         if let Some(symbol_id) = self.lookup_symbol(node.0.get(), node.0.loc()) {
             let type_name = self.ctx.get_symbol(symbol_id);
+            let type_name = type_name.borrow();
             match type_name.get_kind() {
                 SymbolKind::Type => {
-                    let named_type = if self.ctx.is_builtin_type_name(type_name.get_name()) {
+                    let named_type = if self
+                        .ctx
+                        .type_system
+                        .is_builtin_type_name(type_name.get_name())
+                    {
                         type_name.get_type().unwrap()
                     } else {
                         let mut new_type = Type::default();
                         new_type.set_kind(TypeKind::NamedType(type_name.id()));
 
-                        let ty = self.ctx.new_type(new_type);
+                        let ty = self.ctx.type_system.new_type(new_type);
                         ty
                     };
                     self.ctx.set_ast_type(id, named_type);
                 }
                 SymbolKind::ErrorLookup => {
-                    self.ctx.set_ast_type(id, self.ctx.get_error_type());
+                    self.ctx
+                        .set_ast_type(id, self.ctx.type_system.get_error_type());
                 }
                 _ => {
-                    let extra = self.extra_diag_previous_location(type_name);
-                    self.ctx.set_ast_type(id, self.ctx.get_error_type());
+                    let extra = self.extra_diag_previous_location(&type_name);
+                    self.ctx
+                        .set_ast_type(id, self.ctx.type_system.get_error_type());
                     self.diagnostics.add_with_extra(
                         DiagnosticKind::Error,
                         *span,
@@ -1187,7 +1070,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 }
             }
         } else {
-            self.ctx.set_ast_type(id, self.ctx.get_error_type());
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
         }
     }
 
@@ -1226,6 +1110,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         if let Some(sym_id) = self.lookup_symbol(node.0.get(), node.0.loc()) {
             let (sym_kind, sym_type) = {
                 let var_name = self.ctx.get_symbol(sym_id);
+                let var_name = var_name.borrow();
                 (var_name.get_kind(), var_name.get_type())
             };
 
@@ -1235,12 +1120,14 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     self.ctx.set_ast_type(id, sym_type.unwrap());
                 }
                 SymbolKind::ErrorLookup => {
-                    self.ctx.set_ast_type(id, self.ctx.get_error_type());
+                    self.ctx
+                        .set_ast_type(id, self.ctx.type_system.get_error_type());
                 }
                 _ => {
                     let extra = {
                         let var_name = self.ctx.get_symbol(sym_id);
-                        self.extra_diag_previous_location(var_name)
+                        let var_name = var_name.borrow();
+                        self.extra_diag_previous_location(&var_name)
                     };
                     self.diagnostics.add_with_extra(
                         DiagnosticKind::Error,
@@ -1252,24 +1139,76 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         vec![],
                         extra,
                     );
-                    self.ctx.set_ast_type(id, self.ctx.get_error_type());
+                    self.ctx
+                        .set_ast_type(id, self.ctx.type_system.get_error_type());
                 }
             }
         } else {
             // The error is already diagnosed during the lookup.
-            self.ctx.set_ast_type(id, self.ctx.get_error_type());
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
         }
     }
 
-    fn visit_pre_assig_array_access(
+    // fn visit_pre_assig_array_access(
+    //     &mut self,
+    //     _n: &mut ast::AssigArrayAccess,
+    //     span: &span::SpanLoc,
+    //     id: span::SpanId,
+    // ) -> bool {
+    //     self.unimplemented(*span, "array accesses");
+    //     self.ctx
+    //         .set_ast_type(id, self.ctx.type_system.get_error_type());
+    //     false
+    // }
+
+    fn visit_post_assig_array_access(
         &mut self,
-        _n: &mut ast::AssigArrayAccess,
-        span: &span::SpanLoc,
+        n: &mut ast::AssigArrayAccess,
+        _span: &span::SpanLoc,
         id: span::SpanId,
-    ) -> bool {
-        self.unimplemented(*span, "array accesses");
-        self.ctx.set_ast_type(id, self.ctx.get_error_type());
-        false
+    ) {
+        //
+        let lhs_ty = self.ctx.get_ast_type(n.0.id()).unwrap();
+
+        if self.ctx.type_system.is_error_type(lhs_ty) {
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
+            return;
+        }
+
+        let mut loc_access: span::SpanLoc = *n.0.loc();
+
+        let mut current_ty = lhs_ty;
+        let indices = &n.1;
+        for index in indices.iter() {
+            if !self.ctx.type_system.is_array_type(current_ty) {
+                let extra = Diagnostic::new(
+                    DiagnosticKind::Info,
+                    *index.loc(),
+                    format!("first invalid index",),
+                );
+                self.diagnostics.add_with_extra(
+                    DiagnosticKind::Error,
+                    loc_access,
+                    format!("variable does not have array type"),
+                    vec![],
+                    vec![extra],
+                );
+                self.ctx
+                    .set_ast_type(id, self.ctx.type_system.get_error_type());
+                return;
+            }
+
+            loc_access.1 = index.loc().1;
+
+            current_ty = self
+                .ctx
+                .type_system
+                .array_type_get_component_type(current_ty);
+        }
+
+        self.ctx.set_ast_type(id, current_ty);
     }
 
     fn visit_pre_assig_field_access(
@@ -1279,7 +1218,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         id: span::SpanId,
     ) -> bool {
         self.unimplemented(*span, "field accesses");
-        self.ctx.set_ast_type(id, self.ctx.get_error_type());
+        self.ctx
+            .set_ast_type(id, self.ctx.type_system.get_error_type());
         false
     }
 
@@ -1290,7 +1230,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         id: span::SpanId,
     ) -> bool {
         self.unimplemented(*span, "pointer dereference");
-        self.ctx.set_ast_type(id, self.ctx.get_error_type());
+        self.ctx
+            .set_ast_type(id, self.ctx.type_system.get_error_type());
         false
     }
 
@@ -1309,6 +1250,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         if let Some(sym_id) = self.scope.lookup(x.0.get()) {
                             let (sym_kind, sym_type, sym_const, formal_parameters) = {
                                 let var_name = self.ctx.get_symbol(sym_id);
+                                let var_name = var_name.borrow();
                                 (
                                     var_name.get_kind(),
                                     var_name.get_type(),
@@ -1332,7 +1274,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                         self.ctx
                                             .set_ast_value(new_const_named.id(), sym_const.clone());
                                     } else {
-                                        assert!(self.ctx.is_error_type(sym_type.unwrap()));
+                                        assert!(self
+                                            .ctx
+                                            .type_system
+                                            .is_error_type(sym_type.unwrap()));
                                     }
 
                                     let new_const =
@@ -1359,9 +1304,11 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
                                         let return_symbol_id = {
                                             let callee_symbol = self.ctx.get_symbol(sym_id);
+                                            let callee_symbol = callee_symbol.borrow();
                                             callee_symbol.get_return_symbol().unwrap()
                                         };
                                         let return_symbol = self.ctx.get_symbol(return_symbol_id);
+                                        let return_symbol = return_symbol.borrow();
                                         self.ctx
                                             .set_ast_type(id, return_symbol.get_type().unwrap());
 
@@ -1388,7 +1335,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         id: span::SpanId,
     ) -> bool {
         self.unimplemented(*span, "range expressions");
-        self.ctx.set_ast_type(id, self.ctx.get_error_type());
+        self.ctx
+            .set_ast_type(id, self.ctx.type_system.get_error_type());
         false
     }
 
@@ -1420,6 +1368,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let lhs = &mut node.0;
         if let Some(scope_symbol_id) = self.scope.get_innermost_scope_symbol() {
             let scope_symbol = self.ctx.get_symbol(scope_symbol_id);
+            let scope_symbol = scope_symbol.borrow();
             if scope_symbol.get_kind() == SymbolKind::Function {
                 match lhs.get_mut() {
                     ast::Assig::Variable(assig_var) => {
@@ -1429,6 +1378,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                 // This is an assignment to the return variable. Fixup.
                                 let return_id = scope_symbol.get_return_symbol().unwrap();
                                 let return_sym = self.ctx.get_symbol(return_id);
+                                let return_sym = return_sym.borrow();
                                 let return_type = return_sym.get_type().unwrap();
 
                                 self.ctx.set_ast_symbol(assig_var.0.id(), return_id);
@@ -1463,19 +1413,23 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
         if let Some(assig_sym_id) = self.ctx.get_ast_symbol(node.0.id()) {
             let assig_sym = self.ctx.get_symbol(assig_sym_id);
+            let assig_sym = assig_sym.borrow();
             if assig_sym.get_kind() != SymbolKind::Variable {
                 self.diagnostics.add(
                     DiagnosticKind::Error,
                     *node.0.loc(),
                     format!("this is not a variable"),
                 );
-                self.ctx.set_ast_type(id, self.ctx.get_error_type());
+                self.ctx
+                    .set_ast_type(id, self.ctx.type_system.get_error_type());
                 return false;
             }
         }
 
-        let neither_is_err_type =
-            { !self.ctx.is_error_type(lhs_type) && !self.ctx.is_error_type(rhs_type) };
+        let neither_is_err_type = {
+            !self.ctx.type_system.is_error_type(lhs_type)
+                && !self.ctx.type_system.is_error_type(rhs_type)
+        };
 
         if neither_is_err_type {
             if self.is_assignment_compatible(lhs_type, rhs_type) {
@@ -1486,15 +1440,17 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     self.ctx.set_ast_type(rhs.id(), lhs_type);
                 }
             } else {
-                self.ctx.set_ast_type(id, self.ctx.get_error_type());
-                let lhs_type_name = self.ctx.get_type_name(lhs_type);
-                let rhs_type_name = self.ctx.get_type_name(rhs_type);
+                self.ctx
+                    .set_ast_type(id, self.ctx.type_system.get_error_type());
+                let lhs_type_name = self.ctx.type_system.get_type_name(lhs_type);
+                let rhs_type_name = self.ctx.type_system.get_type_name(rhs_type);
                 self.diagnostics.add_with_extra(DiagnosticKind::Error, lhs_loc,
                 format!("left-hand side of this assignment has type {} that is not assignment-compatible with the type {} of the right-hand side", lhs_type_name, rhs_type_name),
             vec![rhs_loc], vec![]);
             }
         } else {
-            self.ctx.set_ast_type(id, self.ctx.get_error_type());
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
         }
 
         false
@@ -1508,7 +1464,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     ) {
         let expr_ty = self.ctx.get_ast_type(node.0.id()).unwrap();
 
-        if !self.ctx.is_bool_type(expr_ty) && !self.ctx.is_error_type(expr_ty) {
+        if !self.ctx.type_system.is_bool_type(expr_ty)
+            && !self.ctx.type_system.is_error_type(expr_ty)
+        {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *node.0.loc(),
@@ -1525,12 +1483,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     ) {
         let var = node.1.id();
         let var_ty_id = self.ctx.get_ast_type(var).unwrap();
-        if !self.ctx.is_error_type(var_ty_id) {
-            if !self.ctx.is_ordinal_type(var_ty_id) {
+        if !self.ctx.type_system.is_error_type(var_ty_id) {
+            if !self.ctx.type_system.is_ordinal_type(var_ty_id) {
                 let sym_id = self.ctx.get_ast_symbol(node.1.id()).unwrap();
                 let extra = {
                     let var_name = self.ctx.get_symbol(sym_id);
-                    self.extra_diag_previous_location(var_name)
+                    let var_name = var_name.borrow();
+                    self.extra_diag_previous_location(&var_name)
                 };
                 self.diagnostics.add_with_extra(
                     DiagnosticKind::Error,
@@ -1568,7 +1527,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     ) {
         let expr_ty = self.ctx.get_ast_type(node.0.id()).unwrap();
 
-        if !self.ctx.is_bool_type(expr_ty) {
+        if !self.ctx.type_system.is_bool_type(expr_ty) {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *node.0.loc(),
@@ -1585,7 +1544,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     ) {
         let expr_ty = self.ctx.get_ast_type(node.1.id()).unwrap();
 
-        if !self.ctx.is_bool_type(expr_ty) {
+        if !self.ctx.type_system.is_bool_type(expr_ty) {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *node.1.loc(),
@@ -1603,8 +1562,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let lhs_ty = self.ctx.get_ast_type(node.1.id()).unwrap();
         let rhs_ty = self.ctx.get_ast_type(node.2.id()).unwrap();
 
-        if self.ctx.is_error_type(lhs_ty) || self.ctx.is_error_type(rhs_ty) {
-            self.ctx.set_ast_type(id, self.ctx.get_error_type());
+        if self.ctx.type_system.is_error_type(lhs_ty) || self.ctx.type_system.is_error_type(rhs_ty)
+        {
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
             return;
         }
 
@@ -1628,7 +1589,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                             node.2.reset(conversion);
                             self.ctx.set_ast_type(node.2.id(), operand_type);
                         }
-                        self.ctx.set_ast_type(id, self.ctx.get_bool_type());
+                        self.ctx
+                            .set_ast_type(id, self.ctx.type_system.get_bool_type());
                     }
                     None => {
                         self.diagnose_invalid_binary_operator(
@@ -1662,7 +1624,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                             node.2.reset(conversion);
                             self.ctx.set_ast_type(node.2.id(), operand_type);
                         }
-                        self.ctx.set_ast_type(id, self.ctx.get_bool_type());
+                        self.ctx
+                            .set_ast_type(id, self.ctx.type_system.get_bool_type());
                     }
                     None => {
                         self.diagnose_invalid_binary_operator(
@@ -1696,7 +1659,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                             node.2.reset(conversion);
                             self.ctx.set_ast_type(node.2.id(), operand_type);
                         }
-                        self.ctx.set_ast_type(id, self.ctx.get_bool_type());
+                        self.ctx
+                            .set_ast_type(id, self.ctx.type_system.get_bool_type());
                     }
                     None => {
                         self.diagnose_invalid_binary_operator(
@@ -1713,7 +1677,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             }
             BinOperand::InSet => {
                 self.unimplemented(*span, "set membership operator");
-                self.ctx.set_ast_type(id, self.ctx.get_error_type());
+                self.ctx
+                    .set_ast_type(id, self.ctx.type_system.get_error_type());
             }
             BinOperand::Addition | BinOperand::Subtraction | BinOperand::Multiplication => {
                 let op_type = self.common_arith_type(lhs_ty, rhs_ty);
@@ -1833,14 +1798,17 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     ) {
         let op_ty_id = self.ctx.get_ast_type(node.1.id()).unwrap();
 
-        if self.ctx.is_error_type(op_ty_id) {
-            self.ctx.set_ast_type(id, self.ctx.get_error_type());
+        if self.ctx.type_system.is_error_type(op_ty_id) {
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
             return;
         }
 
         match node.0.get() {
             UnaryOp::Negation | UnaryOp::Plus => {
-                if self.ctx.is_integer_type(op_ty_id) || self.ctx.is_real_type(op_ty_id) {
+                if self.ctx.type_system.is_integer_type(op_ty_id)
+                    || self.ctx.type_system.is_real_type(op_ty_id)
+                {
                     self.ctx.set_ast_type(id, op_ty_id);
                 } else {
                     self.diagnose_invalid_unary_operator(
@@ -1853,7 +1821,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 }
             }
             UnaryOp::LogicalNot => {
-                if self.ctx.is_bool_type(op_ty_id) {
+                if self.ctx.type_system.is_bool_type(op_ty_id) {
                     self.ctx.set_ast_type(id, op_ty_id);
                 } else {
                     self.diagnose_invalid_unary_operator(
@@ -1884,7 +1852,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         *span,
                         &format!("call to required function '{}'", callee.get()),
                     );
-                    self.ctx.set_ast_type(id, self.ctx.get_error_type());
+                    self.ctx
+                        .set_ast_type(id, self.ctx.type_system.get_error_type());
                     return false;
                 }
             }
@@ -1897,12 +1866,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     callee.get()
                 ),
             );
-            self.ctx.set_ast_type(id, self.ctx.get_error_type());
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
             return false;
         }
 
         if let Some(callee_symbol_id) = self.lookup_symbol(callee.get(), callee.loc()) {
-            let callee_symbol_kind = self.ctx.get_symbol(callee_symbol_id).get_kind();
+            let callee_symbol_kind = self.ctx.get_symbol(callee_symbol_id).borrow().get_kind();
             match callee_symbol_kind {
                 SymbolKind::Function => {
                     args.iter_mut().for_each(|arg| {
@@ -1920,7 +1890,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     );
 
                     if argument_error {
-                        self.ctx.set_ast_type(id, self.ctx.get_error_type());
+                        self.ctx
+                            .set_ast_type(id, self.ctx.type_system.get_error_type());
                         return false;
                     }
 
@@ -1929,19 +1900,23 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
                     let return_symbol_id = {
                         let callee_symbol = self.ctx.get_symbol(callee_symbol_id);
+                        let callee_symbol = callee_symbol.borrow();
                         callee_symbol.get_return_symbol().unwrap()
                     };
 
                     let return_symbol = self.ctx.get_symbol(return_symbol_id);
+                    let return_symbol = return_symbol.borrow();
                     self.ctx.set_ast_type(id, return_symbol.get_type().unwrap());
                 }
                 SymbolKind::ErrorLookup => {
-                    self.ctx.set_ast_type(id, self.ctx.get_error_type());
+                    self.ctx
+                        .set_ast_type(id, self.ctx.type_system.get_error_type());
                 }
                 _ => {
                     let extra = {
                         let var_name = self.ctx.get_symbol(callee_symbol_id);
-                        self.extra_diag_previous_location(var_name)
+                        let var_name = var_name.borrow();
+                        self.extra_diag_previous_location(&var_name)
                     };
                     self.diagnostics.add_with_extra(
                         DiagnosticKind::Error,
@@ -1953,11 +1928,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         vec![],
                         extra,
                     );
-                    self.ctx.set_ast_type(id, self.ctx.get_error_type());
+                    self.ctx
+                        .set_ast_type(id, self.ctx.type_system.get_error_type());
                 }
             }
         } else {
-            self.ctx.set_ast_type(id, self.ctx.get_error_type());
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
         }
 
         false
@@ -1970,7 +1947,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         id: span::SpanId,
     ) -> bool {
         self.unimplemented(*span, "set literal expressions");
-        self.ctx.set_ast_type(id, self.ctx.get_error_type());
+        self.ctx
+            .set_ast_type(id, self.ctx.type_system.get_error_type());
         false
     }
 
@@ -1993,7 +1971,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         _span: &span::SpanLoc,
         id: span::SpanId,
     ) {
-        self.ctx.set_ast_type(id, self.ctx.get_integer_type());
+        self.ctx
+            .set_ast_type(id, self.ctx.type_system.get_integer_type());
         self.ctx.set_ast_value(id, Constant::Integer(*n.0.get()));
     }
 
@@ -2003,7 +1982,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         _span: &span::SpanLoc,
         id: span::SpanId,
     ) {
-        self.ctx.set_ast_type(id, self.ctx.get_real_type());
+        self.ctx
+            .set_ast_type(id, self.ctx.type_system.get_real_type());
         self.ctx.set_ast_value(id, Constant::Real(*n.0.get()));
     }
 
@@ -2016,6 +1996,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         if let Some(sym_id) = self.lookup_symbol(node.0.get(), node.0.loc()) {
             let (sym_kind, sym_type, sym_value) = {
                 let var_name = self.ctx.get_symbol(sym_id);
+                let var_name = var_name.borrow();
                 (
                     var_name.get_kind(),
                     var_name.get_type(),
@@ -2029,7 +2010,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     self.ctx.set_ast_value(id, sym_value.unwrap());
                 }
                 SymbolKind::ErrorLookup => {
-                    self.ctx.set_ast_type(id, self.ctx.get_error_type());
+                    self.ctx
+                        .set_ast_type(id, self.ctx.type_system.get_error_type());
                 }
                 _ => {}
             }
@@ -2045,6 +2027,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         if let Some(sym_id) = self.lookup_symbol(node.0.get(), node.0.loc()) {
             let (sym_kind, sym_type, sym_value) = {
                 let var_name = self.ctx.get_symbol(sym_id);
+                let var_name = var_name.borrow();
                 (
                     var_name.get_kind(),
                     var_name.get_type(),
@@ -2055,15 +2038,16 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 SymbolKind::Const => {
                     self.ctx.set_ast_symbol(id, sym_id);
                     self.ctx.set_ast_type(id, sym_type.unwrap());
-                    if !self.ctx.is_integer_type(sym_type.unwrap())
-                        && !self.ctx.is_real_type(sym_type.unwrap())
+                    if !self.ctx.type_system.is_integer_type(sym_type.unwrap())
+                        && !self.ctx.type_system.is_real_type(sym_type.unwrap())
                     {
                         self.diagnostics.add(
                             DiagnosticKind::Error,
                             *node.0.loc(),
                             "negation of a constant that is not an integer or a real".to_string(),
                         );
-                        self.ctx.set_ast_type(id, self.ctx.get_error_type());
+                        self.ctx
+                            .set_ast_type(id, self.ctx.type_system.get_error_type());
                         return;
                     }
                     let c = match sym_value.unwrap() {
@@ -2076,12 +2060,14 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     self.ctx.set_ast_value(id, c);
                 }
                 SymbolKind::ErrorLookup => {
-                    self.ctx.set_ast_type(id, self.ctx.get_error_type());
+                    self.ctx
+                        .set_ast_type(id, self.ctx.type_system.get_error_type());
                 }
                 _ => {}
             }
         } else {
-            self.ctx.set_ast_type(id, self.ctx.get_error_type());
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
         }
     }
 
@@ -2092,8 +2078,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         id: span::SpanId,
     ) {
         let str = n.0.get();
-        let string_type = self.ctx.get_string_type(str.chars().count());
-        self.ctx.set_ast_type(id, string_type);
+        let len = str.chars().count();
+        let string_literal_type = if len > 1 {
+            self.ctx.type_system.get_string_type(str.chars().count())
+        } else {
+            self.ctx.type_system.get_char_type()
+        };
+        self.ctx.set_ast_type(id, string_literal_type);
     }
 
     fn visit_post_expr_const(
@@ -2152,7 +2143,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let mut case_expr_err = false;
 
         let expr_ty = self.ctx.get_ast_type(case_expr.id()).unwrap();
-        if !self.ctx.is_ordinal_type(expr_ty) {
+        if !self.ctx.type_system.is_ordinal_type(expr_ty) {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *case_expr.loc(),
@@ -2168,7 +2159,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             let case_consts = &case_ast.0;
             for case_const in case_consts {
                 let const_ty = self.ctx.get_ast_type(case_const.id()).unwrap();
-                if !self.ctx.same_type(const_ty, expr_ty) && !case_expr_err {
+                if !self.ctx.type_system.same_type(const_ty, expr_ty) && !case_expr_err {
                     self.diagnostics.add_with_extra(
                         DiagnosticKind::Error,
                         *case_const.loc(),
@@ -2220,11 +2211,11 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     ) {
         let mut check_parameter = |param_name: &str, id: span::SpanId, loc: span::SpanLoc| {
             let type_id = self.ctx.get_ast_type(id).unwrap();
-            if self.ctx.is_error_type(type_id) {
+            if self.ctx.type_system.is_error_type(type_id) {
                 return;
             }
 
-            if !self.ctx.is_integer_type(type_id) {
+            if !self.ctx.type_system.is_integer_type(type_id) {
                 self.diagnostics.add(
                     DiagnosticKind::Error,
                     loc,
@@ -2245,15 +2236,15 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         }
 
         let ty = self.ctx.get_ast_type(node.0.id()).unwrap();
-        if must_be_real && !self.ctx.is_real_type(ty) {
+        if must_be_real && !self.ctx.type_system.is_real_type(ty) {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *node.0.loc(),
                 format!("argument must be of real type because frac-width was specified",),
             );
-        } else if !self.ctx.is_real_type(ty)
-            && !self.ctx.is_bool_type(ty)
-            && !self.ctx.is_integer_type(ty)
+        } else if !self.ctx.type_system.is_real_type(ty)
+            && !self.ctx.type_system.is_bool_type(ty)
+            && !self.ctx.type_system.is_integer_type(ty)
         {
             self.diagnostics.add(
                     DiagnosticKind::Error,
@@ -2306,7 +2297,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             );
         } else {
             if let Some(callee_symbol_id) = self.lookup_symbol(callee.get(), callee.loc()) {
-                let callee_symbol_kind = self.ctx.get_symbol(callee_symbol_id).get_kind();
+                let callee_symbol_kind = self.ctx.get_symbol(callee_symbol_id).borrow().get_kind();
                 match callee_symbol_kind {
                     SymbolKind::Procedure => {
                         if let Some(args) = args {
@@ -2333,7 +2324,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     _ => {
                         let extra = {
                             let var_name = self.ctx.get_symbol(callee_symbol_id);
-                            self.extra_diag_previous_location(var_name)
+                            let var_name = var_name.borrow();
+                            self.extra_diag_previous_location(&var_name)
                         };
                         self.diagnostics.add_with_extra(
                         DiagnosticKind::Error,
@@ -2432,6 +2424,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
         self.ctx
             .get_symbol_mut(function_sym_id)
+            .borrow_mut()
             .set_formal_parameters(formal_parameters);
 
         // TypeId of return
@@ -2452,6 +2445,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
         self.ctx
             .get_symbol_mut(function_sym_id)
+            .borrow_mut()
             .set_return_symbol(return_symbol_id);
 
         let function_block = &mut n.3;
@@ -2543,6 +2537,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
         self.ctx
             .get_symbol_mut(proc_sym_id)
+            .borrow_mut()
             .set_formal_parameters(formal_parameters);
 
         let proc_block = &mut n.2;
@@ -2613,28 +2608,28 @@ fn init_global_scope(scope: &mut scope::Scope, semantic_context: &mut SemanticCo
     let mut new_sym = Symbol::new();
     new_sym.set_name("integer");
     new_sym.set_kind(SymbolKind::Type);
-    new_sym.set_type(semantic_context.get_integer_type());
+    new_sym.set_type(semantic_context.type_system.get_integer_type());
     let new_sym = semantic_context.new_symbol(new_sym);
     scope.add_entry("integer", new_sym);
 
     let mut new_sym = Symbol::new();
     new_sym.set_name("real");
     new_sym.set_kind(SymbolKind::Type);
-    new_sym.set_type(semantic_context.get_real_type());
+    new_sym.set_type(semantic_context.type_system.get_real_type());
     let new_sym = semantic_context.new_symbol(new_sym);
     scope.add_entry("real", new_sym);
 
     let mut new_sym = Symbol::new();
     new_sym.set_name("boolean");
     new_sym.set_kind(SymbolKind::Type);
-    new_sym.set_type(semantic_context.get_bool_type());
+    new_sym.set_type(semantic_context.type_system.get_bool_type());
     let new_sym = semantic_context.new_symbol(new_sym);
     scope.add_entry("boolean", new_sym);
 
     let mut new_sym = Symbol::new();
     new_sym.set_name("true");
     new_sym.set_kind(SymbolKind::Const);
-    new_sym.set_type(semantic_context.get_bool_type());
+    new_sym.set_type(semantic_context.type_system.get_bool_type());
     new_sym.set_const(Constant::Bool(true));
     let new_sym = semantic_context.new_symbol(new_sym);
     scope.add_entry("true", new_sym);
@@ -2642,7 +2637,7 @@ fn init_global_scope(scope: &mut scope::Scope, semantic_context: &mut SemanticCo
     let mut new_sym = Symbol::new();
     new_sym.set_name("false");
     new_sym.set_kind(SymbolKind::Const);
-    new_sym.set_type(semantic_context.get_bool_type());
+    new_sym.set_type(semantic_context.type_system.get_bool_type());
     new_sym.set_const(Constant::Bool(false));
     let new_sym = semantic_context.new_symbol(new_sym);
     scope.add_entry("false", new_sym);

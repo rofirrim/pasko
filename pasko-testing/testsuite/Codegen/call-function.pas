@@ -18,10 +18,10 @@ end.
 {
 
 CHECK: *** IR for main
-CHECK-NEXT: function u0:9(i32, i64) -> i32 system_v {
+CHECK-NEXT: function u0:10(i32, i64) -> i32 system_v {
 CHECK-NEXT:     gv0 = symbol colocated userextname1
 CHECK-NEXT:     sig0 = (i64) -> i64 system_v
-CHECK-NEXT:     fn0 = colocated u0:8 sig0
+CHECK-NEXT:     fn0 = colocated u0:9 sig0
 CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i32, v1: i64):
 CHECK-NEXT:     v2 = iconst.i64 41

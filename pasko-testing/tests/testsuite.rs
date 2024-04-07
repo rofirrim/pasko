@@ -11,7 +11,10 @@ fn main() -> ExitCode {
     cargo_invocation.arg("build");
     let mut topleveldir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     topleveldir.pop();
-    cargo_invocation.arg(format!("--manifest-path={}/Cargo.toml", topleveldir.display()));
+    cargo_invocation.arg(format!(
+        "--manifest-path={}/Cargo.toml",
+        topleveldir.display()
+    ));
 
     eprintln!("Running:");
     eprintln!(
@@ -24,7 +27,9 @@ fn main() -> ExitCode {
             .join(" ")
     );
 
-    let status = cargo_invocation.status().expect("failed to execute 'cargo'");
+    let status = cargo_invocation
+        .status()
+        .expect("failed to execute 'cargo'");
     if !status.success() {
         return ExitCode::FAILURE;
     }
@@ -79,7 +84,9 @@ fn main() -> ExitCode {
             .join(" ")
     );
 
-    let status = lit_invocation.status().expect("failed to execute 'lit'. Check your PATH");
+    let status = lit_invocation
+        .status()
+        .expect("failed to execute 'lit'. Check your PATH");
     if !status.success() {
         return ExitCode::FAILURE;
     }

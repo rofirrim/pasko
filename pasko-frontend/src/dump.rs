@@ -149,10 +149,10 @@ impl<'a> ASTDumper<'a> {
     fn type_to_string(&self, id: span::SpanId) -> String {
         let t = self.semantic_context.get_ast_type(id);
         if let Some(type_id) = t {
-            if self.semantic_context.is_error_type(type_id) {
+            if self.semantic_context.type_system.is_error_type(type_id) {
                 return String::from("<<error-type>>");
             }
-            self.semantic_context.get_type_name(type_id)
+            self.semantic_context.type_system.get_type_name(type_id)
         } else {
             String::from("<<no-type>>")
         }
@@ -241,7 +241,12 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         false
     }
 
-    fn visit_pre_stmt_case(&mut self, n: &ast::StmtCase,span: &span::SpanLoc,id:span::SpanId) -> bool {
+    fn visit_pre_stmt_case(
+        &mut self,
+        n: &ast::StmtCase,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
         self.emit_line("StmtCase", span, id);
 
         self.walk_child(&n.0);
@@ -250,7 +255,12 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         false
     }
 
-    fn visit_pre_case_list_element(&mut self, n: &ast::CaseListElement,span: &span::SpanLoc,id:span::SpanId) -> bool {
+    fn visit_pre_case_list_element(
+        &mut self,
+        n: &ast::CaseListElement,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
         self.emit_line("CaseListElement", span, id);
 
         n.0.iter().for_each(|x| self.walk_child(x));
@@ -283,7 +293,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         false
     }
 
-    fn visit_stmt_empty(&mut self,_n: &ast::StmtEmpty,span: &span::SpanLoc,id:span::SpanId) {
+    fn visit_stmt_empty(&mut self, _n: &ast::StmtEmpty, span: &span::SpanLoc, id: span::SpanId) {
         self.emit_line("StmtEmpty", span, id);
     }
 
@@ -452,6 +462,26 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             id,
             &format!("{:?} {}", n.0.get(), self.type_to_string(id)),
         );
+    }
+
+    fn visit_pre_assig_array_access(
+        &mut self,
+        n: &ast::AssigArrayAccess,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        self.emit_line_payload(
+            "AssigArrayAccess",
+            span,
+            id,
+            &format!("{}", self.type_to_string(id)),
+        );
+
+        self.walk_child(&n.0);
+
+        self.walk_vec_child(&n.1);
+
+        false
     }
 
     fn visit_pre_stmt_assignment(

@@ -1,4 +1,5 @@
 use crate::span::{SpanLoc, Spanned, SpannedBox};
+use crate::limits;
 use crate::ast;
 use crate::lexer;
 use crate::lexer::LexicalError;
@@ -302,7 +303,7 @@ Assignable : SpannedBox<ast::Assig> = {
 VariableAccess : SpannedBox<ast::Assig> = {
     <start:@L> <identifier:Identifier> <end:@R> =>
         SpannedBox::new(span_loc!(start, end), ast::Assig::Variable(ast::AssigVariable(identifier))),
-   <start:@L> <variable:VariableAccess> "[" <indexes:SemicolonSeparated<Expression>> "]" <end:@R> => 
+   <start:@L> <variable:VariableAccess> "[" <indexes:CommaSeparated<Expression>> "]" <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::Assig::ArrayAccess(ast::AssigArrayAccess(variable, indexes))),
    <start:@L> <variable:VariableAccess> "." <field:Identifier> <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::Assig::FieldAccess(ast::AssigFieldAccess(variable, field))),
@@ -448,14 +449,14 @@ Sign : Spanned<ast::Sign> = {
 UnsignedInteger : Spanned<usize> = <start:@L> <s:"integer-literal"> <end:@R> =>? { 
     if let Ok(number) = usize::from_str(s.as_str()) {
        // This is lame.
-       if number > isize::MAX as usize {
-           Err(ParseError::User { error: LexicalError { start, end, message: format!("an unsigned number must be a number between 0 and {}", isize::MAX) } })
+       if number > limits::MAXINT as usize {
+           Err(ParseError::User { error: LexicalError { start, end, message: format!("an unsigned number must be a number between 0 and {}", limits::MAXINT) } })
        } else {
            Ok( Spanned::new(span_loc!(start, end), number) )
        }
     } else {
         // 
-        Err(ParseError::User { error: LexicalError { start, end, message: format!("an unsigned number must be a number between 0 and {}", isize::MAX) } })
+        Err(ParseError::User { error: LexicalError { start, end, message: format!("an unsigned number must be a number between 0 and {}", limits::MAXINT) } })
     }
 };
 

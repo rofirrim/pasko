@@ -12,7 +12,7 @@ use cranelift_codegen::ir::types::{F64, I32, I64, I8};
 use cranelift_codegen::ir::{
     function, AbiParam, Function, Signature, StackSlotData, StackSlotKind, UserFuncName,
 };
-use cranelift_codegen::isa::CallConv;
+use cranelift_codegen::isa::{CallConv, TargetFrontendConfig};
 use cranelift_codegen::settings;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{DataDescription, Module};
@@ -126,6 +126,10 @@ impl<'a> CodegenVisitor<'a> {
         sig.params.push(AbiParam::new(I8)); // number
         self.rt.write_bool = self.register_import("__pasko_write_bool", sig);
 
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I32)); // number
+        self.rt.write_char = self.register_import("__pasko_write_char", sig);
+
         let sig = Signature::new(CallConv::SystemV);
         self.rt.write_newline = self.register_import("__pasko_write_newline", sig);
 
@@ -142,18 +146,22 @@ impl<'a> CodegenVisitor<'a> {
     }
 
     pub fn type_to_cranelift_type(&self, ty: TypeId) -> cranelift_codegen::ir::Type {
-        if self.semantic_context.is_integer_type(ty) || self.semantic_context.is_enum_type(ty) {
+        if self.semantic_context.type_system.is_integer_type(ty)
+            || self.semantic_context.type_system.is_enum_type(ty)
+        {
             I64
-        } else if self.semantic_context.is_real_type(ty) {
+        } else if self.semantic_context.type_system.is_real_type(ty) {
             F64
-        } else if self.semantic_context.is_bool_type(ty) {
+        } else if self.semantic_context.type_system.is_bool_type(ty) {
             I8
-        } else if self.semantic_context.is_subrange_type(ty) {
-            self.type_to_cranelift_type(self.semantic_context.get_host_type(ty))
+        } else if self.semantic_context.type_system.is_char_type(ty) {
+            I32
+        } else if self.semantic_context.type_system.is_subrange_type(ty) {
+            self.type_to_cranelift_type(self.semantic_context.type_system.get_host_type(ty))
         } else {
             panic!(
                 "Unexpected type {} when mapping to cranelift type",
-                self.semantic_context.get_type_name(ty)
+                self.semantic_context.type_system.get_type_name(ty)
             );
         }
     }
@@ -167,29 +175,82 @@ impl<'a> CodegenVisitor<'a> {
     ) {
         let mut sig = Signature::new(CallConv::SystemV);
 
+        let mut return_type_is_simple = true;
         if let Some(return_symbol_id) = return_symbol_id {
             let return_symbol = self.semantic_context.get_symbol(return_symbol_id);
+            let return_symbol = return_symbol.borrow();
             let return_symbol_type_id = return_symbol.get_type().unwrap();
-            sig.returns.push(AbiParam::new(
-                self.type_to_cranelift_type(return_symbol_type_id),
-            ));
+            if self
+                .semantic_context
+                .type_system
+                .is_simple_type(return_symbol_type_id)
+            {
+                sig.returns.push(AbiParam::new(
+                    self.type_to_cranelift_type(return_symbol_type_id),
+                ));
+            } else if self
+                .semantic_context
+                .type_system
+                .is_array_type(return_symbol_type_id)
+            {
+                // We pass it as a pointer parameter.
+                sig.params.push(AbiParam::new(self.pointer_type));
+                return_type_is_simple = false;
+            } else {
+                panic!(
+                    "Unexpected return type {} while lowering to cranelift",
+                    self.semantic_context
+                        .type_system
+                        .get_type_name(return_symbol_type_id)
+                )
+            }
         }
 
+        // Remove mutability.
+        let return_type_is_simple = return_type_is_simple;
+
         let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
+        let function_symbol = function_symbol.borrow();
         let params: Vec<_> = function_symbol
             .get_formal_parameters()
             .unwrap()
             .iter()
-            .map(|sym_id| (*sym_id, self.semantic_context.get_symbol(*sym_id)))
+            .map(|sym_id| {
+                let sym_id = *sym_id;
+                let sym = self.semantic_context.get_symbol(sym_id);
+                let sym_type = sym.borrow().get_type().unwrap();
+                let is_simple_type = self.semantic_context.type_system.is_simple_type(sym_type);
+                (sym_id, sym, is_simple_type)
+            })
             .collect();
 
-        for (_param_symbol_id, param_symbol) in params.iter() {
+        for (_param_symbol_id, param_symbol, ..) in params.iter() {
+            let param_symbol = param_symbol.borrow();
             match param_symbol.get_parameter().unwrap() {
                 pasko_frontend::symbol::ParameterKind::Value => {
                     let param_symbol_type_id = param_symbol.get_type().unwrap();
-                    sig.params.push(AbiParam::new(
-                        self.type_to_cranelift_type(param_symbol_type_id),
-                    ));
+                    if self
+                        .semantic_context
+                        .type_system
+                        .is_simple_type(param_symbol_type_id)
+                    {
+                        sig.params.push(AbiParam::new(
+                            self.type_to_cranelift_type(param_symbol_type_id),
+                        ));
+                    } else if self
+                        .semantic_context
+                        .type_system
+                        .is_array_type(param_symbol_type_id)
+                    {
+                        sig.params.push(AbiParam::new(self.pointer_type));
+                    } else {
+                        panic!(
+                            "Unexpected parameter type {} while lowering to cranelift",
+                            self.semantic_context
+                                .type_system
+                                .get_type_name(param_symbol_type_id)
+                        )
+                    }
                 }
                 pasko_frontend::symbol::ParameterKind::Variable => {
                     sig.params.push(AbiParam::new(self.pointer_type));
@@ -218,26 +279,33 @@ impl<'a> CodegenVisitor<'a> {
 
         // Allocate the return value in the stack
         if let Some(return_symbol_id) = return_symbol_id {
-            function_codegen.allocate_value_in_stack(return_symbol_id);
+            if return_type_is_simple {
+                function_codegen.allocate_value_in_stack(return_symbol_id);
+            } else {
+                function_codegen.allocate_address_in_stack(return_symbol_id);
+            }
         }
 
         // Allocate parameters in the stack
-        params.iter().for_each(|(param_sym_id, param_sym)| {
-            let parameter_kind = param_sym.get_parameter().unwrap();
-            match parameter_kind {
-                ParameterKind::Value => {
-                    function_codegen.allocate_value_in_stack(*param_sym_id);
+        params
+            .iter()
+            .for_each(|(param_sym_id, param_sym, is_simple_type)| {
+                let param_sym = param_sym.borrow();
+                let parameter_kind = param_sym.get_parameter().unwrap();
+                match (parameter_kind, *is_simple_type) {
+                    (ParameterKind::Value, true) => {
+                        function_codegen.allocate_value_in_stack(*param_sym_id);
+                    }
+                    (ParameterKind::Variable, _) | (ParameterKind::Value, false) => {
+                        function_codegen.allocate_address_in_stack(*param_sym_id);
+                    }
                 }
-                ParameterKind::Variable => {
-                    function_codegen.allocate_address_in_stack(*param_sym_id);
-                }
-            }
-        });
+            });
         // Copy them in.
         params
             .iter()
             .enumerate()
-            .for_each(|(idx, (param_sym_id, _param_sym))| {
+            .for_each(|(idx, (param_sym_id, ..))| {
                 function_codegen.copy_in_function_parameter(idx, *param_sym_id);
             });
 
@@ -427,6 +495,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         let return_symbol_id = {
             let function_symbol_id = self.semantic_context.get_ast_symbol(n.0.id()).unwrap();
             let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
+            let function_symbol = function_symbol.borrow();
             function_symbol.get_return_symbol().unwrap()
         };
         self.common_function_emisson(
@@ -447,13 +516,15 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         for sym in n.0.iter() {
             let sym_id = self.semantic_context.get_ast_symbol(sym.id()).unwrap();
             let sym = self.semantic_context.get_symbol(sym_id);
+            let sym = sym.borrow();
             let ty = sym.get_type().unwrap();
 
-            if self.semantic_context.is_integer_type(ty)
-                || self.semantic_context.is_real_type(ty)
-                || self.semantic_context.is_bool_type(ty)
-                || self.semantic_context.is_enum_type(ty)
-                || self.semantic_context.is_subrange_type(ty)
+            if self.semantic_context.type_system.is_integer_type(ty)
+                || self.semantic_context.type_system.is_real_type(ty)
+                || self.semantic_context.type_system.is_bool_type(ty)
+                || self.semantic_context.type_system.is_enum_type(ty)
+                || self.semantic_context.type_system.is_subrange_type(ty)
+                || self.semantic_context.type_system.is_array_type(ty)
             {
                 let data_id = self
                     .object_module
@@ -477,7 +548,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             } else {
                 panic!(
                     "Unexpected type {} in variable declaration",
-                    self.semantic_context.get_type_name(ty)
+                    self.semantic_context.type_system.get_type_name(ty)
                 );
             }
         }

@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 
+pub mod limits;
 pub mod utils;
 #[macro_use]
 pub mod span;

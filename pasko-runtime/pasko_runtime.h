@@ -20,7 +20,8 @@
 void PASKO_RUNTIME_PUBLIC __pasko_write_i64(int64_t num, int total_width);
 void PASKO_RUNTIME_PUBLIC __pasko_write_f64(double num, int total_width,
                                             int frac_digits);
-void PASKO_RUNTIME_PUBLIC __pasko_write_str(const char *);
+void PASKO_RUNTIME_PUBLIC __pasko_write_str(const uint32_t *);
+void PASKO_RUNTIME_PUBLIC __pasko_write_char(uint32_t);
 void PASKO_RUNTIME_PUBLIC __pasko_write_bool(uint8_t b);
 
 void PASKO_RUNTIME_PUBLIC __pasko_write_newline(void);

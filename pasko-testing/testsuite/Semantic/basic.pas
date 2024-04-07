@@ -46,11 +46,11 @@ CHECK: error: identifier 'notfound' not found in this scope
 }
    notfound := 3;
 {
-CHECK: error: operator 'and' cannot be applied to operands of type 'integer' and 'integer'
+CHECK: error: operator 'and' cannot be applied to operands of type integer and integer
 }
    x := x and x;
 {
-CHECK: error: operator '-' cannot be applied to operand of type 'boolean'
+CHECK: error: operator '-' cannot be applied to operand of type boolean
 }
    b := -b;
 {
@@ -58,7 +58,7 @@ CHECK: error: function 'two_args' expects 2 parameters but 1 arguments were pass
 }
    x := two_args(1);
 {
-CHECK: error: argument has type 'real' that is not assignment compatible with value parameter 'x' of type 'integer'
+CHECK: error: argument has type real that is not assignment compatible with value parameter 'x' of type integer
 }
    x := two_args(1.2, 3);
 {
@@ -66,7 +66,7 @@ CHECK: error: argument is not a variable, as required by variable parameter 'z'
 }
    foo(2);
 {
-CHECK: error: argument has type 'real' but it is different to variable parameter 'z' of type 'integer'
+CHECK: error: argument has type real but it is different to variable parameter 'z' of type integer
 }
    foo(z);
 {
@@ -74,7 +74,7 @@ CHECK: error: identifier 'konst' has not been declared as a variable in this sco
 }
    KONST := 4;
 {
-CHECK: error: left-hand side of this assignment has type 'integer' that is not assignment-compatible with the type 'real' of the right-hand side
+CHECK: error: left-hand side of this assignment has type integer that is not assignment-compatible with the type real of the right-hand side
 }
    x := z;
 {
