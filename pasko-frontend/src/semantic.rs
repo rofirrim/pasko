@@ -655,7 +655,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                                                 ),
                                             );
                         argument_error = true;
-                    } else if param_type_id != arg.2 {
+                    } else if !self.ctx.type_system.same_type(param_type_id, arg.2) {
                         self.diagnostics.add(
                                                 DiagnosticKind::Error,
                                                 arg.1,
