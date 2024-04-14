@@ -229,14 +229,23 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 let symbol = symbol.borrow();
                 let ty = symbol.get_type().unwrap();
 
-                let cranelift_ty = self.codegen.type_to_cranelift_type(ty);
+                let value = if self.codegen.semantic_context.type_system.is_simple_type(ty) {
+                    let cranelift_ty = self.codegen.type_to_cranelift_type(ty);
 
-                let value = builder.ins().load(
-                    cranelift_ty,
-                    cranelift_codegen::ir::MemFlags::new(),
-                    stack_address,
-                    0,
-                );
+                    builder.ins().load(
+                        cranelift_ty,
+                        cranelift_codegen::ir::MemFlags::new(),
+                        stack_address,
+                        0,
+                    )
+                } else if self.codegen.semantic_context.type_system.is_array_type(ty) {
+                    stack_address
+                } else {
+                    panic!(
+                        "Unexpected type {}",
+                        self.codegen.semantic_context.type_system.get_type_name(ty)
+                    );
+                };
 
                 value
             }
@@ -262,7 +271,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 let ty = symbol.get_type().unwrap();
 
                 let cranelift_ty = self.codegen.type_to_cranelift_type(ty);
-
                 let value = builder.ins().load(
                     cranelift_ty,
                     cranelift_codegen::ir::MemFlags::new(),
@@ -1697,6 +1705,15 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         let callee_sym = self.codegen.semantic_context.get_symbol(callee_sym_id);
         let callee_sym = callee_sym.borrow();
         let callee_parameters = callee_sym.get_formal_parameters().unwrap();
+        let callee_return_sym = callee_sym.get_return_symbol().unwrap();
+        let callee_return_sym = self.codegen.semantic_context.get_symbol(callee_return_sym);
+        let callee_return_sym = callee_return_sym.borrow();
+        let callee_return_type = callee_return_sym.get_type().unwrap();
+        let return_type_is_simple = self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_simple_type(callee_return_type);
 
         let func_id = *self
             .codegen
@@ -1717,13 +1734,38 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             })
             .collect::<Vec<_>>();
 
-        let arg_values = self.call_pass_arguments(args);
+        let (arg_returns, return_stack_addr) = if return_type_is_simple {
+            (vec![], None)
+        } else {
+            // Special treatment for the return when it is not simple.
+            let return_type_size = self
+                .codegen
+                .semantic_context
+                .size_in_bytes(callee_return_type);
+            let stack_slot = self.allocate_storage_in_stack(return_type_size as u32);
+            let pointer = self.codegen.pointer_type;
+            let stack_addr = self.builder().ins().stack_addr(pointer, stack_slot, 0);
+            (vec![stack_addr], Some(stack_addr))
+        };
+
+        let arg_parameters = self.call_pass_arguments(args);
+
+        let arg_values = arg_returns
+            .iter()
+            .chain(arg_parameters.iter())
+            .copied()
+            .collect::<Vec<_>>();
 
         let call = self.builder().ins().call(func_ref, arg_values.as_slice());
         let result = {
             let results = self.builder().inst_results(call);
-            assert!(results.len() == 1, "Invalid number of results");
-            results[0]
+            if return_type_is_simple {
+                assert!(results.len() == 1, "Invalid number of results");
+                results[0]
+            } else {
+                assert!(results.len() == 0, "Invalid number of results");
+                return_stack_addr.unwrap()
+            }
         };
 
         self.value_map.insert(id, result);

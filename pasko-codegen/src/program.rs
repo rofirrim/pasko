@@ -176,8 +176,10 @@ impl<'a> CodegenVisitor<'a> {
         let mut sig = Signature::new(CallConv::SystemV);
 
         let mut return_type_is_simple = true;
+        let mut return_symbol_info = None;
         if let Some(return_symbol_id) = return_symbol_id {
             let return_symbol = self.semantic_context.get_symbol(return_symbol_id);
+            return_symbol_info = Some((return_symbol_id, return_symbol.clone()));
             let return_symbol = return_symbol.borrow();
             let return_symbol_type_id = return_symbol.get_type().unwrap();
             if self
@@ -207,6 +209,7 @@ impl<'a> CodegenVisitor<'a> {
         }
 
         // Remove mutability.
+        let return_symbol_info = return_symbol_info;
         let return_type_is_simple = return_type_is_simple;
 
         let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
@@ -277,32 +280,52 @@ impl<'a> CodegenVisitor<'a> {
         function_codegen.init_function();
         // We are now in the entry block and we have access to the parameters.
 
-        // Allocate the return value in the stack
+        // Allocate the return value in the stack only if simple.
         if let Some(return_symbol_id) = return_symbol_id {
             if return_type_is_simple {
                 function_codegen.allocate_value_in_stack(return_symbol_id);
-            } else {
-                function_codegen.allocate_address_in_stack(return_symbol_id);
-            }
+            } 
         }
 
+        let effective_params: Vec<_> = if return_type_is_simple {
+            params.into_iter().map(|x| (x.0, x.1, x.2, false)).collect()
+        } else {
+            // Handle this special case by prepending the result type info.
+            let return_symbol_info = return_symbol_info.unwrap();
+            vec![(
+                return_symbol_info.0,
+                return_symbol_info.1,
+                return_type_is_simple,
+                true,
+            )]
+            .into_iter()
+            .chain(params.into_iter().map(|x| (x.0, x.1, x.2, false)))
+            .collect()
+        };
+
         // Allocate parameters in the stack
-        params
+        effective_params
             .iter()
-            .for_each(|(param_sym_id, param_sym, is_simple_type)| {
+            .for_each(|(param_sym_id, param_sym, is_simple_type, is_return)| {
                 let param_sym = param_sym.borrow();
-                let parameter_kind = param_sym.get_parameter().unwrap();
-                match (parameter_kind, *is_simple_type) {
-                    (ParameterKind::Value, true) => {
-                        function_codegen.allocate_value_in_stack(*param_sym_id);
+                if let Some(parameter_kind) = param_sym.get_parameter() {
+                    assert!(!is_return);
+                    match (parameter_kind, *is_simple_type) {
+                        (ParameterKind::Value, true) => {
+                            function_codegen.allocate_value_in_stack(*param_sym_id);
+                        }
+                        (ParameterKind::Variable, _) | (ParameterKind::Value, false) => {
+                            function_codegen.allocate_address_in_stack(*param_sym_id);
+                        }
                     }
-                    (ParameterKind::Variable, _) | (ParameterKind::Value, false) => {
-                        function_codegen.allocate_address_in_stack(*param_sym_id);
-                    }
+                } else {
+                    assert!(is_return);
+                    assert!(!is_simple_type, "This should be a non simple return");
+                    function_codegen.allocate_address_in_stack(*param_sym_id);
                 }
             });
         // Copy them in.
-        params
+        effective_params
             .iter()
             .enumerate()
             .for_each(|(idx, (param_sym_id, ..))| {
@@ -316,8 +339,12 @@ impl<'a> CodegenVisitor<'a> {
 
         // Return the value
         if let Some(return_symbol_id) = return_symbol_id {
-            let ret_value = function_codegen.load_symbol_from_stack(return_symbol_id);
-            function_codegen.builder().ins().return_(&[ret_value]);
+            if return_type_is_simple {
+                let ret_value = function_codegen.load_symbol_from_stack(return_symbol_id);
+                function_codegen.builder().ins().return_(&[ret_value]);
+            } else {
+                function_codegen.builder().ins().return_(&[]);
+            }
         } else {
             function_codegen.builder().ins().return_(&[]);
         }
