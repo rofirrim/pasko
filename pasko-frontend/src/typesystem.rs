@@ -38,6 +38,10 @@ pub enum TypeKind {
         index: TypeId,
         component: TypeId,
     },
+    Record {
+        packed: bool,
+        fields: Vec<symbol::SymbolId>,
+    },
 }
 
 #[derive(Debug, Default, Hash, PartialEq, Eq)]
@@ -145,6 +149,27 @@ impl Type {
         match self.info.kind {
             TypeKind::Array { packed, .. } => packed,
             _ => panic!("This is not an array type"),
+        }
+    }
+
+    fn is_record_type(&self) -> bool {
+        match self.info.kind {
+            TypeKind::Record { .. } => true,
+            _ => false,
+        }
+    }
+
+    fn record_type_is_packed(&self) -> bool {
+        match self.info.kind {
+            TypeKind::Record { packed, .. } => packed,
+            _ => panic!("This is not a record type"),
+        }
+    }
+
+    fn record_type_get_fields(&self) -> &Vec<symbol::SymbolId> {
+        match &self.info.kind {
+            TypeKind::Record { fields, .. } => fields,
+            _ => panic!("This is not a record type"),
         }
     }
 
@@ -447,11 +472,41 @@ impl TypeSystem {
         ty.array_type_get_index_type()
     }
 
-    pub fn get_type_name(&self, id: TypeId) -> String {
-        format!("{}", self.get_type_name_impl(id, false))
+    pub fn is_record_type(&self, ty: TypeId) -> bool {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.is_record_type()
     }
 
-    fn get_type_name_impl(&self, id: TypeId, skip_alias: bool) -> String {
+    pub fn record_type_get_fields(&self, ty: TypeId) -> &Vec<symbol::SymbolId> {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.record_type_get_fields()
+    }
+
+    pub fn record_type_is_packed(&self, ty: TypeId) -> bool {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.record_type_is_packed()
+    }
+
+    pub fn get_type_name(&self, id: TypeId) -> String {
+        format!("{}", self.get_type_name_impl(id, false, HashSet::new()))
+    }
+
+    fn get_type_name_impl(
+        &self,
+        id: TypeId,
+        skip_alias: bool,
+        mut cycles: HashSet<TypeId>,
+    ) -> String {
+        if cycles.contains(&id) {
+            return "...".to_string();
+        }
+        cycles.insert(id);
         let ty = self.get_type_internal(id);
         match ty.get_kind() {
             TypeKind::NamedType(sym_id) => {
@@ -459,9 +514,9 @@ impl TypeSystem {
                 let sym = sym.borrow();
                 assert!(!self.is_builtin_type_name(sym.get_name()));
                 if skip_alias {
-                    return self.get_type_name_impl(self.ultimate_type(id), skip_alias);
+                    return self.get_type_name_impl(self.ultimate_type(id), skip_alias, cycles);
                 } else {
-                    let aliased_to = self.get_type_name_impl(self.ultimate_type(id), true);
+                    let aliased_to = self.get_type_name_impl(self.ultimate_type(id), true, cycles);
                     return format!("{} (an alias of {})", sym.get_name().clone(), aliased_to);
                 }
             }
@@ -480,8 +535,8 @@ impl TypeSystem {
                 format!(
                     "{}array [{}] of {}",
                     if packed { "packed " } else { "" },
-                    self.get_type_name_impl(index, skip_alias),
-                    self.get_type_name_impl(component, skip_alias)
+                    self.get_type_name_impl(index, skip_alias, cycles.clone()),
+                    self.get_type_name_impl(component, skip_alias, cycles)
                 )
             }
             TypeKind::Enum(enumerators) => {
@@ -496,6 +551,29 @@ impl TypeSystem {
                         })
                         .collect::<Vec<_>>()
                         .join(", ")
+                )
+            }
+            TypeKind::Record { packed, fields } => {
+                format!(
+                    "{}record {} end",
+                    if packed { "packed" } else { "" },
+                    fields
+                        .iter()
+                        .map(|sym_id| {
+                            let sym = self.symbol_map.borrow().get_symbol(*sym_id);
+                            let sym = sym.borrow();
+                            format!(
+                                "{} : {};",
+                                sym.get_name(),
+                                self.get_type_name_impl(
+                                    sym.get_type().unwrap(),
+                                    /* skip_alias */ true,
+                                    cycles.clone()
+                                )
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ")
                 )
             }
             _ => {

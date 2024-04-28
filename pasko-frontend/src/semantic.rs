@@ -43,6 +43,7 @@ pub fn is_required_procedure_or_function(name: &str) -> bool {
     is_required_procedure(name) || is_required_function(name)
 }
 
+// In bytes.
 impl SemanticContext {
     pub fn new() -> SemanticContext {
         let symbol_map = SymbolMapImpl::new();
@@ -94,39 +95,6 @@ impl SemanticContext {
 
     pub fn get_ast_symbol(&self, id: span::SpanId) -> Option<SymbolId> {
         self.ast_symbols.get(&id).cloned()
-    }
-
-    pub fn size_in_bytes(&self, ty: TypeId) -> usize {
-        if self.type_system.is_real_type(ty)
-            || self.type_system.is_integer_type(ty)
-            || self.type_system.is_enum_type(ty)
-        {
-            8
-        } else if self.type_system.is_char_type(ty) {
-            4
-        } else if self.type_system.is_bool_type(ty) {
-            1
-        } else if self.type_system.is_subrange_type(ty) {
-            return self.size_in_bytes(self.type_system.get_host_type(ty));
-        } else if self.type_system.is_array_type(ty) {
-            let component_size =
-                self.size_in_bytes(self.type_system.array_type_get_component_type(ty));
-            let index_ty = self.type_system.array_type_get_index_type(ty);
-            let index_size = self.type_system.ordinal_type_extent(index_ty);
-            if let Some(x) = component_size.checked_mul(index_size as usize) {
-                x
-            } else {
-                panic!(
-                    "Overflow while computing the size of type {}",
-                    self.type_system.get_type_name(ty)
-                );
-            }
-        } else {
-            panic!(
-                "Unexpected size request for type {}",
-                self.type_system.get_type_name(ty)
-            );
-        }
     }
 }
 
@@ -690,6 +658,37 @@ impl<'a> SemanticCheckerVisitor<'a> {
 
         argument_error
     }
+
+    fn contains_invalid_type_cycle_impl(&self, top_level: bool, root_ty: TypeId, ty: TypeId) -> bool {
+        if !top_level && self.ctx.type_system.same_type(root_ty, ty) {
+            return true;
+        } else if self.ctx.type_system.is_error_type(ty) {
+            return false;
+        } else if self.ctx.type_system.is_array_type(ty) {
+            return self.contains_invalid_type_cycle_impl(
+                false,
+                root_ty,
+                self.ctx.type_system.array_type_get_component_type(ty),
+            );
+        } else if self.ctx.type_system.is_record_type(ty) {
+            let fields = self.ctx.type_system.record_type_get_fields(ty);
+            for field in fields {
+                let field_sym = self.ctx.get_symbol(*field);
+                let field_sym = field_sym.borrow();
+                if self.contains_invalid_type_cycle_impl(false, root_ty, field_sym.get_type().unwrap()) {
+                    return true;
+                }
+            }
+        }
+        // else if self.ctx.type_system.is_pointer_type(ty) {
+        //     return false;
+        // }
+        false
+    }
+
+    fn contains_invalid_type_cycle(&self, root_ty: TypeId) -> bool {
+        self.contains_invalid_type_cycle_impl(true, root_ty, root_ty)
+    }
 }
 
 impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
@@ -804,11 +803,22 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             .mutating_walk_mut(self, &type_def_loc, type_def_id);
 
         let type_denoter = self.ctx.get_ast_type(n.1.id()).unwrap();
+
         // Update the type stored in the type symbol.
         self.ctx
             .get_symbol_mut(new_sym)
             .borrow_mut()
             .set_type(type_denoter);
+
+        // Check for cycles in the definition.
+        if self.contains_invalid_type_cycle(type_denoter) {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *n.1.loc(),
+                format!("invalid cyclic reference to type being declared"),
+            );
+            return false;
+        }
 
         false
     }
@@ -960,13 +970,68 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     fn visit_pre_record_type(
         &mut self,
         _n: &mut ast::RecordType,
-        span: &span::SpanLoc,
-        id: span::SpanId,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
     ) -> bool {
-        self.unimplemented(*span, "record types");
-        self.ctx
-            .set_ast_type(id, self.ctx.type_system.get_error_type());
-        false
+        // Create a new scope for the fields
+        self.scope.push_scope(None);
+        true
+    }
+
+    fn visit_post_record_section(
+        &mut self,
+        n: &mut ast::RecordSection,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) {
+        let type_denoter = self.ctx.get_ast_type(n.1.id()).unwrap();
+
+        for field_name in &n.0 {
+            if self.diagnose_redeclared_symbol(field_name.get(), field_name.loc()) {
+                continue;
+            }
+
+            let mut new_sym = Symbol::new();
+            new_sym.set_name(field_name.get());
+            new_sym.set_kind(SymbolKind::Field);
+            new_sym.set_defining_point(*field_name.loc());
+            new_sym.set_type(type_denoter);
+
+            let new_sym = self.ctx.new_symbol(new_sym);
+
+            self.scope.add_entry(field_name.get(), new_sym);
+
+            self.ctx.set_ast_symbol(field_name.id(), new_sym);
+        }
+    }
+
+    fn visit_post_record_type(
+        &mut self,
+        n: &mut ast::RecordType,
+        _span: &span::SpanLoc,
+        id: span::SpanId,
+    ) {
+        // Leave the scope of the fields.
+        self.scope.pop_scope();
+
+        let packed = n.0.is_some();
+        let mut fields: Vec<SymbolId> = vec![];
+
+        // Grab all the symbols.
+        for record_section in &n.1 {
+            for field_name in &record_section.get().0 {
+                if let Some(sym) = self.ctx.get_ast_symbol(field_name.id()) {
+                    fields.push(sym);
+                }
+            }
+        }
+
+        let mut new_record_type = Type::default();
+        new_record_type.set_kind(TypeKind::Record { packed, fields });
+
+        let new_record_type = self.ctx.type_system.new_type(new_record_type);
+
+        self.ctx.set_ast_type(id, new_record_type);
     }
 
     fn visit_pre_set_type(
@@ -1150,18 +1215,6 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         }
     }
 
-    // fn visit_pre_assig_array_access(
-    //     &mut self,
-    //     _n: &mut ast::AssigArrayAccess,
-    //     span: &span::SpanLoc,
-    //     id: span::SpanId,
-    // ) -> bool {
-    //     self.unimplemented(*span, "array accesses");
-    //     self.ctx
-    //         .set_ast_type(id, self.ctx.type_system.get_error_type());
-    //     false
-    // }
-
     fn visit_post_assig_array_access(
         &mut self,
         n: &mut ast::AssigArrayAccess,
@@ -1211,16 +1264,64 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         self.ctx.set_ast_type(id, current_ty);
     }
 
-    fn visit_pre_assig_field_access(
+    fn visit_post_assig_field_access(
         &mut self,
-        _n: &mut ast::AssigFieldAccess,
-        span: &span::SpanLoc,
+        n: &mut ast::AssigFieldAccess,
+        _span: &span::SpanLoc,
         id: span::SpanId,
-    ) -> bool {
-        self.unimplemented(*span, "field accesses");
-        self.ctx
-            .set_ast_type(id, self.ctx.type_system.get_error_type());
-        false
+    ) {
+        //
+        let base_type = self.ctx.get_ast_type(n.0.id()).unwrap();
+        if self.ctx.type_system.is_error_type(base_type) {
+            self.ctx.set_ast_type(id, base_type);
+            return;
+        }
+
+        if !self.ctx.type_system.is_record_type(base_type) {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *n.0.loc(),
+                format!(
+                    "expression has type {} which is not a record type",
+                    self.ctx.type_system.get_type_name(base_type)
+                ),
+            );
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
+            return;
+        }
+
+        let current_field_name = n.1.get();
+        let record_fields = self.ctx.type_system.record_type_get_fields(base_type);
+        if let Some(named_field) = record_fields.iter().find(|record_field| {
+            let record_field_sym = self.ctx.get_symbol(**record_field);
+            let record_field_sym = record_field_sym.borrow();
+
+            current_field_name.to_ascii_lowercase()
+                == record_field_sym.get_name().to_ascii_lowercase()
+        }) {
+            //
+            let named_field_sym = self.ctx.get_symbol(*named_field);
+            let named_field_sym = named_field_sym.borrow();
+
+            self.ctx.set_ast_symbol(n.1.id(), *named_field);
+            self.ctx
+                .set_ast_type(id, named_field_sym.get_type().unwrap());
+        } else {
+            //
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *n.1.loc(),
+                format!(
+                    "'{}' is not a field of type {}",
+                    current_field_name,
+                    self.ctx.type_system.get_type_name(base_type)
+                ),
+            );
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
+            return;
+        }
     }
 
     fn visit_pre_assig_pointer_deref(

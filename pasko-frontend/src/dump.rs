@@ -484,6 +484,19 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         false
     }
 
+    fn visit_pre_assig_field_access(&mut self, n: &ast::AssigFieldAccess,span: &span::SpanLoc,id:span::SpanId) -> bool {
+        self.emit_line_payload(
+            "AssigArrayAccess",
+            span,
+            id,
+            &format!("field:<{}> {}", n.1.get(), self.type_to_string(id)),
+        );
+
+        self.walk_child(&n.0);
+
+        false
+    }
+
     fn visit_pre_stmt_assignment(
         &mut self,
         n: &ast::StmtAssignment,

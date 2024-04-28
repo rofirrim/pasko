@@ -417,6 +417,13 @@ impl<'input> Iterator for Lexer<'input> {
                             message: format!("unterminated string literal"),
                         }));
                     }
+                    if tmp.len() == 0 {
+                        return Some(Err(LexicalError {
+                            start: offset,
+                            end: offset_end,
+                            message: format!("a string literal must contain at least one character"),
+                        }));
+                    }
                     return Some(Ok((offset, Tok::StringLiteral(tmp), offset_end)));
                 }
                 'a'..='z' | 'A'..='Z' => {

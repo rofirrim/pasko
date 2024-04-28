@@ -158,7 +158,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         let symbol = symbol.borrow();
         let symbol_type = symbol.get_type().unwrap();
 
-        let size = self.codegen.semantic_context.size_in_bytes(symbol_type) as u32;
+        let size = self.codegen.size_in_bytes(symbol_type) as u32;
 
         let stack_slot = self.allocate_storage_in_stack(size);
 
@@ -238,7 +238,9 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                         stack_address,
                         0,
                     )
-                } else if self.codegen.semantic_context.type_system.is_array_type(ty) {
+                } else if self.codegen.semantic_context.type_system.is_array_type(ty)
+                    || self.codegen.semantic_context.type_system.is_record_type(ty)
+                {
                     stack_address
                 } else {
                     panic!(
@@ -354,9 +356,14 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     .semantic_context
                     .type_system
                     .is_array_type(arg_ty)
+                    || self
+                        .codegen
+                        .semantic_context
+                        .type_system
+                        .is_record_type(arg_ty)
                 {
                     // We need to do a copy in.
-                    let arg_type_size = self.codegen.semantic_context.size_in_bytes(arg_ty);
+                    let arg_type_size = self.codegen.size_in_bytes(arg_ty);
                     let stack_slot = self.allocate_storage_in_stack(arg_type_size as u32);
                     let pointer = self.codegen.pointer_type;
                     let stack_addr = self.builder().ins().stack_addr(pointer, stack_slot, 0);
@@ -767,19 +774,19 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             self.builder()
                 .ins()
                 .store(cranelift_codegen::ir::MemFlags::new(), value, addr, 0);
-        } else if self.codegen.semantic_context.type_system.is_array_type(ty) {
+        } else if self.codegen.semantic_context.type_system.is_array_type(ty)
+            || self.codegen.semantic_context.type_system.is_record_type(ty)
+        {
             let rhs_ty = self
                 .codegen
                 .semantic_context
                 .get_ast_type(n.1.id())
                 .unwrap();
             assert!(
-                self.codegen.semantic_context.size_in_bytes(ty)
-                    == self.codegen.semantic_context.size_in_bytes(rhs_ty),
+                self.codegen.size_in_bytes(ty) == self.codegen.size_in_bytes(rhs_ty),
                 "Type sizes must match"
             );
-            let size =
-                self.emit_const_integer(self.codegen.semantic_context.size_in_bytes(ty) as i64);
+            let size = self.emit_const_integer(self.codegen.size_in_bytes(ty) as i64);
             let target_config = {
                 let object_module = self.codegen.object_module.as_ref().unwrap();
                 object_module.target_config()
@@ -945,10 +952,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
                 let (index_type_size, index_type_lb) = if current_idx + 1 == num_idx {
                     (
-                        self.codegen
-                            .semantic_context
-                            .size_in_bytes(current_array_component_type)
-                            as i64,
+                        self.codegen.size_in_bytes(current_array_component_type) as i64,
                         lower_bound,
                     )
                 } else {
@@ -1013,6 +1017,33 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         let addr = self.builder().ins().iadd(array_addr, linear_index_bytes);
 
+        self.set_value(id, addr);
+
+        false
+    }
+
+    fn visit_pre_assig_field_access(
+        &mut self,
+        n: &ast::AssigFieldAccess,
+        _span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        n.0.get().walk_mut(self, n.0.loc(), n.0.id());
+        let record_addr = self.get_value(n.0.id());
+
+        let field_sym = self
+            .codegen
+            .semantic_context
+            .get_ast_symbol(n.1.id())
+            .unwrap();
+
+        let offset = {
+            let cache = self.codegen.offset_cache.borrow();
+            *cache.get(&field_sym).unwrap()
+        };
+        let offset = self.emit_const_integer(offset as i64);
+
+        let addr = self.builder().ins().iadd(record_addr, offset);
         self.set_value(id, addr);
 
         false
@@ -1671,6 +1702,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     .type_system
                     .is_subrange_type(ty)
                 || self.codegen.semantic_context.type_system.is_array_type(ty)
+                || self.codegen.semantic_context.type_system.is_record_type(ty)
             {
                 self.allocate_value_in_stack(sym_id);
             } else {
@@ -1738,10 +1770,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             (vec![], None)
         } else {
             // Special treatment for the return when it is not simple.
-            let return_type_size = self
-                .codegen
-                .semantic_context
-                .size_in_bytes(callee_return_type);
+            let return_type_size = self.codegen.size_in_bytes(callee_return_type);
             let stack_slot = self.allocate_storage_in_stack(return_type_size as u32);
             let pointer = self.codegen.pointer_type;
             let stack_addr = self.builder().ins().stack_addr(pointer, stack_slot, 0);

@@ -31,6 +31,7 @@ pub enum SymbolKind {
     Function,
     Procedure,
     Const,
+    Field,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +48,8 @@ struct SymbolInfo {
     def_loc: Option<span::SpanLoc>,
     val: Option<Constant>,
     defined: bool,
+    // FIXME: We can reduce the memory used by this by grouping these less
+    // common things by the kind of Symbol.
     parameter: Option<ParameterKind>,
     formal_parameters: Option<Vec<SymbolId>>,
     return_symbol: Option<SymbolId>,
@@ -56,7 +59,6 @@ struct SymbolInfo {
 pub struct Symbol {
     id: SymbolId,
     external_id: Cell<usize>,
-    // Part that gets hashed.
     info: SymbolInfo,
 }
 
@@ -117,6 +119,7 @@ impl Symbol {
             SymbolKind::Function => Some("function"),
             SymbolKind::Procedure => Some("procedure"),
             SymbolKind::Const => Some("const"),
+            SymbolKind::Field => Some("field"),
             _ => None,
         }
     }

@@ -28,9 +28,17 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 
+use std::cell::RefCell;
+
 use crate::datalocation::DataLocation;
 use crate::function::FunctionCodegenVisitor;
 use crate::runtime::RuntimeFunctions;
+
+#[derive(Debug, Clone)]
+struct SizeAndAlignment {
+    size: usize,
+    align: usize,
+}
 
 pub struct CodegenVisitor<'a> {
     pub object_module: Option<Box<cranelift_object::ObjectModule>>,
@@ -42,8 +50,10 @@ pub struct CodegenVisitor<'a> {
 
     pub data_location: HashMap<SymbolId, DataLocation>,
     pub function_identifiers: HashMap<SymbolId, cranelift_module::FuncId>,
+    pub offset_cache: RefCell<HashMap<SymbolId, usize>>,
 
     ir_dump: bool,
+    size_align_cache: RefCell<HashMap<TypeId, SizeAndAlignment>>,
 }
 
 impl<'a> CodegenVisitor<'a> {
@@ -78,8 +88,10 @@ impl<'a> CodegenVisitor<'a> {
             string_table: HashMap::new(),
             data_location: HashMap::new(),
             function_identifiers: HashMap::new(),
+            offset_cache: RefCell::new(HashMap::new()),
             // Private
             ir_dump,
+            size_align_cache: RefCell::new(HashMap::new()),
         };
 
         visitor.initialize_module();
@@ -164,6 +176,131 @@ impl<'a> CodegenVisitor<'a> {
                 self.semantic_context.type_system.get_type_name(ty)
             );
         }
+    }
+
+    pub fn align_to(value: usize, align: usize) -> usize {
+        if value % align == 0 {
+            value
+        } else {
+            value + (align - value % align)
+        }
+    }
+
+    fn size_and_align_in_bytes(&self, ty: TypeId) -> SizeAndAlignment {
+        // Query if already cached.
+        if let Some(s) = self.size_align_cache.borrow().get(&ty) {
+            return s.clone();
+        }
+
+        let s = self.size_and_align_in_bytes_impl(ty);
+
+        // Cache result.
+        self.size_align_cache.borrow_mut().insert(ty, s.clone());
+
+        s
+    }
+
+    fn size_and_align_in_bytes_impl(&self, ty: TypeId) -> SizeAndAlignment {
+        if self.semantic_context.type_system.is_real_type(ty)
+            || self.semantic_context.type_system.is_integer_type(ty)
+            || self.semantic_context.type_system.is_enum_type(ty)
+        {
+            SizeAndAlignment { size: 8, align: 8 }
+        } else if self.semantic_context.type_system.is_char_type(ty) {
+            SizeAndAlignment { size: 4, align: 4 }
+        } else if self.semantic_context.type_system.is_bool_type(ty) {
+            SizeAndAlignment { size: 1, align: 1 }
+        } else if self.semantic_context.type_system.is_subrange_type(ty) {
+            self.size_and_align_in_bytes(self.semantic_context.type_system.get_host_type(ty))
+        } else if self.semantic_context.type_system.is_array_type(ty) {
+            let component_type = self
+                .semantic_context
+                .type_system
+                .array_type_get_component_type(ty);
+            let component_size = self.size_in_bytes(component_type);
+            let align_component = self.align_in_bytes(component_type);
+            let index_ty = self
+                .semantic_context
+                .type_system
+                .array_type_get_index_type(ty);
+            let index_size = self
+                .semantic_context
+                .type_system
+                .ordinal_type_extent(index_ty);
+            if let Some(x) = component_size.checked_mul(index_size as usize) {
+                SizeAndAlignment {
+                    size: x,
+                    align: align_component,
+                }
+            } else {
+                panic!(
+                    "Overflow while computing the size of type {}",
+                    self.semantic_context.type_system.get_type_name(ty)
+                );
+            }
+        } else if self.semantic_context.type_system.is_record_type(ty) {
+            // TODO: we can do something different with packed records (e.g. we
+            // could order them by descending alignmeent rather than follow
+            // declaration order)
+            let mut max_align = 0;
+            let fields = self.semantic_context.type_system.record_type_get_fields(ty);
+            for field in fields {
+                let field_sym = self.semantic_context.get_symbol(*field);
+                let field_sym = field_sym.borrow();
+                let current_field_align = self.align_in_bytes(field_sym.get_type().unwrap());
+                max_align = std::cmp::max(max_align, current_field_align);
+            }
+            // Empty structs take at least one byte.
+            if max_align == 0 {
+                max_align = 1;
+            }
+            // Rebind immutably.
+            let max_align = max_align;
+
+            let mut offset = 0usize;
+            for field in fields {
+                let field_sym = self.semantic_context.get_symbol(*field);
+                let field_sym = field_sym.borrow();
+                let current_field_align = self.align_in_bytes(field_sym.get_type().unwrap());
+                let current_field_size = self.size_in_bytes(field_sym.get_type().unwrap());
+
+                // First pad to the required alignment.
+                offset = Self::align_to(offset, current_field_align);
+
+                // Keep the offset now.
+                self.offset_cache.borrow_mut().insert(*field, offset);
+
+                // Advance the size of this field.
+                offset += current_field_size;
+            }
+
+            // Pad the last element.
+            offset = Self::align_to(offset, max_align);
+
+            // Empty structs take at least one byte.
+            if offset == 0 {
+                offset = 1;
+            }
+
+            let final_size = offset;
+            SizeAndAlignment {
+                size: final_size,
+                align: max_align,
+            }
+        } else {
+            panic!(
+                "Unexpected size request for type {}",
+                self.semantic_context.type_system.get_type_name(ty)
+            );
+        }
+    }
+
+    pub fn size_in_bytes(&self, ty: TypeId) -> usize {
+        self.size_and_align_in_bytes(ty).size
+    }
+
+    pub fn align_in_bytes(&self, ty: TypeId) -> usize {
+        self.size_and_align_in_bytes(ty).align
     }
 
     fn common_function_emisson(
@@ -284,7 +421,7 @@ impl<'a> CodegenVisitor<'a> {
         if let Some(return_symbol_id) = return_symbol_id {
             if return_type_is_simple {
                 function_codegen.allocate_value_in_stack(return_symbol_id);
-            } 
+            }
         }
 
         let effective_params: Vec<_> = if return_type_is_simple {
@@ -552,6 +689,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                 || self.semantic_context.type_system.is_enum_type(ty)
                 || self.semantic_context.type_system.is_subrange_type(ty)
                 || self.semantic_context.type_system.is_array_type(ty)
+                || self.semantic_context.type_system.is_record_type(ty)
             {
                 let data_id = self
                     .object_module
@@ -561,8 +699,9 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                     .unwrap();
 
                 let mut data_desc = DataDescription::new();
-                let size_in_bytes = self.semantic_context.size_in_bytes(ty);
+                let size_in_bytes = self.size_in_bytes(ty);
                 data_desc.define_zeroinit(size_in_bytes);
+                data_desc.set_align(self.align_in_bytes(ty) as u64);
 
                 self.object_module
                     .as_mut()

@@ -188,7 +188,7 @@ TypeDenoter : SpannedBox<ast::TypeDenoter> = {
     <enumerated:EnumeratedTypeDenoter> => enumerated,
     <start:@L> <packed:Packed?> "array" "[" <indexes:CommaSeparated<OrdinalTypeDenoter>> "]" "of" <element_type:TypeDenoter> <end:@R> =>
         SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::ArrayType(ast::ArrayType(packed, indexes, element_type))),
-    <start:@L> <packed:Packed?> "record" <fixed_part:SemicolonSeparated<RecordSection>> "end" <end:@R> => 
+    <start:@L> <packed:Packed?> "record" <fixed_part:SemicolonSeparatedOptionallyTerminated<RecordSection>> "end" <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::RecordType(ast::RecordType(packed, fixed_part, None))),
     <start:@L> <packed:Packed?> "set" "of" <base_type:OrdinalTypeDenoter> <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::SetType(ast::SetType(packed, base_type))),
