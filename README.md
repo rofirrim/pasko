@@ -80,21 +80,17 @@ From inside the build-directory
 
 | Feature                                                | State | Notes                                                       |
 | ------------------------------------------------------ | ----- | ----------------------------------------------------------- |
-| Forward declarations of procedures and functions       | ❌     |                                                             |
-| Array types and array accesses                         | ❌     |                                                             |
-| String types                                           | ❌     | Only literal strings in `writeln` are useable.              |
-| Record types                                           | ❌     |                                                             |
 | Variadic types                                         | ❌     | Not even supported in the parser yet.                       |
-| Ranges                                                 | ❌     |                                                             |
-| Enumerated types                                       | ❌     |                                                             |
+| Set type                                               | ❌     |                                                             |
 | File type                                              | ❌     |                                                             |
+| Forward declarations of procedures and functions       | ❌     |                                                             |
+| Conformable arrays in functions and procedures         | ❌     |                                                             |
+| Nested procedures and functions                        | ❌     |                                                             |
 | Required procedures/functions: Math                    | ❌     |                                                             |
 | Required procedures/functions: File functions          | ❌     |                                                             |
 | Required procedures/functions: I/O                     | ⚠️    | Only `writeln` and `readln` without a file  are implemented. |
 | Total digits and fraction width in `write` / `writeln` | ❌     | Runtime is ready. Crashes in codegen.                       |
 | `input` and `output` support in `program`              | ❌     | They are ignored                                            |
-| Conformable arrays in functions and procedures         | ❌     |                                                             |
-| Nested procedures and functions                        | ❌     |                                                             |
 
 ##### I found a bug / I want to contribute
 
