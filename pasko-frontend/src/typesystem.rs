@@ -213,9 +213,11 @@ impl Type {
 
     fn is_ordinal_type(&self) -> bool {
         match self.info.kind {
-            TypeKind::Integer | TypeKind::Bool | TypeKind::Enum(..) | TypeKind::SubRange(..) => {
-                true
-            }
+            TypeKind::Integer
+            | TypeKind::Bool
+            | TypeKind::Char
+            | TypeKind::Enum(..)
+            | TypeKind::SubRange(..) => true,
             _ => false,
         }
     }

@@ -2728,6 +2728,13 @@ fn init_global_scope(scope: &mut scope::Scope, semantic_context: &mut SemanticCo
     scope.add_entry("boolean", new_sym);
 
     let mut new_sym = Symbol::new();
+    new_sym.set_name("char");
+    new_sym.set_kind(SymbolKind::Type);
+    new_sym.set_type(semantic_context.type_system.get_char_type());
+    let new_sym = semantic_context.new_symbol(new_sym);
+    scope.add_entry("char", new_sym);
+
+    let mut new_sym = Symbol::new();
     new_sym.set_name("true");
     new_sym.set_kind(SymbolKind::Const);
     new_sym.set_type(semantic_context.type_system.get_bool_type());

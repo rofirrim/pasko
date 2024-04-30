@@ -1695,6 +1695,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 .is_integer_type(ty)
                 || self.codegen.semantic_context.type_system.is_real_type(ty)
                 || self.codegen.semantic_context.type_system.is_bool_type(ty)
+                || self.codegen.semantic_context.type_system.is_char_type(ty)
                 || self.codegen.semantic_context.type_system.is_enum_type(ty)
                 || self
                     .codegen
