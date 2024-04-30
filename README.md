@@ -81,7 +81,7 @@ From inside the build-directory
 | Feature                                                | State | Notes                                                       |
 | ------------------------------------------------------ | ----- | ----------------------------------------------------------- |
 | Variadic types                                         | ❌     | Not even supported in the parser yet.                       |
-| Set type                                               | ❌     |                                                             |
+| Set types                                              | ❌     |                                                             |
 | File type                                              | ❌     |                                                             |
 | Forward declarations of procedures and functions       | ❌     |                                                             |
 | Conformable arrays in functions and procedures         | ❌     |                                                             |
