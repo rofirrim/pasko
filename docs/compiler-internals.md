@@ -57,7 +57,7 @@ The visitors are used in the following way:
 
 - For each AST node that contains other `SpannedBox<T>` inside it can be visited in two instants:
   
-  - Before visiting the children, by implementing `visit_pre_<my_class>`. This method must retorn a `bool` value stating whether we want to automatically visit the children. The default method does nothing but return `true`, so the children are always visited.
+  - Before visiting the children, by implementing `visit_pre_<my_class>`. This method must return a `bool` value stating whether we want to automatically visit the children. The default method does nothing but return `true`, so the children are always visited.
   
   - After visiting the children, by implementing `visit_post_<my_class>`. This method is only invoked if the corresponding `visit_pre_<my_class>` returned true (recall that the default methode does this).
   
@@ -99,9 +99,11 @@ Codegen uses cranelift to emit an object module that implements the Pasko progra
 
 Codegen is simpler than it looks and it is structured in several modules:
 
-- `program `a visitor that handles and represents the top level entities: functions, global variables and the program statement (i.e. the entry point of the program).
+- `program` uses a visitor that handles and represents the top level entities: functions, global variables and the program statement (i.e. the entry point of the program).
   
   - Program emits one function at a time, to do this it instantiates a visitor defined in the module `function` whose purpose is to emit instructions.
+
+  - Program also emits global variables
 
 - For each function or procedure (including the program statement) a module `function` is created. This is the one that emits the instructions.
   
