@@ -6,7 +6,18 @@ project('pasko-runtime', 'c',
 # not the executables that use the library.
 lib_args = ['-DBUILDING_PASKO_RUNTIME']
 
-shlib = shared_library('pasko_runtime', 'pasko_runtime.c',
+pasko_sources = [
+  'pasko_error.c',
+  'pasko_mem.c',
+  'pasko_io.c',
+  'pasko_string.c',
+  # Headers
+  'pasko_runtime.h',
+  'pasko_internal.h',
+]
+
+shlib = shared_library('pasko_runtime', 
+  pasko_sources,
   install : true,
   c_args : lib_args,
   gnu_symbol_visibility : 'hidden',
