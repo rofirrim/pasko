@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 
+use cranelift_codegen::ir::function::FunctionParameters;
 use cranelift_codegen::settings::Configurable;
 use pasko_frontend::ast::{self, FormalParameter};
 use pasko_frontend::semantic::SemanticContext;
@@ -53,7 +54,9 @@ pub struct CodegenVisitor<'a> {
     pub offset_cache: RefCell<HashMap<SymbolId, usize>>,
 
     ir_dump: bool,
+    globals_to_dispose: Vec<SymbolId>,
     size_align_cache: RefCell<HashMap<TypeId, SizeAndAlignment>>,
+    trivially_copiable_cache : RefCell<HashMap<TypeId, bool>>,
 }
 
 impl<'a> CodegenVisitor<'a> {
@@ -91,7 +94,9 @@ impl<'a> CodegenVisitor<'a> {
             offset_cache: RefCell::new(HashMap::new()),
             // Private
             ir_dump,
+            globals_to_dispose: vec![],
             size_align_cache: RefCell::new(HashMap::new()),
+            trivially_copiable_cache: RefCell::new(HashMap::new()),
         };
 
         visitor.initialize_module();
@@ -155,6 +160,64 @@ impl<'a> CodegenVisitor<'a> {
 
         let sig = Signature::new(CallConv::SystemV);
         self.rt.read_newline = self.register_import("__pasko_read_newline", sig);
+
+        // Set operations.
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I64)); // N
+        sig.params.push(AbiParam::new(I64)); // values
+        sig.returns.push(AbiParam::new(I64)); // address to new set
+        self.rt.set_new = self.register_import("__pasko_set_new", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I64)); // address to set
+        self.rt.set_dispose = self.register_import("__pasko_set_dispose", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I64)); // address to src set
+        sig.returns.push(AbiParam::new(I64)); // address to new set
+        self.rt.set_copy = self.register_import("__pasko_set_copy", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I64)); // x
+        sig.params.push(AbiParam::new(I64)); // y
+        sig.returns.push(AbiParam::new(I64)); // result
+        self.rt.set_union = self.register_import("__pasko_set_union", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I64)); // x
+        sig.params.push(AbiParam::new(I64)); // y
+        sig.returns.push(AbiParam::new(I64)); // result
+        self.rt.set_intersection = self.register_import("__pasko_set_intersection", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I64)); // x
+        sig.params.push(AbiParam::new(I64)); // y
+        sig.returns.push(AbiParam::new(I64)); // result
+        self.rt.set_difference = self.register_import("__pasko_set_difference", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I64)); // set
+        sig.params.push(AbiParam::new(I64)); // x
+        sig.returns.push(AbiParam::new(I8)); // result
+        self.rt.set_contains = self.register_import("__pasko_set_contains", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I64)); // x
+        sig.params.push(AbiParam::new(I64)); // y
+        sig.returns.push(AbiParam::new(I8)); // result
+        self.rt.set_equal = self.register_import("__pasko_set_equal", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I64)); // x
+        sig.params.push(AbiParam::new(I64)); // y
+        sig.returns.push(AbiParam::new(I8)); // result
+        self.rt.set_not_equal = self.register_import("__pasko_set_not_equal", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I64)); // x
+        sig.params.push(AbiParam::new(I64)); // y
+        sig.returns.push(AbiParam::new(I8)); // result
+        self.rt.set_is_subset = self.register_import("__pasko_set_is_subset", sig);
     }
 
     pub fn type_to_cranelift_type(&self, ty: TypeId) -> cranelift_codegen::ir::Type {
@@ -287,6 +350,10 @@ impl<'a> CodegenVisitor<'a> {
                 size: final_size,
                 align: max_align,
             }
+        } else if self.semantic_context.type_system.is_set_type(ty) {
+            // Sets are opaque reference types, so they take the size and
+            // alignment of a pointer.
+            SizeAndAlignment { size: 8, align: 8 }
         } else {
             panic!(
                 "Unexpected size request for type {}",
@@ -312,7 +379,7 @@ impl<'a> CodegenVisitor<'a> {
     ) {
         let mut sig = Signature::new(CallConv::SystemV);
 
-        let mut return_type_is_simple = true;
+        let mut return_type_id_not_simple = None;
         let mut return_symbol_info = None;
         if let Some(return_symbol_id) = return_symbol_id {
             let return_symbol = self.semantic_context.get_symbol(return_symbol_id);
@@ -331,10 +398,18 @@ impl<'a> CodegenVisitor<'a> {
                 .semantic_context
                 .type_system
                 .is_array_type(return_symbol_type_id)
+                || self
+                    .semantic_context
+                    .type_system
+                    .is_record_type(return_symbol_type_id)
+                || self
+                    .semantic_context
+                    .type_system
+                    .is_set_type(return_symbol_type_id)
             {
                 // We pass it as a pointer parameter.
                 sig.params.push(AbiParam::new(self.pointer_type));
-                return_type_is_simple = false;
+                return_type_id_not_simple = Some(return_symbol_type_id);
             } else {
                 panic!(
                     "Unexpected return type {} while lowering to cranelift",
@@ -347,7 +422,8 @@ impl<'a> CodegenVisitor<'a> {
 
         // Remove mutability.
         let return_symbol_info = return_symbol_info;
-        let return_type_is_simple = return_type_is_simple;
+        let return_type_id_not_simple = return_type_id_not_simple;
+        let return_type_is_simple = return_type_id_not_simple.is_none();
 
         let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
         let function_symbol = function_symbol.borrow();
@@ -359,12 +435,12 @@ impl<'a> CodegenVisitor<'a> {
                 let sym_id = *sym_id;
                 let sym = self.semantic_context.get_symbol(sym_id);
                 let sym_type = sym.borrow().get_type().unwrap();
-                let is_simple_type = self.semantic_context.type_system.is_simple_type(sym_type);
-                (sym_id, sym, is_simple_type)
+                (sym_id, sym, sym_type)
             })
             .collect();
 
-        for (_param_symbol_id, param_symbol, ..) in params.iter() {
+        let mut parameters_to_dispose = vec![];
+        for (param_symbol_id, param_symbol, ..) in params.iter() {
             let param_symbol = param_symbol.borrow();
             match param_symbol.get_parameter().unwrap() {
                 pasko_frontend::symbol::ParameterKind::Value => {
@@ -381,8 +457,23 @@ impl<'a> CodegenVisitor<'a> {
                         .semantic_context
                         .type_system
                         .is_array_type(param_symbol_type_id)
+                        || self
+                            .semantic_context
+                            .type_system
+                            .is_record_type(param_symbol_type_id)
+                        || self
+                            .semantic_context
+                            .type_system
+                            .is_set_type(param_symbol_type_id)
                     {
                         sig.params.push(AbiParam::new(self.pointer_type));
+                        if self
+                            .semantic_context
+                            .type_system
+                            .is_set_type(param_symbol_type_id)
+                        {
+                            parameters_to_dispose.push(*param_symbol_id);
+                        }
                     } else {
                         panic!(
                             "Unexpected parameter type {} while lowering to cranelift",
@@ -397,6 +488,8 @@ impl<'a> CodegenVisitor<'a> {
                 }
             }
         }
+        // Remove mutability;
+        let parameters_to_dispose = parameters_to_dispose;
 
         let func_id = self
             .object_module
@@ -432,7 +525,7 @@ impl<'a> CodegenVisitor<'a> {
             vec![(
                 return_symbol_info.0,
                 return_symbol_info.1,
-                return_type_is_simple,
+                return_type_id_not_simple.unwrap(),
                 true,
             )]
             .into_iter()
@@ -443,15 +536,41 @@ impl<'a> CodegenVisitor<'a> {
         // Allocate parameters in the stack
         effective_params
             .iter()
-            .for_each(|(param_sym_id, param_sym, is_simple_type, is_return)| {
+            .for_each(|(param_sym_id, param_sym, param_type_id, is_return)| {
+                let is_simple_type = function_codegen
+                    .get_codegen()
+                    .semantic_context
+                    .type_system
+                    .is_simple_type(*param_type_id);
                 let param_sym = param_sym.borrow();
                 if let Some(parameter_kind) = param_sym.get_parameter() {
                     assert!(!is_return);
-                    match (parameter_kind, *is_simple_type) {
-                        (ParameterKind::Value, true) => {
-                            function_codegen.allocate_value_in_stack(*param_sym_id);
+                    let is_set_type = function_codegen
+                        .get_codegen()
+                        .semantic_context
+                        .type_system
+                        .is_set_type(*param_type_id);
+                    match parameter_kind {
+                        ParameterKind::Value => {
+                            if is_simple_type || is_set_type {
+                                // Simple types passed by value will have their
+                                // actual value in the stack.
+                                //
+                                // Set types are opaque, so their value is their
+                                // opaque pointer. The caller will be
+                                // responsible for creating a new opaque pointer
+                                // to honour value semantics.
+                                function_codegen.allocate_value_in_stack(*param_sym_id);
+                            } else {
+                                // Other non-simple types passed by value are
+                                // non-opaque storage-wise so we pass a pointer
+                                // to their actual storage by value (allocated
+                                // by the caller).
+                                function_codegen.allocate_address_in_stack(*param_sym_id);
+                            }
                         }
-                        (ParameterKind::Variable, _) | (ParameterKind::Value, false) => {
+                        ParameterKind::Variable => {
+                            // Other types will always pass a pointer to the non-opaque storage.
                             function_codegen.allocate_address_in_stack(*param_sym_id);
                         }
                     }
@@ -468,11 +587,18 @@ impl<'a> CodegenVisitor<'a> {
             .for_each(|(idx, (param_sym_id, ..))| {
                 function_codegen.copy_in_function_parameter(idx, *param_sym_id);
             });
+        // Notify about parameters that require disposing.
+        parameters_to_dispose
+            .iter()
+            .for_each(|sym| function_codegen.add_symbol_to_dispose(*sym));
 
         // Generate code for the block of the function.
         block
             .get()
             .walk_mut(&mut function_codegen, block.loc(), block.id());
+
+        // Now free the local stuff that needs to be freed.
+        function_codegen.dispose_symbols();
 
         // Return the value
         if let Some(return_symbol_id) = return_symbol_id {
@@ -528,6 +654,45 @@ impl<'a> CodegenVisitor<'a> {
             .define_function(func_id, &mut self.ctx)
             .unwrap();
     }
+
+    fn add_global_to_dispose(&mut self, sym: SymbolId) {
+        debug_assert!(
+            self.globals_to_dispose.iter().find(|&&s| s == sym) == None,
+            "adding global symbol more than once for disposal"
+        );
+        self.globals_to_dispose.push(sym);
+    }
+
+    // FIXME: We should memoize the result of this as it won't change.
+    fn is_trivially_copyable_impl(&self, ty: TypeId) -> bool {
+        let ts = &self.semantic_context.type_system;
+        if ts.is_set_type(ty) {
+            false
+        } else if ts.is_array_type(ty) {
+            self.is_trivially_copyable(ts.array_type_get_component_type(ty))
+        } else if ts.is_record_type(ty) {
+            let fields = ts.record_type_get_fields(ty);
+            fields.iter().all(|&field| {
+                let field_sym = self.semantic_context.get_symbol(field);
+                let field_sym = field_sym.borrow();
+                let field_ty = field_sym.get_type().unwrap();
+                self.is_trivially_copyable(field_ty)
+            })
+        } else {
+            true
+        }
+    }
+
+    pub fn is_trivially_copyable(&self, ty: TypeId) -> bool {
+        if let Some(&s) = self.trivially_copiable_cache.borrow().get(&ty) {
+            return s;
+        }
+        let r = self.is_trivially_copyable_impl(ty);
+
+        self.trivially_copiable_cache.borrow_mut().insert(ty, r);
+
+        r
+    }
 }
 
 impl<'a> VisitorMut for CodegenVisitor<'a> {
@@ -574,9 +739,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
 
         // Main program
         let mut sig = Signature::new(CallConv::SystemV);
-        // argc
         sig.returns.push(AbiParam::new(I32));
-        // argv
         sig.params.push(AbiParam::new(I32)); // argc
         sig.params.push(AbiParam::new(self.pointer_type)); // argv
 
@@ -591,9 +754,14 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         let mut func_builder_ctx = FunctionBuilderContext::new();
         let builder = FunctionBuilder::new(&mut func, &mut func_builder_ctx);
 
+        let globals_to_dispose = std::mem::take(&mut self.globals_to_dispose);
+
         let mut function_codegen = FunctionCodegenVisitor::new(self, Some(builder));
 
         function_codegen.init_function();
+        globals_to_dispose
+            .iter()
+            .for_each(|&sym| function_codegen.add_symbol_to_dispose(sym));
 
         // Create the IR for the statements.
         statements
@@ -602,6 +770,10 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
 
         // If everything went well we should be in the return block.
         assert!(function_codegen.is_top_level_block());
+
+        // Now free the global stuff that needs to be freed.
+        function_codegen.dispose_symbols();
+
         // So return 0 because this is a well behaved main.
         let zero = function_codegen.builder().ins().iconst(I32, 0);
         function_codegen.builder().ins().return_(&[zero]);
@@ -691,6 +863,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                 || self.semantic_context.type_system.is_subrange_type(ty)
                 || self.semantic_context.type_system.is_array_type(ty)
                 || self.semantic_context.type_system.is_record_type(ty)
+                || self.semantic_context.type_system.is_set_type(ty)
             {
                 let data_id = self
                     .object_module
@@ -712,6 +885,10 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
 
                 self.data_location
                     .insert(sym_id, DataLocation::GlobalVar(data_id));
+
+                if self.semantic_context.type_system.is_set_type(ty) {
+                    self.add_global_to_dispose(sym_id);
+                }
             } else {
                 panic!(
                     "Unexpected type {} in variable declaration",

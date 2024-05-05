@@ -11,6 +11,7 @@ pasko_sources = [
   'pasko_mem.c',
   'pasko_io.c',
   'pasko_string.c',
+  'pasko_set.c',
   # Headers
   'pasko_runtime.h',
   'pasko_internal.h',

@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-void __pasko_runtime_error(const char *err);
+__attribute__((noreturn)) void __pasko_runtime_error(const char *err);
 void *__pasko_allocate(size_t bytes);
 void __pasko_deallocate(void *p);
 void __pasko_utf32_to_utf8(const uint32_t *input_buffer,

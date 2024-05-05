@@ -42,6 +42,11 @@ pub enum TypeKind {
         packed: bool,
         fields: Vec<symbol::SymbolId>,
     },
+    Set {
+        packed: Option<bool>,
+        element: TypeId,
+    },
+    GenericSet,
 }
 
 #[derive(Debug, Default, Hash, PartialEq, Eq)]
@@ -173,6 +178,34 @@ impl Type {
         }
     }
 
+    fn set_type_get_element_type(&self) -> TypeId {
+        match self.info.kind {
+            TypeKind::Set { element, .. } => element,
+            _ => panic!("This is not a set type"),
+        }
+    }
+
+    fn set_type_get_packed(&self) -> Option<bool> {
+        match self.info.kind {
+            TypeKind::Set { packed, .. } => packed,
+            _ => panic!("This is not a set type"),
+        }
+    }
+
+    fn is_set_type(&self) -> bool {
+        match self.info.kind {
+            TypeKind::Set { .. } => true,
+            _ => false,
+        }
+    }
+
+    fn is_generic_set_type(&self) -> bool {
+        match self.info.kind {
+            TypeKind::GenericSet => true,
+            _ => false,
+        }
+    }
+
     fn is_real_type(&self) -> bool {
         match self.info.kind {
             TypeKind::Real => true,
@@ -251,6 +284,7 @@ pub struct TypeSystem {
     bool_type_id: TypeId,
     char_type_id: TypeId,
     error_type_id: TypeId,
+    generic_set_type_id: TypeId,
 
     symbol_map: symbol::SymbolMap,
 }
@@ -284,6 +318,11 @@ impl TypeSystem {
         let error_type_id = error_type.id();
         types.insert(error_type_id, Rc::new(error_type));
 
+        let mut generic_set_type = Type::default();
+        generic_set_type.set_kind(TypeKind::GenericSet);
+        let generic_set_type_id = generic_set_type.id();
+        types.insert(generic_set_type_id, Rc::new(generic_set_type));
+
         Self {
             types,
             derived_types: HashSet::new(),
@@ -292,6 +331,7 @@ impl TypeSystem {
             bool_type_id,
             char_type_id,
             error_type_id,
+            generic_set_type_id,
             symbol_map,
         }
     }
@@ -495,6 +535,55 @@ impl TypeSystem {
         ty.record_type_is_packed()
     }
 
+    pub fn get_generic_set_type(&self) -> TypeId {
+        self.generic_set_type_id
+    }
+
+    pub fn is_generic_set_type(&self, ty: TypeId) -> bool {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.is_generic_set_type()
+    }
+
+    pub fn get_set_type(&mut self, packed: Option<bool>, element: TypeId) -> TypeId {
+        let mut new_set_type = Type::default();
+        new_set_type.set_kind(TypeKind::Set { packed, element });
+
+        let new_set_type = Rc::new(new_set_type);
+        match self.derived_types.get(&new_set_type.clone()) {
+            Some(x) => return x.id(),
+            _ => {}
+        }
+
+        let new_id = new_set_type.id();
+        self.derived_types.insert(new_set_type.clone());
+        self.types.insert(new_id, new_set_type);
+
+        new_id
+    }
+
+    pub fn is_set_type(&self, ty: TypeId) -> bool {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.is_set_type()
+    }
+
+    pub fn set_type_get_packed(&self, ty: TypeId) -> Option<bool> {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.set_type_get_packed()
+    }
+
+    pub fn set_type_get_element(&self, ty: TypeId) -> TypeId {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.set_type_get_element_type()
+    }
+
     pub fn get_type_name(&self, id: TypeId) -> String {
         format!("{}", self.get_type_name_impl(id, false, HashSet::new()))
     }
@@ -558,7 +647,7 @@ impl TypeSystem {
             TypeKind::Record { packed, fields } => {
                 format!(
                     "{}record {} end",
-                    if packed { "packed" } else { "" },
+                    if packed { "packed " } else { "" },
                     fields
                         .iter()
                         .map(|sym_id| {
@@ -578,6 +667,22 @@ impl TypeSystem {
                         .join(" ")
                 )
             }
+            TypeKind::Set { packed, element } => {
+                format!(
+                    "{}set of {}",
+                    if packed.is_some() {
+                        if packed.unwrap() {
+                            "packed "
+                        } else {
+                            ""
+                        }
+                    } else {
+                        "<no packedness> "
+                    },
+                    self.get_type_name_impl(element, skip_alias, cycles.clone())
+                )
+            }
+            TypeKind::GenericSet => "any set".to_owned(),
             _ => {
                 unreachable!("Cannot print name of type {:?}", ty.get_kind());
             }

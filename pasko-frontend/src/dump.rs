@@ -484,7 +484,12 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         false
     }
 
-    fn visit_pre_assig_field_access(&mut self, n: &ast::AssigFieldAccess,span: &span::SpanLoc,id:span::SpanId) -> bool {
+    fn visit_pre_assig_field_access(
+        &mut self,
+        n: &ast::AssigFieldAccess,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
         self.emit_line_payload(
             "AssigArrayAccess",
             span,
@@ -862,6 +867,24 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         );
 
         self.walk_last_child(&n.1);
+
+        false
+    }
+
+    fn visit_pre_expr_set_literal(
+        &mut self,
+        n: &ast::ExprSetLiteral,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        self.emit_line_payload(
+            "ExprSetLiteral",
+            span,
+            id,
+            &format!("{}", self.type_to_string(id)),
+        );
+
+        self.walk_vec_child(&n.0);
 
         false
     }

@@ -421,7 +421,9 @@ impl<'input> Iterator for Lexer<'input> {
                         return Some(Err(LexicalError {
                             start: offset,
                             end: offset_end,
-                            message: format!("a string literal must contain at least one character"),
+                            message: format!(
+                                "a string literal must contain at least one character"
+                            ),
                         }));
                     }
                     return Some(Ok((offset, Tok::StringLiteral(tmp), offset_end)));
