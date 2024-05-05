@@ -285,7 +285,24 @@ impl<'a> SemanticCheckerVisitor<'a> {
             return true;
         }
 
-        // TODO: lhs and rhs are set-types of compatible base-types, and either both lhs and rhs are designated packed or neither lhs nor rhs is designated packed.
+        // lhs and rhs are set-types of compatible base-types, and either both lhs and rhs are designated packed or neither lhs nor rhs is designated packed.
+        if self.ctx.type_system.is_set_type(lhs_type_id)
+            && self.ctx.type_system.is_set_type(rhs_type_id)
+            && self.is_compatible(
+                self.ctx.type_system.set_type_get_element(lhs_type_id),
+                self.ctx.type_system.set_type_get_element(rhs_type_id),
+            )
+        {
+            return match (
+                self.ctx.type_system.set_type_get_packed(lhs_type_id),
+                self.ctx.type_system.set_type_get_packed(rhs_type_id),
+            ) {
+                (Some(true), Some(true)) | (Some(false), Some(false)) | (None, _) | (_, None) => {
+                    true
+                }
+                _ => false,
+            };
+        }
 
         // TODO: lhs and rhs are string-types with the same number of components
 
@@ -315,7 +332,14 @@ impl<'a> SemanticCheckerVisitor<'a> {
             return true;
         }
 
-        // TODO: types are compatible set types and all the members of rhs are in the closed interval specified by lhs
+        // types are compatible set types and all the members of rhs are in the closed interval specified by lhs
+        if self.ctx.type_system.is_set_type(lhs_type_id)
+            && self.ctx.type_system.is_set_type(rhs_type_id)
+            && self.is_compatible(lhs_type_id, rhs_type_id)
+        {
+            // FIXME: There are cases that we might be able to diagnose here statically.
+            return true;
+        }
 
         // TODO: lhs and rhs are compatible string types
 
@@ -343,6 +367,28 @@ impl<'a> SemanticCheckerVisitor<'a> {
             return Some(self.ctx.type_system.get_real_type());
         }
         None
+    }
+
+    fn same_set_type(&self, lhs_ty: TypeId, rhs_ty: TypeId) -> Option<TypeId> {
+        if !self.ctx.type_system.is_set_type(lhs_ty) || !self.ctx.type_system.is_set_type(rhs_ty) {
+            return None;
+        }
+
+        if !self.ctx.type_system.same_type(
+            self.ctx.type_system.set_type_get_element(lhs_ty),
+            self.ctx.type_system.set_type_get_element(rhs_ty),
+        ) {
+            return None;
+        }
+
+        match (
+            self.ctx.type_system.set_type_get_packed(lhs_ty),
+            self.ctx.type_system.set_type_get_packed(rhs_ty),
+        ) {
+            (Some(true), Some(true)) | (Some(false), Some(false)) | (_, None) => Some(rhs_ty),
+            (None, _) => Some(rhs_ty),
+            _ => None,
+        }
     }
 
     fn real_arith_type(&self, lhs_ty: TypeId, rhs_ty: TypeId) -> Option<TypeId> {
@@ -377,7 +423,6 @@ impl<'a> SemanticCheckerVisitor<'a> {
     }
 
     fn relational_compatibility(&self, lhs_type_id: TypeId, rhs_type_id: TypeId) -> Option<TypeId> {
-        // TODO: set-types
         if self.is_compatible(lhs_type_id, rhs_type_id) {
             return Some(lhs_type_id);
         } else if self.ctx.type_system.is_integer_type(lhs_type_id)
@@ -393,25 +438,15 @@ impl<'a> SemanticCheckerVisitor<'a> {
         None
     }
 
-    fn valid_for_relational(&self, lhs_type_id: TypeId, rhs_type_id: TypeId) -> Option<TypeId> {
-        let valid_type = |ty: TypeId| {
-            self.ctx.type_system.is_simple_type(ty) // || ty.is_string_type()
-        };
-
-        if !valid_type(lhs_type_id) || !valid_type(rhs_type_id) {
-            return None;
-        }
-
-        self.relational_compatibility(lhs_type_id, rhs_type_id)
-    }
-
-    fn valid_for_relational_equality(
+    // <
+    // >
+    fn valid_for_relational_strict(
         &self,
         lhs_type_id: TypeId,
         rhs_type_id: TypeId,
     ) -> Option<TypeId> {
         let valid_type = |ty: TypeId| {
-            self.ctx.type_system.is_simple_type(ty) // || ty.is_string_type()
+            self.ctx.type_system.is_simple_type(ty) // || self.ctx.type_system.is_string_type(ty))
         };
 
         if !valid_type(lhs_type_id) || !valid_type(rhs_type_id) {
@@ -421,9 +456,31 @@ impl<'a> SemanticCheckerVisitor<'a> {
         self.relational_compatibility(lhs_type_id, rhs_type_id)
     }
 
+    // <=
+    // >=
+    fn valid_for_relational_nonstrict(
+        &self,
+        lhs_type_id: TypeId,
+        rhs_type_id: TypeId,
+    ) -> Option<TypeId> {
+        let valid_type = |ty: TypeId| {
+            self.ctx.type_system.is_simple_type(ty) || self.ctx.type_system.is_set_type(ty)
+            // || self.ctx.type_system.is_string_type(ty))
+        };
+
+        if !valid_type(lhs_type_id) || !valid_type(rhs_type_id) {
+            return None;
+        }
+
+        self.relational_compatibility(lhs_type_id, rhs_type_id)
+    }
+
+    // =
+    // <>
     fn valid_for_equality(&self, lhs_type_id: TypeId, rhs_type_id: TypeId) -> Option<TypeId> {
         let valid_type = |ty: TypeId| {
-            self.ctx.type_system.is_simple_type(ty) // || ty.is_string_type()
+            self.ctx.type_system.is_simple_type(ty) || self.ctx.type_system.is_set_type(ty)
+            // self.ctx.type_system.is_string_type(ty)
         };
 
         if !valid_type(lhs_type_id) || !valid_type(rhs_type_id) {
@@ -659,7 +716,12 @@ impl<'a> SemanticCheckerVisitor<'a> {
         argument_error
     }
 
-    fn contains_invalid_type_cycle_impl(&self, top_level: bool, root_ty: TypeId, ty: TypeId) -> bool {
+    fn contains_invalid_type_cycle_impl(
+        &self,
+        top_level: bool,
+        root_ty: TypeId,
+        ty: TypeId,
+    ) -> bool {
         if !top_level && self.ctx.type_system.same_type(root_ty, ty) {
             return true;
         } else if self.ctx.type_system.is_error_type(ty) {
@@ -675,7 +737,11 @@ impl<'a> SemanticCheckerVisitor<'a> {
             for field in fields {
                 let field_sym = self.ctx.get_symbol(*field);
                 let field_sym = field_sym.borrow();
-                if self.contains_invalid_type_cycle_impl(false, root_ty, field_sym.get_type().unwrap()) {
+                if self.contains_invalid_type_cycle_impl(
+                    false,
+                    root_ty,
+                    field_sym.get_type().unwrap(),
+                ) {
                     return true;
                 }
             }
@@ -1034,16 +1100,36 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         self.ctx.set_ast_type(id, new_record_type);
     }
 
-    fn visit_pre_set_type(
+    fn visit_post_set_type(
         &mut self,
-        _n: &mut ast::SetType,
-        span: &span::SpanLoc,
+        n: &mut ast::SetType,
+        _span: &span::SpanLoc,
         id: span::SpanId,
-    ) -> bool {
-        self.unimplemented(*span, "set types");
-        self.ctx
-            .set_ast_type(id, self.ctx.type_system.get_error_type());
-        false
+    ) {
+        let packed = n.0.is_some();
+        let element = self.ctx.get_ast_type(n.1.id()).unwrap();
+
+        if self.ctx.type_system.is_error_type(element) {
+            self.ctx.set_ast_type(id, element);
+            return;
+        }
+
+        if !self.ctx.type_system.is_ordinal_type(element) {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *n.1.loc(),
+                format!(
+                    "element type of set {} is not an ordinal type",
+                    self.ctx.type_system.get_type_name(element)
+                ),
+            );
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
+            return;
+        }
+
+        let set_type = self.ctx.type_system.get_set_type(Some(packed), element);
+        self.ctx.set_ast_type(id, set_type);
     }
 
     fn visit_pre_file_type(
@@ -1657,7 +1743,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     fn visit_post_expr_bin_op(
         &mut self,
         node: &mut ast::ExprBinOp,
-        span: &span::SpanLoc,
+        _span: &span::SpanLoc,
         id: span::SpanId,
     ) {
         let lhs_ty = self.ctx.get_ast_type(node.1.id()).unwrap();
@@ -1672,7 +1758,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
         match node.0.get() {
             BinOperand::GreaterOrEqualThan | BinOperand::LowerOrEqualThan => {
-                let op_type = self.valid_for_relational_equality(lhs_ty, rhs_ty);
+                let op_type = self.valid_for_relational_nonstrict(lhs_ty, rhs_ty);
                 match op_type {
                     Some(operand_type) => {
                         if self.second_needs_conversion_to_first(operand_type, lhs_ty) {
@@ -1707,7 +1793,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 }
             }
             BinOperand::GreaterThan | BinOperand::LowerThan => {
-                let op_type = self.valid_for_relational(lhs_ty, rhs_ty);
+                let op_type = self.valid_for_relational_strict(lhs_ty, rhs_ty);
                 match op_type {
                     Some(operand_type) => {
                         if self.second_needs_conversion_to_first(operand_type, lhs_ty) {
@@ -1777,9 +1863,25 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 }
             }
             BinOperand::InSet => {
-                self.unimplemented(*span, "set membership operator");
-                self.ctx
-                    .set_ast_type(id, self.ctx.type_system.get_error_type());
+                if self.ctx.type_system.is_set_type(rhs_ty)
+                    && self
+                        .ctx
+                        .type_system
+                        .same_type(self.ctx.type_system.set_type_get_element(rhs_ty), lhs_ty)
+                {
+                    self.ctx
+                        .set_ast_type(id, self.ctx.type_system.get_bool_type());
+                } else {
+                    self.diagnose_invalid_binary_operator(
+                        id,
+                        lhs_ty,
+                        rhs_ty,
+                        &node.0.get().to_string(),
+                        *node.0.loc(),
+                        *node.1.loc(),
+                        *node.2.loc(),
+                    );
+                }
             }
             BinOperand::Addition | BinOperand::Subtraction | BinOperand::Multiplication => {
                 let op_type = self.common_arith_type(lhs_ty, rhs_ty);
@@ -1803,16 +1905,19 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         self.ctx.set_ast_type(id, result_type);
                     }
                     None => {
-                        // TODO: Set-type operations.
-                        self.diagnose_invalid_binary_operator(
-                            id,
-                            lhs_ty,
-                            rhs_ty,
-                            &node.0.get().to_string(),
-                            *node.0.loc(),
-                            *node.1.loc(),
-                            *node.2.loc(),
-                        );
+                        if let Some(set_ty) = self.same_set_type(lhs_ty, rhs_ty) {
+                            self.ctx.set_ast_type(id, set_ty);
+                        } else {
+                            self.diagnose_invalid_binary_operator(
+                                id,
+                                lhs_ty,
+                                rhs_ty,
+                                &node.0.get().to_string(),
+                                *node.0.loc(),
+                                *node.1.loc(),
+                                *node.2.loc(),
+                            );
+                        }
                     }
                 }
             }
@@ -2041,16 +2146,77 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         false
     }
 
-    fn visit_pre_expr_set_literal(
+    fn visit_post_expr_set_literal(
         &mut self,
-        _n: &mut ast::ExprSetLiteral,
-        span: &span::SpanLoc,
+        n: &mut ast::ExprSetLiteral,
+        _span: &span::SpanLoc,
         id: span::SpanId,
-    ) -> bool {
-        self.unimplemented(*span, "set literal expressions");
-        self.ctx
-            .set_ast_type(id, self.ctx.type_system.get_error_type());
-        false
+    ) {
+        if n.0.is_empty() {
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_generic_set_type());
+            return;
+        }
+
+        let element_types: Vec<_> =
+            n.0.iter()
+                .map(|x| (self.ctx.get_ast_type(x.id()).unwrap(), x.loc()))
+                .collect();
+        let (first_element_type, first_element_loc) = element_types[0];
+
+        if self.ctx.type_system.is_error_type(first_element_type) {
+            self.ctx.set_ast_type(id, first_element_type);
+            return;
+        }
+
+        if !self.ctx.type_system.is_ordinal_type(first_element_type) {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *first_element_loc,
+                format!(
+                    "member of set has type {} that is not an ordinal type",
+                    self.ctx.type_system.get_type_name(first_element_type)
+                ),
+            );
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
+            return;
+        }
+
+        let mut all_ok = true;
+        for i in 1..element_types.len() {
+            let (current_element_type, current_element_loc) = element_types[i];
+            if self.ctx.type_system.is_error_type(current_element_type) {
+                all_ok = false;
+            } else if !self
+                .ctx
+                .type_system
+                .same_type(first_element_type, current_element_type)
+            {
+                all_ok = false;
+                self.diagnostics.add_with_extra(
+                    DiagnosticKind::Error,
+                    *current_element_loc,
+                    format!(
+                        "type of set member is {} which is not the same as {}",
+                        self.ctx.type_system.get_type_name(current_element_type),
+                        self.ctx.type_system.get_type_name(first_element_type)
+                    ),
+                    vec![*first_element_loc],
+                    vec![],
+                );
+            }
+        }
+
+        if !all_ok {
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
+            return;
+        }
+
+        let set_type = self.ctx.type_system.get_set_type(None, first_element_type);
+
+        self.ctx.set_ast_type(id, set_type);
     }
 
     fn visit_post_expr_parentheses(
