@@ -246,7 +246,13 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 let symbol = symbol.borrow();
                 let ty = symbol.get_type().unwrap();
 
-                let value = if self.codegen.semantic_context.type_system.is_simple_type(ty) {
+                let value = if self.codegen.semantic_context.type_system.is_simple_type(ty)
+                    || self
+                        .codegen
+                        .semantic_context
+                        .type_system
+                        .is_pointer_type(ty)
+                {
                     let cranelift_ty = self.codegen.type_to_cranelift_type(ty);
 
                     builder.ins().load(
@@ -366,6 +372,11 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                         .semantic_context
                         .type_system
                         .is_simple_type(arg_ty)
+                    || self
+                        .codegen
+                        .semantic_context
+                        .type_system
+                        .is_pointer_type(arg_ty)
                 {
                     arg_value
                 } else if self
@@ -427,7 +438,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                             // This temporary will be disposed by the callee.
                             self.remove_temporary_to_dispose(arg_value);
                             arg_value
-                        },
+                        }
                     }
                 } else {
                     panic!(
@@ -750,6 +761,63 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         self.builder().ins().call(func_ref, &[]);
                     }
                 }
+                "new" => {
+                    if let Some(args) = &n.1 {
+                        assert!(args.len() == 1);
+                        let arg = &args[0];
+                        let (var_addr, var_ty) = match arg.get() {
+                            ast::Expr::Variable(expr_var) => {
+                                let var = &expr_var.0;
+
+                                var.get().walk_mut(self, var.loc(), var.id());
+                                let pointer_ty = self
+                                    .codegen
+                                    .semantic_context
+                                    .get_ast_type(var.id())
+                                    .unwrap();
+
+                                let pointee_ty = self
+                                    .codegen
+                                    .semantic_context
+                                    .type_system
+                                    .pointer_type_get_pointee_type(pointer_ty);
+
+                                (self.get_value(var.id()), pointee_ty)
+                            }
+                            _ => {
+                                panic!("Invalid AST at this point!");
+                            }
+                        };
+
+                        let size_bytes = self.codegen.size_in_bytes(var_ty) as i64;
+                        let size_bytes = self.emit_const_integer(size_bytes);
+
+                        let func_id = self.codegen.rt.pointer_new.unwrap();
+                        let func_ref = self.get_function_reference(func_id);
+                        self.builder().ins().call(func_ref, &[var_addr, size_bytes]);
+                    }
+                }
+                "dispose" => {
+                    if let Some(args) = &n.1 {
+                        assert!(args.len() == 1);
+                        let arg = &args[0];
+                        let var_addr = match arg.get() {
+                            ast::Expr::Variable(expr_var) => {
+                                let var = &expr_var.0;
+
+                                var.get().walk_mut(self, var.loc(), var.id());
+                                self.get_value(var.id())
+                            }
+                            _ => {
+                                panic!("Invalid AST at this point!");
+                            }
+                        };
+
+                        let func_id = self.codegen.rt.pointer_dispose.unwrap();
+                        let func_ref = self.get_function_reference(func_id);
+                        self.builder().ins().call(func_ref, &[var_addr]);
+                    }
+                }
                 _ => {
                     panic!(
                         "Lowering of call to required procedure {} not implemented yet",
@@ -913,6 +981,12 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         }
     }
 
+    fn visit_const_nil(&mut self, _n: &ast::ConstNil, _span: &span::SpanLoc, id: span::SpanId) {
+        let pointer_type = self.codegen.pointer_type;
+        let v = self.builder().ins().iconst(pointer_type, 0);
+        self.set_value(id, v);
+    }
+
     fn visit_pre_expr_set_literal(
         &mut self,
         n: &ast::ExprSetLiteral,
@@ -1057,6 +1131,15 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             self.builder()
                 .ins()
                 .store(cranelift_codegen::ir::MemFlags::new(), src_value, addr, 0);
+        } else if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_pointer_type(ty)
+        {
+            self.builder()
+                .ins()
+                .store(cranelift_codegen::ir::MemFlags::new(), value, addr, 0);
         } else {
             panic!(
                 "Do not know how to assign a value of type {}",
@@ -1112,6 +1195,20 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 0,
             );
 
+            self.set_value(id, v);
+        } else if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_pointer_type(ty)
+        {
+            let pointer_type = self.codegen.pointer_type;
+            let v = self.builder().ins().load(
+                pointer_type,
+                cranelift_codegen::ir::MemFlags::new(),
+                addr,
+                0,
+            );
             self.set_value(id, v);
         } else {
             panic!(
@@ -1284,6 +1381,14 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
         let record_addr = self.get_value(n.0.id());
 
+        // Make sure the type has been laid out.
+        let _ = self.codegen.size_in_bytes(
+            self.codegen
+                .semantic_context
+                .get_ast_type(n.0.id())
+                .unwrap(),
+        );
+
         let field_sym = self
             .codegen
             .semantic_context
@@ -1298,6 +1403,27 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         let addr = self.builder().ins().iadd(record_addr, offset);
         self.set_value(id, addr);
+
+        false
+    }
+
+    fn visit_pre_assig_pointer_deref(
+        &mut self,
+        n: &ast::AssigPointerDeref,
+        _span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        n.0.get().walk_mut(self, n.0.loc(), n.0.id());
+        let pointer_addr = self.get_value(n.0.id());
+
+        let pointer_ty = self.codegen.pointer_type;
+        let pointer_value = self.builder().ins().load(
+            pointer_ty,
+            cranelift_codegen::ir::MemFlags::new(),
+            pointer_addr,
+            0,
+        );
+        self.set_value(id, pointer_value);
 
         false
     }
@@ -1472,6 +1598,11 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                             .semantic_context
                             .type_system
                             .is_bool_type(lhs_type)
+                        || self
+                            .codegen
+                            .semantic_context
+                            .type_system
+                            .is_pointer_type(lhs_type)
                     {
                         let cond = match operator {
                             ast::BinOperand::Equal => IntCC::Equal,
@@ -2034,6 +2165,11 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     .is_subrange_type(ty)
                 || self.codegen.semantic_context.type_system.is_array_type(ty)
                 || self.codegen.semantic_context.type_system.is_record_type(ty)
+                || self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .is_pointer_type(ty)
             {
                 self.allocate_value_in_stack(sym_id);
             } else if self.codegen.semantic_context.type_system.is_set_type(ty) {
@@ -2099,7 +2235,12 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_simple_type(callee_return_type);
+            .is_simple_type(callee_return_type)
+            || self
+                .codegen
+                .semantic_context
+                .type_system
+                .is_pointer_type(callee_return_type);
 
         let func_id = *self
             .codegen

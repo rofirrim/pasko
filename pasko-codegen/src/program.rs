@@ -56,7 +56,7 @@ pub struct CodegenVisitor<'a> {
     ir_dump: bool,
     globals_to_dispose: Vec<SymbolId>,
     size_align_cache: RefCell<HashMap<TypeId, SizeAndAlignment>>,
-    trivially_copiable_cache : RefCell<HashMap<TypeId, bool>>,
+    trivially_copiable_cache: RefCell<HashMap<TypeId, bool>>,
 }
 
 impl<'a> CodegenVisitor<'a> {
@@ -218,6 +218,15 @@ impl<'a> CodegenVisitor<'a> {
         sig.params.push(AbiParam::new(I64)); // y
         sig.returns.push(AbiParam::new(I8)); // result
         self.rt.set_is_subset = self.register_import("__pasko_set_is_subset", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I64)); // addr to pointer
+        sig.params.push(AbiParam::new(I64)); // size in bytes
+        self.rt.pointer_new = self.register_import("__pasko_pointer_new", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I64)); // addr to pointer
+        self.rt.pointer_dispose = self.register_import("__pasko_pointer_dispose", sig);
     }
 
     pub fn type_to_cranelift_type(&self, ty: TypeId) -> cranelift_codegen::ir::Type {
@@ -233,6 +242,8 @@ impl<'a> CodegenVisitor<'a> {
             I32
         } else if self.semantic_context.type_system.is_subrange_type(ty) {
             self.type_to_cranelift_type(self.semantic_context.type_system.get_host_type(ty))
+        } else if self.semantic_context.type_system.is_pointer_type(ty) {
+            self.pointer_type
         } else {
             panic!(
                 "Unexpected type {} when mapping to cranelift type",
@@ -353,7 +364,15 @@ impl<'a> CodegenVisitor<'a> {
         } else if self.semantic_context.type_system.is_set_type(ty) {
             // Sets are opaque reference types, so they take the size and
             // alignment of a pointer.
-            SizeAndAlignment { size: 8, align: 8 }
+            SizeAndAlignment {
+                size: self.pointer_type.bytes() as usize,
+                align: 8,
+            }
+        } else if self.semantic_context.type_system.is_pointer_type(ty) {
+            SizeAndAlignment {
+                size: self.pointer_type.bytes() as usize,
+                align: 8,
+            }
         } else {
             panic!(
                 "Unexpected size request for type {}",
@@ -390,6 +409,10 @@ impl<'a> CodegenVisitor<'a> {
                 .semantic_context
                 .type_system
                 .is_simple_type(return_symbol_type_id)
+                || self
+                    .semantic_context
+                    .type_system
+                    .is_pointer_type(return_symbol_type_id)
             {
                 sig.returns.push(AbiParam::new(
                     self.type_to_cranelift_type(return_symbol_type_id),
@@ -465,6 +488,10 @@ impl<'a> CodegenVisitor<'a> {
                             .semantic_context
                             .type_system
                             .is_set_type(param_symbol_type_id)
+                        || self
+                            .semantic_context
+                            .type_system
+                            .is_pointer_type(param_symbol_type_id)
                     {
                         sig.params.push(AbiParam::new(self.pointer_type));
                         if self
@@ -864,6 +891,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                 || self.semantic_context.type_system.is_array_type(ty)
                 || self.semantic_context.type_system.is_record_type(ty)
                 || self.semantic_context.type_system.is_set_type(ty)
+                || self.semantic_context.type_system.is_pointer_type(ty)
             {
                 let data_id = self
                     .object_module

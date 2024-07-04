@@ -23,7 +23,7 @@ end.
 {
 
 CHECK-LABEL: *** IR for procedure 'foo_val'
-CHECK: function u0:19(i64) system_v {
+CHECK: function u0:21(i64) system_v {
 CHECK:     ss0 = explicit_slot 8
 CHECK:     ss1 = explicit_slot 8
 CHECK:     sig0 = (i64, i64) -> i64 system_v
@@ -51,7 +51,7 @@ CHECK: }
 CHECK: *** IR for procedure 'foo_val' seems OK
 
 CHECK-LABEL: *** IR for procedure 'foo_ref'
-CHECK: function u0:20(i64) system_v {
+CHECK: function u0:22(i64) system_v {
 CHECK:     ss0 = explicit_slot 8
 CHECK:     ss1 = explicit_slot 8
 CHECK:     sig0 = (i64, i64) -> i64 system_v
@@ -77,7 +77,7 @@ CHECK: }
 CHECK: *** IR for procedure 'foo_ref' seems OK
 
 CHECK-LABEL: *** IR for main
-CHECK: function u0:21(i32, i64) -> i32 system_v {
+CHECK: function u0:23(i32, i64) -> i32 system_v {
 CHECK: block0(v0: i32, v1: i64):
 CHECK:     v2 = iconst.i32 0
 CHECK:     return v2  ; v2 = 0

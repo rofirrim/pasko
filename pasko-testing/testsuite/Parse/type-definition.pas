@@ -19,7 +19,7 @@ type
    end;
    indextype = 1..limit;
    vector = array [indextype] of real;
-   { person = ^persondetails; } 
+   person = ^persondetails;
    persondetails = record
      name, firstname : charsequence;
      age : natural;
@@ -85,6 +85,9 @@ CHECK-NEXT:       │  ├─╴TypeDefinition 21:4 vector
 CHECK-NEXT:       │  │  └─╴ArrayType 21:13 (unpacked)
 CHECK-NEXT:       │  │     ├─╴TypeIdentifier 21:20 "indextype" <<no-type>>
 CHECK-NEXT:       │  │     └─╴TypeIdentifier 21:34 "real" <<no-type>>
+CHECK-NEXT:       │  ├─╴TypeDefinition 22:4 person
+CHECK-NEXT:       │  │  └─╴PointerType 22:13 
+CHECK-NEXT:       │  │     └─╴TypeIdentifier 22:14 "persondetails" <<no-type>>
 CHECK-NEXT:       │  ├─╴TypeDefinition 23:4 persondetails
 CHECK-NEXT:       │  │  └─╴RecordType 23:20 (packed)
 CHECK-NEXT:       │  │     ├─╴RecordSection 24:6 name, firstname

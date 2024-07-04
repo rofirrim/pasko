@@ -21,4 +21,8 @@ pub struct RuntimeFunctions {
     pub set_equal: Option<cranelift_module::FuncId>,
     pub set_not_equal: Option<cranelift_module::FuncId>,
     pub set_is_subset: Option<cranelift_module::FuncId>,
+
+    // Pointer operations
+    pub pointer_new: Option<cranelift_module::FuncId>,
+    pub pointer_dispose: Option<cranelift_module::FuncId>,
 }

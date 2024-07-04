@@ -135,6 +135,7 @@ macro_rules! define_visitor_trait {
             $define_visitor!(RecordSection);
             $define_visitor!(SetType);
             $define_visitor!(FileType);
+            $define_visitor!(PointerType);
             $define_visitor!(VariableDeclarationPart);
             $define_visitor!(VariableDeclaration);
             $define_visitor!(ProcedureAndFunctionDeclarationPart);
@@ -806,7 +807,8 @@ define_visitable_enum!(
     ast::TypeDenoter::ArrayType,
     ast::TypeDenoter::RecordType,
     ast::TypeDenoter::SetType,
-    ast::TypeDenoter::FileType
+    ast::TypeDenoter::FileType,
+    ast::TypeDenoter::PointerType
   }
 );
 
@@ -819,7 +821,8 @@ define_mutating_visitable_enum!(
     ast::TypeDenoter::ArrayType,
     ast::TypeDenoter::RecordType,
     ast::TypeDenoter::SetType,
-    ast::TypeDenoter::FileType
+    ast::TypeDenoter::FileType,
+    ast::TypeDenoter::PointerType
   }
 );
 
@@ -936,6 +939,31 @@ define_mutating_visitable!(
     },
     {
         mutating_visit_child_mut!(self, 1, v);
+    }
+);
+
+// PointerType
+define_visitable!(
+    PointerType,
+    self,
+    v,
+    {
+        visit_child!(self, 0, v);
+    },
+    {
+        visit_child_mut!(self, 0, v);
+    }
+);
+
+define_mutating_visitable!(
+    PointerType,
+    self,
+    v,
+    {
+        mutating_visit_child!(self, 0, v);
+    },
+    {
+        mutating_visit_child_mut!(self, 0, v);
     }
 );
 

@@ -36,7 +36,7 @@ end.
 {
 
 CHECK:      *** IR for procedure 'foo_1'
-CHECK-NEXT: function u0:19() system_v {
+CHECK-NEXT: function u0:21() system_v {
 CHECK-NEXT:     ss0 = explicit_slot 32
 CHECK-EMPTY:
 CHECK-NEXT: block0:
@@ -45,7 +45,7 @@ CHECK-NEXT: }
 CHECK-NEXT: *** IR for procedure 'foo_1' seems OK
 
 CHECK:      *** IR for procedure 'foo_2'
-CHECK-NEXT: function u0:20() system_v {
+CHECK-NEXT: function u0:22() system_v {
 CHECK-NEXT:     ss0 = explicit_slot 24
 CHECK-EMPTY:
 CHECK-NEXT: block0:

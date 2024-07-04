@@ -80,7 +80,6 @@ From inside the build-directory
 
 | Feature                                                | State | Notes                                                       |
 | ------------------------------------------------------ | ----- | ----------------------------------------------------------- |
-| Pointer types                                          | ❌     |                                                             |
 | File type                                              | ❌     |                                                             |
 | Forward declarations of procedures and functions       | ❌     |                                                             |
 | Required procedures/functions: Math                    | ❌     |                                                             |

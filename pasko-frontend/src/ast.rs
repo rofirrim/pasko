@@ -172,6 +172,9 @@ pub struct SetType(pub Option<Spanned<String>>, pub SpannedBox<TypeDenoter>);
 pub struct FileType(pub Option<Spanned<String>>, pub SpannedBox<TypeDenoter>);
 
 #[derive(Debug)]
+pub struct PointerType(pub SpannedBox<TypeDenoter>);
+
+#[derive(Debug)]
 pub enum TypeDenoter {
     TypeIdentifier(TypeIdentifier),
     EnumeratedType(EnumeratedType),
@@ -180,6 +183,7 @@ pub enum TypeDenoter {
     RecordType(RecordType),
     SetType(SetType),
     FileType(FileType),
+    PointerType(PointerType),
 }
 
 #[derive(Debug)]
