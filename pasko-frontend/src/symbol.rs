@@ -26,6 +26,7 @@ pub enum SymbolKind {
     #[default]
     None,
     ErrorLookup,
+    PendingTypeDefinition,
     Variable,
     Type,
     Function,

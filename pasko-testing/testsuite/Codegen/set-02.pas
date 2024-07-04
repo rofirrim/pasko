@@ -27,7 +27,7 @@ end.
 {
 
 CHECK-LABEL: *** IR for main
-CHECK: function u0:19(i32, i64) -> i32 system_v {
+CHECK: function u0:21(i32, i64) -> i32 system_v {
 CHECK:     ss0 = explicit_slot 24
 CHECK:     ss1 = explicit_slot 24
 CHECK:     gv0 = symbol colocated userextname1

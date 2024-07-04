@@ -14,7 +14,7 @@ end.
 {
 
 CHECK:      *** IR for main
-CHECK-NEXT: function u0:19(i32, i64) -> i32 system_v {
+CHECK-NEXT: function u0:21(i32, i64) -> i32 system_v {
 CHECK-NEXT:     gv0 = symbol colocated userextname0
 CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i32, v1: i64):

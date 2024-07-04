@@ -47,6 +47,8 @@ pub enum TypeKind {
         element: TypeId,
     },
     GenericSet,
+    Pointer(TypeId),
+    GenericPointer,
 }
 
 #[derive(Debug, Default, Hash, PartialEq, Eq)]
@@ -206,6 +208,27 @@ impl Type {
         }
     }
 
+    fn is_pointer_type(&self) -> bool {
+        match self.info.kind {
+            TypeKind::Pointer(..) => true,
+            _ => false,
+        }
+    }
+
+    fn is_generic_pointer_type(&self) -> bool {
+        match self.info.kind {
+            TypeKind::GenericPointer => true,
+            _ => false,
+        }
+    }
+
+    fn pointer_type_get_pointee_type(&self) -> TypeId {
+        match self.info.kind {
+            TypeKind::Pointer(pointee) => pointee,
+            _ => panic!("This is not a pointer type"),
+        }
+    }
+
     fn is_real_type(&self) -> bool {
         match self.info.kind {
             TypeKind::Real => true,
@@ -279,12 +302,14 @@ pub struct TypeSystem {
     types: HashMap<TypeId, Rc<Type>>,
     derived_types: HashSet<Rc<Type>>,
 
+    none_type_id: TypeId,
     integer_type_id: TypeId,
     real_type_id: TypeId,
     bool_type_id: TypeId,
     char_type_id: TypeId,
     error_type_id: TypeId,
     generic_set_type_id: TypeId,
+    generic_pointer_type_id: TypeId,
 
     symbol_map: symbol::SymbolMap,
 }
@@ -292,6 +317,10 @@ pub struct TypeSystem {
 impl TypeSystem {
     pub fn new(symbol_map: symbol::SymbolMap) -> TypeSystem {
         let mut types = HashMap::new();
+
+        let none_type = Type::default();
+        let none_type_id = none_type.id();
+        types.insert(none_type_id, Rc::new(none_type));
 
         let mut integer_type = Type::default();
         integer_type.set_kind(TypeKind::Integer);
@@ -323,15 +352,22 @@ impl TypeSystem {
         let generic_set_type_id = generic_set_type.id();
         types.insert(generic_set_type_id, Rc::new(generic_set_type));
 
+        let mut generic_pointer_type = Type::default();
+        generic_pointer_type.set_kind(TypeKind::GenericPointer);
+        let generic_pointer_type_id = generic_pointer_type.id();
+        types.insert(generic_pointer_type_id, Rc::new(generic_pointer_type));
+
         Self {
             types,
             derived_types: HashSet::new(),
+            none_type_id,
             integer_type_id,
             real_type_id,
             bool_type_id,
             char_type_id,
             error_type_id,
             generic_set_type_id,
+            generic_pointer_type_id,
             symbol_map,
         }
     }
@@ -347,6 +383,10 @@ impl TypeSystem {
 
     fn get_type_internal(&self, id: TypeId) -> &Type {
         self.types.get(&id).unwrap()
+    }
+
+    pub fn get_none_type(&self) -> TypeId {
+        self.none_type_id
     }
 
     pub fn get_integer_type(&self) -> TypeId {
@@ -584,6 +624,48 @@ impl TypeSystem {
         ty.set_type_get_element_type()
     }
 
+    pub fn get_generic_pointer_type(&self) -> TypeId {
+        self.generic_pointer_type_id
+    }
+
+    pub fn is_generic_pointer_type(&self, ty: TypeId) -> bool {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.is_generic_pointer_type()
+    }
+
+    pub fn get_pointer_type(&mut self, ty: TypeId) -> TypeId {
+        let mut new_pointer_type = Type::default();
+        new_pointer_type.set_kind(TypeKind::Pointer(ty));
+
+        let new_pointer_type = Rc::new(new_pointer_type);
+        match self.derived_types.get(&new_pointer_type.clone()) {
+            Some(x) => return x.id(),
+            _ => {}
+        }
+
+        let new_id = new_pointer_type.id();
+        self.derived_types.insert(new_pointer_type.clone());
+        self.types.insert(new_id, new_pointer_type);
+
+        new_id
+    }
+
+    pub fn is_pointer_type(&self, ty: TypeId) -> bool {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.is_pointer_type()
+    }
+
+    pub fn pointer_type_get_pointee_type(&self, ty: TypeId) -> TypeId {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.pointer_type_get_pointee_type()
+    }
+
     pub fn get_type_name(&self, id: TypeId) -> String {
         format!("{}", self.get_type_name_impl(id, false, HashSet::new()))
     }
@@ -594,17 +676,17 @@ impl TypeSystem {
         skip_alias: bool,
         mut cycles: HashSet<TypeId>,
     ) -> String {
-        if cycles.contains(&id) {
-            return "...".to_string();
-        }
-        cycles.insert(id);
         let ty = self.get_type_internal(id);
+        let was_already_visited = cycles.contains(&id);
+        cycles.insert(id);
         match ty.get_kind() {
             TypeKind::NamedType(sym_id) => {
                 let sym = self.symbol_map.borrow().get_symbol(sym_id);
                 let sym = sym.borrow();
                 assert!(!self.is_builtin_type_name(sym.get_name()));
-                if skip_alias {
+                if was_already_visited {
+                    return sym.get_name().clone();
+                } else if skip_alias {
                     return self.get_type_name_impl(self.ultimate_type(id), skip_alias, cycles);
                 } else {
                     let aliased_to = self.get_type_name_impl(self.ultimate_type(id), true, cycles);
@@ -683,6 +765,12 @@ impl TypeSystem {
                 )
             }
             TypeKind::GenericSet => "any set".to_owned(),
+            TypeKind::GenericPointer => "generic pointer".to_owned(),
+            TypeKind::Pointer(pointee) => format!(
+                "^{}",
+                self.get_type_name_impl(pointee, skip_alias, cycles.clone()),
+            ),
+            TypeKind::None => "<no type>".to_owned(),
             _ => {
                 unreachable!("Cannot print name of type {:?}", ty.get_kind());
             }
@@ -696,6 +784,12 @@ impl TypeSystem {
         }
     }
 
+    pub fn is_none_type(&self, a: TypeId) -> bool {
+        let a = self.ultimate_type(a);
+
+        a == self.none_type_id
+    }
+
     pub fn ultimate_type(&self, ty: TypeId) -> TypeId {
         let lhs_type = self.get_type_internal(ty);
         if let Some(sym_id) = lhs_type.get_symbol_of_named_type() {
@@ -707,10 +801,47 @@ impl TypeSystem {
     }
 
     pub fn same_type(&self, a: TypeId, b: TypeId) -> bool {
-        let a = self.ultimate_type(a);
-        let b = self.ultimate_type(b);
-
-        a == b
+        match (
+            self.get_type_internal(a).get_kind(),
+            self.get_type_internal(b).get_kind(),
+        ) {
+            // None is never the same as other types
+            (TypeKind::None, _) => false,
+            (_, TypeKind::None) => false,
+            // See through named types
+            (TypeKind::NamedType(_), _) => self.same_type(self.ultimate_type(a), b),
+            (_, TypeKind::NamedType(_)) => self.same_type(a, self.ultimate_type(b)),
+            // Structural checking
+            (TypeKind::SubRange(t1, ca1, cb1), TypeKind::SubRange(t2, ca2, cb2)) => {
+                ca1 == ca2 && cb1 == cb2 && self.same_type(t1, t2)
+            }
+            (TypeKind::Pointer(p1), TypeKind::Pointer(p2)) => self.same_type(p1, p2),
+            (
+                TypeKind::Set {
+                    packed: p1,
+                    element: s1,
+                },
+                TypeKind::Set {
+                    packed: p2,
+                    element: s2,
+                },
+            ) => (p1.is_some() == p2.is_some()) && self.same_type(s1, s2),
+            (
+                TypeKind::Array {
+                    packed: p1,
+                    index: i1,
+                    component: c1,
+                },
+                TypeKind::Array {
+                    packed: p2,
+                    index: i2,
+                    component: c2,
+                },
+            ) => (p1 == p2) && self.same_type(i1, i2) && self.same_type(c1, c2),
+            // Integer, Real, Bool, Char, Error, Enum and Record
+            // GenericSet, GenericPointer
+            _ => a == b,
+        }
     }
 
     pub fn is_valid_component_type_of_file_type(&self, _ty: TypeId) -> bool {

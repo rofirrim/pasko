@@ -7,7 +7,7 @@ const
   KONST = 123;
   BLAH = true;
 {
-C-HECK: error: negation of a constant that is not an integer or a real
+CHECK: error: negation of a constant that is not an integer or a real
 }
   BAR = -BLAH;
 var
@@ -54,7 +54,7 @@ CHECK: error: operator '-' cannot be applied to operand of type boolean
 }
    b := -b;
 {
-CHECK: error: function 'two_args' expects 2 parameters but 1 arguments were passed
+CHECK: error: function 'two_args' expects 2 parameters but 1 argument was passed
 }
    x := two_args(1);
 {

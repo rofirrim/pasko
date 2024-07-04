@@ -48,4 +48,7 @@ PASKO_RUNTIME_PUBLIC uint8_t __pasko_set_not_equal(pasko_set_t *a,
 PASKO_RUNTIME_PUBLIC uint8_t __pasko_set_is_subset(pasko_set_t *a,
                                                    pasko_set_t *b);
 
+PASKO_RUNTIME_PUBLIC void __pasko_pointer_new(void **ptr, uint64_t bytes);
+PASKO_RUNTIME_PUBLIC void __pasko_pointer_dispose(void **ptr);
+
 #endif // PASK_RUNTIME_H

@@ -20,6 +20,8 @@ pub struct SemanticContext {
     ast_types: HashMap<span::SpanId, TypeId>,
     ast_symbols: HashMap<span::SpanId, SymbolId>,
     ast_values: HashMap<span::SpanId, Constant>,
+
+    pending_type_definitions: Vec<SymbolId>,
 }
 
 const REQUIRED_PROCEDURES: &[&str] = &[
@@ -56,6 +58,8 @@ impl SemanticContext {
             ast_types: HashMap::new(),
             ast_symbols: HashMap::new(),
             ast_values: HashMap::new(),
+
+            pending_type_definitions: vec![],
         };
 
         sc
@@ -96,12 +100,28 @@ impl SemanticContext {
     pub fn get_ast_symbol(&self, id: span::SpanId) -> Option<SymbolId> {
         self.ast_symbols.get(&id).cloned()
     }
+
+    pub fn add_to_pending_definitions(&mut self, sym_id: SymbolId) {
+        self.pending_type_definitions.push(sym_id);
+    }
+
+    pub fn remove_from_pending_definitions(&mut self, sym_id: SymbolId) {
+        let index = self
+            .pending_type_definitions
+            .iter()
+            .position(|x| *x == sym_id)
+            .unwrap();
+        self.pending_type_definitions.remove(index);
+    }
 }
 
 struct SemanticCheckerVisitor<'a> {
     ctx: &'a mut SemanticContext,
     diagnostics: &'a mut Diagnostics,
     scope: &'a mut scope::Scope,
+
+    in_type_definition_part: bool,
+    in_pointer_type: bool,
 }
 
 enum FunctionProcedureDeclarationStatus {
@@ -117,14 +137,21 @@ enum FunctionProcedureDeclarationStatus {
 }
 
 impl<'a> SemanticCheckerVisitor<'a> {
-    fn lookup_symbol(&mut self, name: &str, span: &span::SpanLoc) -> Option<SymbolId> {
+    fn _lookup_symbol_impl(
+        &mut self,
+        name: &str,
+        span: &span::SpanLoc,
+        diagnose: bool,
+    ) -> Option<SymbolId> {
         let query = self.scope.lookup(name);
         if query.is_none() {
-            self.diagnostics.add(
-                DiagnosticKind::Error,
-                *span,
-                format!("identifier '{}' not found in this scope", name),
-            );
+            if diagnose {
+                self.diagnostics.add(
+                    DiagnosticKind::Error,
+                    *span,
+                    format!("identifier '{}' not found in this scope", name),
+                );
+            }
             // Now create an erroneous identifier that we will use to filter later occurrences.
             let mut dummy_sym = Symbol::new();
             dummy_sym.set_name(name);
@@ -136,6 +163,19 @@ impl<'a> SemanticCheckerVisitor<'a> {
             self.scope.add_entry(name, dummy_sym);
         }
         query
+    }
+
+    fn lookup_symbol(&mut self, name: &str, span: &span::SpanLoc) -> Option<SymbolId> {
+        self._lookup_symbol_impl(name, span, /* diagnose */ true)
+    }
+
+    fn lookup_symbol_and_diagnose(
+        &mut self,
+        name: &str,
+        span: &span::SpanLoc,
+        diagnose: bool,
+    ) -> Option<SymbolId> {
+        self._lookup_symbol_impl(name, span, diagnose)
     }
 
     fn extra_diag_previous_location(&self, symbol: &Symbol) -> Vec<Diagnostic> {
@@ -180,6 +220,19 @@ impl<'a> SemanticCheckerVisitor<'a> {
                 return false;
             }
         }
+    }
+
+    fn is_pending_type_definition(&mut self, name: &String) -> Option<SymbolId> {
+        let sym = self.scope.lookup_current_scope(name);
+        if let Some(sym_id) = sym {
+            let sym = self.ctx.get_symbol(sym_id);
+            let sym = sym.borrow();
+            if sym.get_kind() != SymbolKind::PendingTypeDefinition {
+                return None;
+            }
+        }
+
+        sym
     }
 
     fn diagnose_reintroduced_procedure_or_function(
@@ -259,7 +312,18 @@ impl<'a> SemanticCheckerVisitor<'a> {
         self.diagnose_reintroduced_procedure_or_function(name, span, false)
     }
 
+    fn is_pointer_and_generic_pointer(&self, a: TypeId, b: TypeId) -> bool {
+        self.ctx.type_system.is_pointer_type(a) && self.ctx.type_system.is_generic_pointer_type(b)
+    }
+
     fn is_compatible(&self, lhs_type_id: TypeId, rhs_type_id: TypeId) -> bool {
+        // Two generic pointer types are assumed incompatible. This can only happen if the code does `nil <> nil`.
+        if self.ctx.type_system.is_generic_pointer_type(lhs_type_id)
+            && self.ctx.type_system.is_generic_pointer_type(rhs_type_id)
+        {
+            return false;
+        }
+
         if self.ctx.type_system.same_type(lhs_type_id, rhs_type_id) {
             return true;
         }
@@ -304,12 +368,27 @@ impl<'a> SemanticCheckerVisitor<'a> {
             };
         }
 
+        // We have to allow operations of the form `nil <> p` and `p <> nil`.
+        // Something like `nil <> nil` has been handled earlier.
+        if self.is_pointer_and_generic_pointer(rhs_type_id, lhs_type_id)
+            || self.is_pointer_and_generic_pointer(lhs_type_id, rhs_type_id)
+        {
+            return true;
+        }
+
         // TODO: lhs and rhs are string-types with the same number of components
 
         false
     }
 
     fn is_assignment_compatible(&self, lhs_type_id: TypeId, rhs_type_id: TypeId) -> bool {
+        // Two generic pointers are assumed incompatible (this should not happen)
+        if self.ctx.type_system.is_generic_pointer_type(lhs_type_id)
+            && self.ctx.type_system.is_generic_pointer_type(rhs_type_id)
+        {
+            return false;
+        }
+
         if self.ctx.type_system.same_type(lhs_type_id, rhs_type_id) {
             return self
                 .ctx
@@ -338,6 +417,11 @@ impl<'a> SemanticCheckerVisitor<'a> {
             && self.is_compatible(lhs_type_id, rhs_type_id)
         {
             // FIXME: There are cases that we might be able to diagnose here statically.
+            return true;
+        }
+
+        // p := nil;
+        if self.is_pointer_and_generic_pointer(lhs_type_id, rhs_type_id) {
             return true;
         }
 
@@ -479,7 +563,10 @@ impl<'a> SemanticCheckerVisitor<'a> {
     // <>
     fn valid_for_equality(&self, lhs_type_id: TypeId, rhs_type_id: TypeId) -> Option<TypeId> {
         let valid_type = |ty: TypeId| {
-            self.ctx.type_system.is_simple_type(ty) || self.ctx.type_system.is_set_type(ty)
+            self.ctx.type_system.is_simple_type(ty)
+                || self.ctx.type_system.is_set_type(ty)
+                || self.ctx.type_system.is_pointer_type(ty)
+                || self.ctx.type_system.is_generic_pointer_type(ty)
             // self.ctx.type_system.is_string_type(ty)
         };
 
@@ -584,22 +671,12 @@ impl<'a> SemanticCheckerVisitor<'a> {
         call_loc: span::SpanLoc,
         callee_symbol_id: SymbolId,
     ) -> bool {
-        let arguments: Vec<_> = args
-            .iter()
-            .map(|arg| {
-                (
-                    arg.id(),
-                    *arg.loc(),
-                    self.ctx.get_ast_type(arg.id()).unwrap(),
-                )
-            })
-            .collect();
-
         // If any argument of the call is wrong, give up.
-        if arguments
-            .iter()
-            .any(|arg| self.ctx.type_system.is_error_type(arg.2))
-        {
+        if args.iter().any(|arg| {
+            self.ctx
+                .type_system
+                .is_error_type(self.ctx.get_ast_type(arg.id()).unwrap())
+        }) {
             return false;
         }
 
@@ -620,12 +697,12 @@ impl<'a> SemanticCheckerVisitor<'a> {
             return false;
         }
 
-        if arguments.len() != params.len() {
+        if args.len() != params.len() {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 call_loc,
                 format!(
-                    "{} '{}' expects {} {} but {} arguments were passed",
+                    "{} '{}' expects {} {} but {} {} passed",
                     if is_function { "function" } else { "procedure" },
                     function_name,
                     params.len(),
@@ -634,38 +711,49 @@ impl<'a> SemanticCheckerVisitor<'a> {
                     } else {
                         "parameters"
                     },
-                    arguments.len()
+                    args.len(),
+                    if args.len() == 1 {
+                        "argument was"
+                    } else {
+                        "arguments were"
+                    },
                 ),
             );
             return false;
         }
 
         let mut argument_error = false;
-        for (idx, (arg, param_sym_id)) in arguments.iter().zip(params).enumerate() {
+        for (arg, param_sym_id) in args.iter_mut().zip(params) {
             let param_sym = self.ctx.get_symbol(param_sym_id);
             let param_sym = param_sym.borrow();
             let param_kind = param_sym.get_parameter().unwrap();
             let param_type_id = param_sym.get_type().unwrap();
+            let arg_type_id = self.ctx.get_ast_type(arg.id()).unwrap();
             match param_kind {
                 ParameterKind::Value => {
-                    if !self.is_assignment_compatible(param_type_id, arg.2) {
-                        self.diagnostics.add(
-                                                DiagnosticKind::Error,
-                                                arg.1,
+                    if !self.is_assignment_compatible(param_type_id, arg_type_id) {
+                        self.diagnostics.add(DiagnosticKind::Error,
+                                                *arg.loc(),
                                                 format!(
                                                     "argument has type {} that is not assignment compatible with value parameter '{}' of type {}",
-                                                    self.ctx.type_system.get_type_name(arg.2),
+                                                    self.ctx.type_system.get_type_name(arg_type_id),
                                                     param_sym.get_name(),
                                                     self.ctx.type_system.get_type_name(param_type_id)
                                                 ),
                                             );
                         argument_error = true;
+                    } else if self.second_needs_conversion_to_first(param_type_id, arg_type_id) {
+                        let conversion = SemanticCheckerVisitor::create_conversion_expr(arg.take());
+                        arg.reset(conversion);
+                        self.ctx.set_ast_type(arg.id(), param_type_id);
+                    } else if self.is_pointer_and_generic_pointer(param_type_id, arg_type_id) {
+                        self.ctx.set_ast_type(arg.id(), param_type_id);
                     }
                 }
                 ParameterKind::Variable => {
-                    let arg_sym = self.ctx.get_ast_symbol(arg.0);
+                    let arg_sym = self.ctx.get_ast_symbol(arg.id());
 
-                    let expr_is_variable = match args[idx].get() {
+                    let expr_is_variable = match arg.get() {
                         ast::Expr::Variable(_) => true,
                         _ => false,
                     };
@@ -673,20 +761,20 @@ impl<'a> SemanticCheckerVisitor<'a> {
                     if arg_sym.is_none() || !expr_is_variable {
                         self.diagnostics.add(
                                                 DiagnosticKind::Error,
-                                                arg.1,
+                                                *arg.loc(),
                                                 format!(
                                                     "argument is not a variable, as required by variable parameter '{}'",
                                                     param_sym.get_name()
                                                 ),
                                             );
                         argument_error = true;
-                    } else if !self.ctx.type_system.same_type(param_type_id, arg.2) {
+                    } else if !self.ctx.type_system.same_type(param_type_id, arg_type_id) {
                         self.diagnostics.add(
                                                 DiagnosticKind::Error,
-                                                arg.1,
+                                                *arg.loc(),
                                                 format!(
                                                     "argument has type {} but it is different to variable parameter '{}' of type {}",
-                                                    self.ctx.type_system.get_type_name(arg.2),
+                                                    self.ctx.type_system.get_type_name(arg_type_id),
                                                     param_sym.get_name(),
                                                     self.ctx.type_system.get_type_name(param_type_id)
                                                 ),
@@ -694,7 +782,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                         argument_error = true;
                     } else {
                         assert!(expr_is_variable);
-                        let argument = args[idx].get_mut();
+                        let argument = arg.get_mut();
                         match argument {
                             ast::Expr::Variable(expr_variable) => {
                                 let assig = &mut expr_variable.0;
@@ -746,9 +834,6 @@ impl<'a> SemanticCheckerVisitor<'a> {
                 }
             }
         }
-        // else if self.ctx.type_system.is_pointer_type(ty) {
-        //     return false;
-        // }
         false
     }
 
@@ -836,31 +921,74 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         self.ctx.set_ast_symbol(n.0.id(), new_sym);
     }
 
+    fn visit_pre_type_definition_part(
+        &mut self,
+        _n: &mut ast::TypeDefinitionPart,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        self.in_type_definition_part = true;
+        true
+    }
+
+    fn visit_post_type_definition_part(
+        &mut self,
+        _n: &mut ast::TypeDefinitionPart,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) {
+        self.in_type_definition_part = false;
+        for sym_id in &self.ctx.pending_type_definitions {
+            let sym = self.ctx.get_symbol(*sym_id);
+            let sym = sym.borrow();
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                sym.get_defining_point().unwrap(),
+                format!("type-identifier '{}' has not been defined", sym.get_name()),
+            );
+        }
+        self.ctx.pending_type_definitions.clear();
+    }
+
     fn visit_pre_type_definition(
         &mut self,
         n: &mut ast::TypeDefinition,
         _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
-        // We do this in the pre visitor because we want to diagnose
-        // redeclarations in the right order.
+        // It may happen that this type definition is completing an earlier pending definition
+        // So check that first.
         let name = n.0.get();
-        if self.diagnose_redeclared_symbol(name, n.0.loc()) {
-            return false;
-        }
+        let new_sym = if let Some(symbol_id) = self.is_pending_type_definition(name) {
+            let sym = self.ctx.get_symbol(symbol_id);
+            let mut sym = sym.borrow_mut();
+            sym.set_kind(SymbolKind::Type);
+            sym.set_defining_point(*n.0.loc());
+            self.ctx.set_ast_symbol(n.0.id(), symbol_id);
 
-        let mut new_sym = Symbol::new();
-        new_sym.set_name(name);
-        new_sym.set_kind(SymbolKind::Type);
-        new_sym.set_defining_point(*n.0.loc());
-        // Set a placeholder type until we can set the right type.
-        // FIXME: For recursive definitions involving pointers
-        // we need to think a bit more.
-        new_sym.set_type(self.ctx.type_system.get_error_type());
+            // Now remove this symbol from the pending set.
+            self.ctx.remove_from_pending_definitions(symbol_id);
 
-        let new_sym = self.ctx.new_symbol(new_sym);
-        self.scope.add_entry(name, new_sym);
-        self.ctx.set_ast_symbol(n.0.id(), new_sym);
+            symbol_id
+        } else {
+            // We do this in the pre visitor because we want to diagnose
+            // redeclarations in the right order.
+            if self.diagnose_redeclared_symbol(name, n.0.loc()) {
+                return false;
+            }
+
+            let mut new_sym = Symbol::new();
+            new_sym.set_name(name);
+            new_sym.set_kind(SymbolKind::Type);
+            new_sym.set_defining_point(*n.0.loc());
+            new_sym.set_type(self.ctx.type_system.get_none_type());
+
+            let new_sym = self.ctx.new_symbol(new_sym);
+            self.scope.add_entry(name, new_sym);
+            self.ctx.set_ast_symbol(n.0.id(), new_sym);
+
+            new_sym
+        };
 
         // Walk the type definition itself.
         let type_def_loc = *n.1.loc();
@@ -1144,6 +1272,38 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         false
     }
 
+    fn visit_pre_pointer_type(
+        &mut self,
+        _n: &mut ast::PointerType,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        self.in_pointer_type = true;
+        true
+    }
+
+    fn visit_post_pointer_type(
+        &mut self,
+        n: &mut ast::PointerType,
+        _span: &span::SpanLoc,
+        id: span::SpanId,
+    ) {
+        let mut body = || {
+            let pointee_type = self.ctx.get_ast_type(n.0.id()).unwrap();
+
+            if self.ctx.type_system.is_error_type(pointee_type) {
+                self.ctx.set_ast_type(id, pointee_type);
+                return;
+            }
+
+            let pointer_type = self.ctx.type_system.get_pointer_type(pointee_type);
+            self.ctx.set_ast_type(id, pointer_type);
+        };
+
+        body();
+        self.in_pointer_type = false;
+    }
+
     fn visit_pre_procedure_forward(
         &mut self,
         _n: &mut ast::ProcedureForward,
@@ -1180,7 +1340,14 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         span: &span::SpanLoc,
         id: span::SpanId,
     ) {
-        if let Some(symbol_id) = self.lookup_symbol(node.0.get(), node.0.loc()) {
+        let context_allows_undeclared_types = self.in_type_definition_part && self.in_pointer_type;
+        let context_disallows_undeclared_types = !context_allows_undeclared_types;
+
+        if let Some(symbol_id) = self.lookup_symbol_and_diagnose(
+            node.0.get(),
+            node.0.loc(),
+            context_disallows_undeclared_types,
+        ) {
             let type_name = self.ctx.get_symbol(symbol_id);
             let type_name = type_name.borrow();
             match type_name.get_kind() {
@@ -1199,6 +1366,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         ty
                     };
                     self.ctx.set_ast_type(id, named_type);
+                }
+                SymbolKind::PendingTypeDefinition => {
+                    let mut new_type = Type::default();
+                    new_type.set_kind(TypeKind::NamedType(type_name.id()));
+
+                    let ty = self.ctx.type_system.new_type(new_type);
+                    self.ctx.set_ast_type(id, ty);
                 }
                 SymbolKind::ErrorLookup => {
                     self.ctx
@@ -1221,8 +1395,36 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 }
             }
         } else {
-            self.ctx
-                .set_ast_type(id, self.ctx.type_system.get_error_type());
+            if context_allows_undeclared_types {
+                // This is a special case in which we see ourselves forced to have a pending type definition
+                // that we will check upon leaving the type definition part.
+                if let Some(symbol_id) = self.lookup_symbol(node.0.get(), node.0.loc()) {
+                    let type_name = self.ctx.get_symbol(symbol_id);
+                    let mut type_name = type_name.borrow_mut();
+                    match type_name.get_kind() {
+                        SymbolKind::ErrorLookup => {
+                            type_name.set_kind(SymbolKind::PendingTypeDefinition);
+                            // We need a type that is not error.
+                            type_name.set_type(self.ctx.type_system.get_none_type());
+                            self.ctx.add_to_pending_definitions(symbol_id);
+
+                            let mut new_type = Type::default();
+                            new_type.set_kind(TypeKind::NamedType(type_name.id()));
+
+                            let ty = self.ctx.type_system.new_type(new_type);
+                            self.ctx.set_ast_type(id, ty);
+                        }
+                        _ => {
+                            panic!("The generated symbol had to be an error lookup!");
+                        }
+                    }
+                } else {
+                    panic!("This should have generated a symbol!")
+                }
+            } else {
+                self.ctx
+                    .set_ast_type(id, self.ctx.type_system.get_error_type());
+            }
         }
     }
 
@@ -1410,16 +1612,38 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         }
     }
 
-    fn visit_pre_assig_pointer_deref(
+    fn visit_post_assig_pointer_deref(
         &mut self,
-        _n: &mut ast::AssigPointerDeref,
-        span: &span::SpanLoc,
+        n: &mut ast::AssigPointerDeref,
+        _span: &span::SpanLoc,
         id: span::SpanId,
-    ) -> bool {
-        self.unimplemented(*span, "pointer dereference");
-        self.ctx
-            .set_ast_type(id, self.ctx.type_system.get_error_type());
-        false
+    ) {
+        let pointer_type = self.ctx.get_ast_type(n.0.id()).unwrap();
+        if self.ctx.type_system.is_error_type(pointer_type) {
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
+            return;
+        }
+
+        if !self.ctx.type_system.is_pointer_type(pointer_type) {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *n.0.loc(),
+                format!(
+                    "expression has type {} which is not a pointer",
+                    self.ctx.type_system.get_type_name(pointer_type)
+                ),
+            );
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
+            return;
+        }
+
+        let pointee_type = self
+            .ctx
+            .type_system
+            .pointer_type_get_pointee_type(pointer_type);
+        self.ctx.set_ast_type(id, pointee_type);
     }
 
     fn visit_pre_expr(
@@ -1624,6 +1848,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 if self.second_needs_conversion_to_first(lhs_type, rhs_type) {
                     let conversion = SemanticCheckerVisitor::create_conversion_expr(rhs.take());
                     rhs.reset(conversion);
+                    self.ctx.set_ast_type(rhs.id(), lhs_type);
+                } else if self.is_pointer_and_generic_pointer(lhs_type, rhs_type) {
+                    // Convert it into a pointer type the lhs.
                     self.ctx.set_ast_type(rhs.id(), lhs_type);
                 }
             } else {
@@ -1845,6 +2072,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                 SemanticCheckerVisitor::create_conversion_expr(node.2.take());
                             node.2.reset(conversion);
                             self.ctx.set_ast_type(node.2.id(), operand_type);
+                        } else if self.is_pointer_and_generic_pointer(lhs_ty, rhs_ty) {
+                            self.ctx.set_ast_type(node.2.id(), lhs_ty);
+                        } else if self.is_pointer_and_generic_pointer(rhs_ty, lhs_ty) {
+                            self.ctx.set_ast_type(node.1.id(), rhs_ty);
                         }
                         self.ctx
                             .set_ast_type(id, self.ctx.type_system.get_bool_type());
@@ -2354,6 +2585,11 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         self.ctx.set_ast_type(id, string_literal_type);
     }
 
+    fn visit_const_nil(&mut self, _n: &mut ast::ConstNil, _span: &span::SpanLoc, id: span::SpanId) {
+        self.ctx
+            .set_ast_type(id, self.ctx.type_system.get_generic_pointer_type());
+    }
+
     fn visit_post_expr_const(
         &mut self,
         node: &mut ast::ExprConst,
@@ -2388,7 +2624,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let proc_name = callee.get().as_str();
         if is_required_procedure(proc_name) {
             match proc_name {
-                "readln" | "writeln" => return true,
+                "readln" | "writeln" | "new" | "dispose" => return true,
                 _ => {
                     self.unimplemented(*span, &format!("required procedure '{}'", proc_name));
                     return false;
@@ -2549,6 +2785,45 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     }
                 }
                 "writeln" => {}
+                "new" | "dispose" => {
+                    if let Some(args) = &node.1 {
+                        for (idx, arg) in args.iter().enumerate() {
+                            if idx > 0 {
+                                self.diagnostics.add(
+                                    DiagnosticKind::Error,
+                                    *span,
+                                    format!(
+                                        "a call to {} requires exactly one argument",
+                                        procedure_name
+                                    ),
+                                );
+                                break;
+                            }
+                            match arg.get() {
+                                ast::Expr::Variable(_) => {
+                                    let ty = self.ctx.get_ast_type(arg.id()).unwrap();
+                                    if !self.ctx.type_system.is_pointer_type(ty) {
+                                        self.diagnostics.add(DiagnosticKind::Error, *span,
+                                            format!("the argument to {} must be a variable of pointer type", procedure_name));
+                                    }
+                                }
+                                _ => {
+                                    self.diagnostics.add(
+                                        DiagnosticKind::Error,
+                                        *arg.loc(),
+                                        format!("must be a variable"),
+                                    );
+                                }
+                            }
+                        }
+                    } else {
+                        self.diagnostics.add(
+                            DiagnosticKind::Error,
+                            *span,
+                            "a call to new requires exactly one argument".to_owned(),
+                        );
+                    }
+                }
                 _ => {
                     unreachable!("call to procedure {}", node.0.get().as_str())
                 }
@@ -2930,6 +3205,8 @@ pub fn check_program(
         ctx: semantic_context,
         diagnostics,
         scope,
+        in_type_definition_part: false,
+        in_pointer_type: false,
     };
 
     let loc = *program.loc();

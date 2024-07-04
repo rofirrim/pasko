@@ -194,6 +194,8 @@ TypeDenoter : SpannedBox<ast::TypeDenoter> = {
         SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::SetType(ast::SetType(packed, base_type))),
     <start:@L> <packed:Packed?> "file" "of" <element_type:TypeDenoter> <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::FileType(ast::FileType(packed, element_type))),
+    <start:@L> "^" <domain_type:NamedTypeDenoter> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::PointerType(ast::PointerType(domain_type))),
 };
 
 EnumeratedTypeDenoter : SpannedBox<ast::TypeDenoter> = {

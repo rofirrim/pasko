@@ -414,6 +414,10 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         self.emit_line_payload("ConstStringLiteral", span, id, &format!("{:?}", n.0.get()));
     }
 
+    fn visit_const_nil(&mut self, _n: &ast::ConstNil, span: &span::SpanLoc, id: span::SpanId) {
+        self.emit_line("ConstNil", span, id);
+    }
+
     fn visit_pre_expr_variable(
         &mut self,
         n: &ast::ExprVariable,
@@ -495,6 +499,24 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             span,
             id,
             &format!("field:<{}> {}", n.1.get(), self.type_to_string(id)),
+        );
+
+        self.walk_child(&n.0);
+
+        false
+    }
+
+    fn visit_pre_assig_pointer_deref(
+        &mut self,
+        n: &ast::AssigPointerDeref,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        self.emit_line_payload(
+            "AssigPointerDeref",
+            span,
+            id,
+            &format!("{}", self.type_to_string(id)),
         );
 
         self.walk_child(&n.0);
@@ -792,6 +814,19 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         );
 
         self.walk_last_child(&n.1);
+
+        false
+    }
+
+    fn visit_pre_pointer_type(
+        &mut self,
+        n: &ast::PointerType,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        self.emit_line("PointerType", span, id);
+
+        self.walk_last_child(&n.0);
 
         false
     }
