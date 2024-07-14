@@ -1649,7 +1649,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         }
 
         if !self.ctx.type_system.is_pointer_type(deref_type)
-            && self.ctx.type_system.is_file_type(deref_type)
+            && !self.ctx.type_system.is_file_type(deref_type)
         {
             self.diagnostics.add(
                 DiagnosticKind::Error,
