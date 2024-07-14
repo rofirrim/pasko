@@ -1260,16 +1260,39 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         self.ctx.set_ast_type(id, set_type);
     }
 
-    fn visit_pre_file_type(
+    fn visit_post_file_type(
         &mut self,
-        _n: &mut ast::FileType,
-        span: &span::SpanLoc,
+        n: &mut ast::FileType,
+        _span: &span::SpanLoc,
         id: span::SpanId,
-    ) -> bool {
-        self.unimplemented(*span, "file types");
-        self.ctx
-            .set_ast_type(id, self.ctx.type_system.get_error_type());
-        false
+    ) {
+        let packed = n.0.is_some();
+        let component_type = self.ctx.get_ast_type(n.1.id()).unwrap();
+        if self.ctx.type_system.is_error_type(component_type) {
+            self.ctx.set_ast_type(id, component_type);
+            return;
+        }
+
+        if !self
+            .ctx
+            .type_system
+            .is_valid_component_type_of_file_type(component_type)
+        {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *n.1.loc(),
+                format!(
+                    "type {} is not a valid component type for a file type",
+                    self.ctx.type_system.get_type_name(component_type)
+                ),
+            );
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
+            return;
+        }
+
+        let file_type = self.ctx.type_system.get_file_type(packed, component_type);
+        self.ctx.set_ast_type(id, file_type);
     }
 
     fn visit_pre_pointer_type(
