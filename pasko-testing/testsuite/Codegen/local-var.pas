@@ -15,10 +15,11 @@ begin
 end.
 
 {
+
 CHECK: *** IR for procedure 'p'
-CHECK-NEXT: function u0:21() system_v {
+CHECK-NEXT: function u0:38() system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-EMPTY:
+CHECK-EMPTY: 
 CHECK-NEXT: block0:
 CHECK-NEXT:     v0 = iconst.i64 2
 CHECK-NEXT:     v1 = stack_addr.i64 ss0
@@ -32,4 +33,5 @@ CHECK-NEXT:     store v5, v6
 CHECK-NEXT:     return
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for procedure 'p' seems OK
+
 }

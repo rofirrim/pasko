@@ -30,7 +30,7 @@ fn semantic_check_diags(input: &str, errors: Vec<String>) {
 
     diags.report(&check_diags);
     assert_eq!(
-        diags.num_diagnostics(),
+        errors.len(),
         check_diags.num_diagnostics_seen(),
         "fewer diagnostics emitted than checked for"
     );
@@ -59,18 +59,17 @@ fn do_ast_dump(input: &str) -> String {
 }
 
 #[test]
-fn string_literals_not_implemented() {
+fn diagnostic_not_implemented() {
     semantic_check_diags(
         r#"
-program test;
+program test(input, output);
 var
-  a : integer;
+  a : set of integer;
 begin
-  readln(a);
-  writeln('You entered: ', a);
+  a := [1..10];
 end.
   "#,
-        vec!["sorry, string literals not implemented yet".to_string()],
+        vec!["sorry, range expressions not implemented yet".to_string()],
     );
 }
 

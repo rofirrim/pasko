@@ -2,7 +2,6 @@ use crate::ast::{self, ExprVariableReference, UnaryOp};
 use crate::ast::{BinOperand, FormalParameter};
 use crate::constant::Constant;
 use crate::diagnostics::{Diagnostic, DiagnosticKind, Diagnostics};
-use crate::scope;
 use crate::span;
 use crate::symbol::{
     ParameterKind, Symbol, SymbolId, SymbolKind, SymbolMap, SymbolMapImpl, SymbolRef,
@@ -10,6 +9,7 @@ use crate::symbol::{
 use crate::typesystem::{Type, TypeId, TypeKind, TypeSystem};
 use crate::visitor::MutatingVisitable;
 use crate::visitor::MutatingVisitorMut;
+use crate::scope;
 
 use std::collections::HashMap;
 
@@ -21,6 +21,8 @@ pub struct SemanticContext {
     ast_symbols: HashMap<span::SpanId, SymbolId>,
     ast_values: HashMap<span::SpanId, Constant>,
 
+    pub program_parameters: Vec<(String, span::SpanLoc)>,
+    pub global_files: Vec<SymbolId>,
     pending_type_definitions: Vec<SymbolId>,
 }
 
@@ -45,6 +47,15 @@ pub fn is_required_procedure_or_function(name: &str) -> bool {
     is_required_procedure(name) || is_required_function(name)
 }
 
+// Returns if the function is a required function that can be called with zero arguments.
+pub fn is_required_function_zeroadic(name: &str) -> bool {
+    is_required_function(name)
+        && match name {
+            "eof" | "eoln" => true,
+            _ => false,
+        }
+}
+
 // In bytes.
 impl SemanticContext {
     pub fn new() -> SemanticContext {
@@ -59,6 +70,8 @@ impl SemanticContext {
             ast_symbols: HashMap::new(),
             ast_values: HashMap::new(),
 
+            program_parameters: vec![],
+            global_files: vec![],
             pending_type_definitions: vec![],
         };
 
@@ -113,6 +126,14 @@ impl SemanticContext {
             .unwrap();
         self.pending_type_definitions.remove(index);
     }
+
+    pub fn required_function_zeroadic_return_type(&self, name: &str) -> TypeId {
+        debug_assert!(is_required_function_zeroadic(name));
+        match name {
+            "eof" | "eoln" => self.type_system.get_bool_type(),
+            _ => panic!("Unexpected function {}", name),
+        }
+    }
 }
 
 struct SemanticCheckerVisitor<'a> {
@@ -122,6 +143,8 @@ struct SemanticCheckerVisitor<'a> {
 
     in_type_definition_part: bool,
     in_pointer_type: bool,
+
+    program_heading_loc: Option<span::SpanLoc>,
 }
 
 enum FunctionProcedureDeclarationStatus {
@@ -840,6 +863,124 @@ impl<'a> SemanticCheckerVisitor<'a> {
     fn contains_invalid_type_cycle(&self, root_ty: TypeId) -> bool {
         self.contains_invalid_type_cycle_impl(true, root_ty, root_ty)
     }
+
+    fn _ensure_global_file(&mut self, name: &str, span: &span::SpanLoc) {
+        let query = self.scope.lookup_program_scope(name);
+        if query.is_none() {
+            self.diagnostics.add_with_extra(
+                DiagnosticKind::Error,
+                *span,
+                format!(
+                    "program parameters should mention the required file variable '{}'",
+                    name
+                ),
+                vec![],
+                vec![Diagnostic::new(
+                    DiagnosticKind::Info,
+                    self.program_heading_loc.unwrap(),
+                    format!("'{}' should be mentioned here", name),
+                )],
+            );
+            let mut new_sym = Symbol::new();
+            new_sym.set_name(name);
+            new_sym.set_kind(SymbolKind::Variable);
+            new_sym.set_type(self.ctx.type_system.get_textfile_type());
+            new_sym.set_defining_point(*span);
+
+            let new_sym = self.ctx.new_symbol(new_sym);
+            self.scope.add_entry_program_scope(name, new_sym);
+        }
+    }
+
+    fn ensure_input(&mut self, span: &span::SpanLoc) {
+        self._ensure_global_file("input", span);
+    }
+
+    fn ensure_output(&mut self, span: &span::SpanLoc) {
+        self._ensure_global_file("input", span);
+    }
+
+    fn analyze_write_read_args(
+        &mut self,
+        procedure_name: &str,
+        global_file: &str,
+        is_newline_version: bool,
+        span: &span::SpanLoc,
+        args: &Vec<span::SpannedBox<ast::Expr>>,
+    ) -> (usize, TypeId, bool) {
+        let is_textfile;
+        let file_component: TypeId;
+        let mut first_arg = 0;
+        if !is_newline_version && args.is_empty() {
+            // This is unlikelyy to happen.
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *span,
+                format!("too few arguments in call to {}", procedure_name),
+            );
+            file_component = self.ctx.type_system.get_error_type();
+            is_textfile = false;
+        } else if !is_newline_version {
+            let file_arg = &args[0];
+            let ty = self.ctx.get_ast_type(file_arg.id()).unwrap();
+            if self.ctx.type_system.is_file_type(ty) {
+                if self.ctx.type_system.is_textfile_type(ty) {
+                    is_textfile = true;
+                } else {
+                    is_textfile = false;
+                }
+                if args.len() < 2 {
+                    // write(file)
+                    // read(file)
+                    self.diagnostics.add(
+                        DiagnosticKind::Error,
+                        *span,
+                        format!("too few arguments in call to {}", procedure_name),
+                    );
+                }
+                file_component = self.ctx.type_system.file_type_get_component_type(ty);
+                first_arg = 1;
+            } else if self.ctx.type_system.is_error_type(ty) {
+                file_component = self.ctx.type_system.get_error_type();
+                is_textfile = false;
+            } else {
+                self._ensure_global_file(global_file, span);
+                file_component = self.ctx.type_system.get_char_type();
+                is_textfile = true;
+            }
+        } else {
+            assert!(is_newline_version);
+            if args.len() > 0 {
+                // Check if the first argument is a textfile.
+                let file_arg = &args[0];
+                let ty = self.ctx.get_ast_type(file_arg.id()).unwrap();
+                if self.ctx.type_system.is_file_type(ty) {
+                    if !self.ctx.type_system.is_textfile_type(ty) {
+                        self.diagnostics.add(
+                            DiagnosticKind::Error,
+                            *file_arg.loc(),
+                            format!("{}ln can only be applied to textfiles", procedure_name),
+                        );
+                    }
+                    is_textfile = true;
+                    file_component = self.ctx.type_system.get_char_type();
+                    first_arg = 1;
+                } else if self.ctx.type_system.is_error_type(ty) {
+                    file_component = self.ctx.type_system.get_char_type();
+                    is_textfile = true;
+                } else {
+                    self._ensure_global_file(global_file, span);
+                    file_component = self.ctx.type_system.get_char_type();
+                    is_textfile = true;
+                }
+            } else {
+                self._ensure_global_file(global_file, span);
+                file_component = self.ctx.type_system.get_char_type();
+                is_textfile = true;
+            }
+        }
+        (first_arg, file_component, is_textfile)
+    }
 }
 
 impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
@@ -849,21 +990,34 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         span: &span::SpanLoc,
         _id: span::SpanId,
     ) {
+        self.program_heading_loc = Some(*span);
         let x = &node.1;
+        let mut already_seen = Vec::new();
         x.iter().for_each(|s| {
             // The presence of "input" / "output" makes them a defining point.
             // They are files.
+            if already_seen.contains(s.get()) {
+                self.diagnostics.add(
+                    DiagnosticKind::Error,
+                    *s.loc(),
+                    format!("program parameter '{}' already declared", s.get()),
+                );
+            }
+            already_seen.push(s.get().to_string());
             if s.get() == "input" || s.get() == "output" {
                 let mut new_sym = Symbol::new();
                 new_sym.set_name(s.get().as_str());
                 new_sym.set_kind(SymbolKind::Variable);
-                // FIXME: Set their types to files!!!
+                new_sym.set_type(self.ctx.type_system.get_textfile_type());
                 new_sym.set_defining_point(*span);
+                new_sym.set_required(true);
 
                 let new_sym = self.ctx.new_symbol(new_sym);
                 self.scope.add_entry(s.get().as_str(), new_sym);
             } else {
-                self.lookup_symbol(s.get().as_str(), s.loc());
+                self.ctx
+                    .program_parameters
+                    .push((s.get().to_string(), *s.loc()));
             }
         });
     }
@@ -874,6 +1028,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
+        // Note this also includes the program block.
         self.scope.push_scope(None);
         true
     }
@@ -1260,16 +1415,39 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         self.ctx.set_ast_type(id, set_type);
     }
 
-    fn visit_pre_file_type(
+    fn visit_post_file_type(
         &mut self,
-        _n: &mut ast::FileType,
-        span: &span::SpanLoc,
+        n: &mut ast::FileType,
+        _span: &span::SpanLoc,
         id: span::SpanId,
-    ) -> bool {
-        self.unimplemented(*span, "file types");
-        self.ctx
-            .set_ast_type(id, self.ctx.type_system.get_error_type());
-        false
+    ) {
+        let packed = n.0.is_some();
+        let component_type = self.ctx.get_ast_type(n.1.id()).unwrap();
+        if self.ctx.type_system.is_error_type(component_type) {
+            self.ctx.set_ast_type(id, component_type);
+            return;
+        }
+
+        if !self
+            .ctx
+            .type_system
+            .is_valid_component_type_of_file_type(component_type)
+        {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *n.1.loc(),
+                format!(
+                    "type {} is not a valid component type for a file type",
+                    self.ctx.type_system.get_type_name(component_type)
+                ),
+            );
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
+            return;
+        }
+
+        let file_type = self.ctx.type_system.get_file_type(packed, component_type);
+        self.ctx.set_ast_type(id, file_type);
     }
 
     fn visit_pre_pointer_type(
@@ -1424,6 +1602,39 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             } else {
                 self.ctx
                     .set_ast_type(id, self.ctx.type_system.get_error_type());
+            }
+        }
+    }
+
+    fn visit_post_variable_declaration_part(
+        &mut self,
+        _n: &mut ast::VariableDeclarationPart,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) {
+        if self.scope.is_global() {
+            // Check whether program parameters have been declared.
+            let program_parameters = self.ctx.program_parameters.clone();
+            for (program_param, loc) in program_parameters {
+                if let Some(sym_id) = self.lookup_symbol(&program_param, &loc) {
+                    let sym = self.ctx.get_symbol(sym_id);
+                    let ty = sym.borrow().get_type().unwrap();
+                    if !self.ctx.type_system.is_file_type(ty) {
+                        self.diagnostics.add_with_extra(
+                            DiagnosticKind::Error,
+                            sym.borrow().get_defining_point().unwrap(),
+                            format!("only file types are allowed as program parameters"),
+                            vec![],
+                            vec![Diagnostic::new(
+                                DiagnosticKind::Info,
+                                loc,
+                                format!("declaration of program parameter"),
+                            )],
+                        );
+                    } else {
+                        self.ctx.global_files.push(sym_id);
+                    }
+                }
             }
         }
     }
@@ -1618,20 +1829,22 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         _span: &span::SpanLoc,
         id: span::SpanId,
     ) {
-        let pointer_type = self.ctx.get_ast_type(n.0.id()).unwrap();
-        if self.ctx.type_system.is_error_type(pointer_type) {
+        let deref_type = self.ctx.get_ast_type(n.0.id()).unwrap();
+        if self.ctx.type_system.is_error_type(deref_type) {
             self.ctx
                 .set_ast_type(id, self.ctx.type_system.get_error_type());
             return;
         }
 
-        if !self.ctx.type_system.is_pointer_type(pointer_type) {
+        if !self.ctx.type_system.is_pointer_type(deref_type)
+            && !self.ctx.type_system.is_file_type(deref_type)
+        {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *n.0.loc(),
                 format!(
-                    "expression has type {} which is not a pointer",
-                    self.ctx.type_system.get_type_name(pointer_type)
+                    "expression has type {} which is not a pointer type or a file type",
+                    self.ctx.type_system.get_type_name(deref_type)
                 ),
             );
             self.ctx
@@ -1639,11 +1852,18 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             return;
         }
 
-        let pointee_type = self
-            .ctx
-            .type_system
-            .pointer_type_get_pointee_type(pointer_type);
-        self.ctx.set_ast_type(id, pointee_type);
+        let value_type = if self.ctx.type_system.is_pointer_type(deref_type) {
+            self.ctx
+                .type_system
+                .pointer_type_get_pointee_type(deref_type)
+        } else if self.ctx.type_system.is_file_type(deref_type) {
+            self.ctx
+                .type_system
+                .file_type_get_component_type(deref_type)
+        } else {
+            unreachable!("Unexpected type");
+        };
+        self.ctx.set_ast_type(id, value_type);
     }
 
     fn visit_pre_expr(
@@ -1729,6 +1949,20 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                 }
                                 _ => {}
                             }
+                        } else if is_required_function_zeroadic(x.0.get()) {
+                            // Some required functions can be invoked as zero parameters.
+                            let new_call_expr = ast::ExprFunctionCall(
+                                span::Spanned::new(*x.0.loc(), x.0.get().clone()),
+                                vec![],
+                            );
+
+                            let return_type =
+                                self.ctx.required_function_zeroadic_return_type(x.0.get());
+
+                            let new_call = ast::Expr::FunctionCall(new_call_expr);
+                            self.ctx.set_ast_type(id, return_type);
+
+                            *n = new_call;
                         }
                     }
                     _ => {}
@@ -2282,19 +2516,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let callee = &node.0;
         let args = &mut node.1;
 
-        if is_required_function(callee.get()) {
-            match callee.get() {
-                _ => {
-                    self.unimplemented(
-                        *span,
-                        &format!("call to required function '{}'", callee.get()),
-                    );
-                    self.ctx
-                        .set_ast_type(id, self.ctx.type_system.get_error_type());
-                    return false;
-                }
-            }
-        } else if is_required_procedure(callee.get()) {
+        if is_required_procedure(callee.get()) {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *callee.loc(),
@@ -2308,16 +2530,92 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             return false;
         }
 
-        if let Some(callee_symbol_id) = self.lookup_symbol(callee.get(), callee.loc()) {
+        args.iter_mut().for_each(|arg| {
+            let loc = *arg.loc();
+            let id = arg.id();
+            arg.get_mut().mutating_walk_mut(self, &loc, id);
+        });
+
+        if is_required_function(callee.get()) {
+            match callee.get().as_str() {
+                "eof" => {
+                    match args.len() {
+                        0 => {
+                            self.ensure_input(callee.loc());
+                        }
+                        1 => {
+                            let ty = self.ctx.get_ast_type(args[0].id()).unwrap();
+                            if !self.ctx.type_system.is_file_type(ty) {
+                                self.diagnostics.add(
+                                    DiagnosticKind::Error,
+                                    *callee.loc(),
+                                    format!("argument of eof must have file type"),
+                                );
+                                self.ctx
+                                    .set_ast_type(id, self.ctx.type_system.get_error_type());
+                                return false;
+                            }
+                        }
+                        _ => {
+                            self.diagnostics.add(
+                                DiagnosticKind::Error,
+                                *span,
+                                format!("too many arguments in call to eof"),
+                            );
+                            self.ctx
+                                .set_ast_type(id, self.ctx.type_system.get_error_type());
+                            return false;
+                        }
+                    }
+                    self.ctx
+                        .set_ast_type(id, self.ctx.type_system.get_bool_type());
+                }
+                "eoln" => {
+                    match args.len() {
+                        0 => {
+                            self.ensure_input(callee.loc());
+                        }
+                        1 => {
+                            let ty = self.ctx.get_ast_type(args[0].id()).unwrap();
+                            if !self.ctx.type_system.is_textfile_type(ty) {
+                                self.diagnostics.add(
+                                    DiagnosticKind::Error,
+                                    *args[0].loc(),
+                                    format!("argument of eoln must have textfile type"),
+                                );
+                                self.ctx
+                                    .set_ast_type(id, self.ctx.type_system.get_error_type());
+                                return false;
+                            }
+                        }
+                        _ => {
+                            self.diagnostics.add(
+                                DiagnosticKind::Error,
+                                *span,
+                                format!("too many arguments in call to eoln"),
+                            );
+                            self.ctx
+                                .set_ast_type(id, self.ctx.type_system.get_error_type());
+                            return false;
+                        }
+                    }
+                    self.ctx
+                        .set_ast_type(id, self.ctx.type_system.get_bool_type());
+                }
+                _ => {
+                    self.unimplemented(
+                        *span,
+                        &format!("call to required function '{}'", callee.get()),
+                    );
+                    self.ctx
+                        .set_ast_type(id, self.ctx.type_system.get_error_type());
+                    return false;
+                }
+            }
+        } else if let Some(callee_symbol_id) = self.lookup_symbol(callee.get(), callee.loc()) {
             let callee_symbol_kind = self.ctx.get_symbol(callee_symbol_id).borrow().get_kind();
             match callee_symbol_kind {
                 SymbolKind::Function => {
-                    args.iter_mut().for_each(|arg| {
-                        let loc = *arg.loc();
-                        let id = arg.id();
-                        arg.get_mut().mutating_walk_mut(self, &loc, id);
-                    });
-
                     let argument_error = self.common_check_parameters(
                         true,
                         &callee.get(),
@@ -2624,7 +2922,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let proc_name = callee.get().as_str();
         if is_required_procedure(proc_name) {
             match proc_name {
-                "readln" | "writeln" | "new" | "dispose" => return true,
+                "read" | "readln" | "write" | "writeln" | "new" | "dispose" | "rewrite"
+                | "reset" | "put" | "get" => return true,
                 _ => {
                     self.unimplemented(*span, &format!("required procedure '{}'", proc_name));
                     return false;
@@ -2710,7 +3009,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         &mut self,
         node: &mut ast::ExprWriteParameter,
         _span: &span::SpanLoc,
-        _id: span::SpanId,
+        id: span::SpanId,
     ) {
         let mut check_parameter = |param_name: &str, id: span::SpanId, loc: span::SpanLoc| {
             let type_id = self.ctx.get_ast_type(id).unwrap();
@@ -2739,12 +3038,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         }
 
         let ty = self.ctx.get_ast_type(node.0.id()).unwrap();
-        if must_be_real && !self.ctx.type_system.is_real_type(ty) {
+        let ty = if must_be_real && !self.ctx.type_system.is_real_type(ty) {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *node.0.loc(),
                 format!("argument must be of real type because frac-width was specified",),
             );
+            self.ctx.type_system.get_error_type()
         } else if !self.ctx.type_system.is_real_type(ty)
             && !self.ctx.type_system.is_bool_type(ty)
             && !self.ctx.type_system.is_integer_type(ty)
@@ -2754,7 +3054,11 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     *node.0.loc(),
                     format!("argument of writeln must be an expression of integer-type, real-type or Boolean-type"),
                 );
-        }
+            self.ctx.type_system.get_error_type()
+        } else {
+            ty
+        };
+        self.ctx.set_ast_type(id, ty);
     }
 
     fn visit_post_stmt_procedure_call(
@@ -2768,11 +3072,70 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let procedure_name = callee.get().as_str();
         if is_required_procedure(procedure_name) {
             match procedure_name {
-                "readln" => {
-                    if let Some(args) = &node.1 {
-                        for arg in args {
+                "read" | "readln" => {
+                    let is_readln = procedure_name == "readln";
+                    if let Some(args) = &mut node.1 {
+                        let (first_arg, file_component, is_textfile) =
+                            self.analyze_write_read_args("read", "input", is_readln, span, args);
+                        for arg in &mut args[first_arg..] {
                             match arg.get() {
-                                ast::Expr::Variable(_) => {}
+                                ast::Expr::Variable(_) => {
+                                    let ty = self.ctx.get_ast_type(arg.id()).unwrap();
+                                    if is_textfile {
+                                        if !self.ctx.type_system.is_error_type(ty)
+                                            && !self.ctx.type_system.is_real_type(ty)
+                                            // This looks like a mistake in the
+                                            // Basic spec, in which it appears
+                                            // mentioned as a valid variable but
+                                            // never describes its semantics.
+                                            /* && !self.ctx.type_system.is_string_type(ty) */
+                                            && !self.is_compatible(
+                                                self.ctx.type_system.get_char_type(),
+                                                ty,
+                                            )
+                                            && !self.is_compatible(
+                                                self.ctx.type_system.get_integer_type(),
+                                                ty,
+                                            )
+                                        {
+                                            self.diagnostics.add(
+                                                DiagnosticKind::Error,
+                                                *arg.loc(),
+                                                format!(
+                                                    "variable of type {} is not valid for textfile",
+                                                    self.ctx.type_system.get_type_name(ty)
+                                                ),
+                                            );
+                                        }
+                                    } else {
+                                        if !self.ctx.type_system.is_error_type(file_component)
+                                            && !self.ctx.type_system.is_error_type(ty)
+                                            && self.is_assignment_compatible(ty, file_component)
+                                        {
+                                            if !self.ctx.type_system.same_type(ty, file_component) {
+                                                let conversion =
+                                                    SemanticCheckerVisitor::create_conversion_expr(
+                                                        arg.take(),
+                                                    );
+                                                arg.reset(conversion);
+                                                self.ctx.set_ast_type(arg.id(), ty);
+                                            }
+                                        } else if !self
+                                            .ctx
+                                            .type_system
+                                            .is_error_type(file_component)
+                                            && !self.ctx.type_system.is_error_type(ty)
+                                        {
+                                            self.diagnostics.add(
+                                                DiagnosticKind::Error,
+                                                *arg.loc(),
+                                                format!("variable of type {} is not assignment compatible with the file component type {}",
+                                                self.ctx.type_system.get_type_name(ty),
+                                                self.ctx.type_system.get_type_name(file_component))
+                                            );
+                                        }
+                                    }
+                                }
                                 _ => {
                                     self.diagnostics.add(
                                         DiagnosticKind::Error,
@@ -2782,9 +3145,79 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                 }
                             }
                         }
+                    } else {
+                        if !is_readln {
+                            self.diagnostics.add(
+                                DiagnosticKind::Error,
+                                *span,
+                                format!("too few arguments in call to read"),
+                            );
+                        } else {
+                            self.ensure_input(span);
+                        }
                     }
                 }
-                "writeln" => {}
+                "write" | "writeln" => {
+                    let is_writeln = procedure_name == "writeln";
+                    if let Some(args) = &node.1 {
+                        let (first_arg, file_component, is_textfile) =
+                            self.analyze_write_read_args("write", "output", is_writeln, span, args);
+                        for arg in &args[first_arg..] {
+                            let ty = self.ctx.get_ast_type(arg.id()).unwrap();
+                            if is_textfile {
+                                if !self.ctx.type_system.is_error_type(ty)
+                                    && !self.ctx.type_system.is_integer_type(ty)
+                                    && !self.ctx.type_system.is_real_type(ty)
+                                    && !self.ctx.type_system.is_char_type(ty)
+                                    && !self.ctx.type_system.is_bool_type(ty)
+                                    && !self.ctx.type_system.is_string_type(ty)
+                                {
+                                    self.diagnostics.add(
+                                        DiagnosticKind::Error,
+                                        *arg.loc(),
+                                        format!(
+                                            "argument of type {} is not valid for a textfile",
+                                            self.ctx.type_system.get_type_name(ty)
+                                        ),
+                                    );
+                                }
+                            } else {
+                                match arg.get() {
+                                    ast::Expr::WriteParameter(..) => {
+                                        self.diagnostics.add(
+                                                DiagnosticKind::Error,
+                                                *arg.loc(),
+                                                format!("a write to a non-textfile does not allow this kind of argument")
+                                            );
+                                    }
+                                    _ => {}
+                                }
+                                if !self.ctx.type_system.is_error_type(file_component)
+                                    && !self.ctx.type_system.is_error_type(ty)
+                                    && !self.is_assignment_compatible(file_component, ty)
+                                {
+                                    self.diagnostics.add(
+                                                DiagnosticKind::Error,
+                                                *arg.loc(),
+                                                format!("argument of write is of type {} not assignment compatible with the file component type {}",
+                                                self.ctx.type_system.get_type_name(ty),
+                                                self.ctx.type_system.get_type_name(file_component))
+                                            );
+                                }
+                            }
+                        }
+                    } else {
+                        if !is_writeln {
+                            self.diagnostics.add(
+                                DiagnosticKind::Error,
+                                *span,
+                                format!("too few arguments in call to write"),
+                            );
+                        } else {
+                            self.ensure_output(span);
+                        }
+                    }
+                }
                 "new" | "dispose" => {
                     if let Some(args) = &node.1 {
                         for (idx, arg) in args.iter().enumerate() {
@@ -2820,7 +3253,41 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         self.diagnostics.add(
                             DiagnosticKind::Error,
                             *span,
-                            "a call to new requires exactly one argument".to_owned(),
+                            format!("a call to {} requires exactly one argument", procedure_name),
+                        );
+                    }
+                }
+                "rewrite" | "reset" | "put" | "get" => {
+                    if let Some(args) = &node.1 {
+                        for (idx, arg) in args.iter().enumerate() {
+                            if idx > 0 {
+                                self.diagnostics.add(
+                                    DiagnosticKind::Error,
+                                    *span,
+                                    format!(
+                                        "a call to {} requires exactly one argument",
+                                        procedure_name
+                                    ),
+                                );
+                                break;
+                            }
+                            let ty = self.ctx.get_ast_type(arg.id()).unwrap();
+                            if !self.ctx.type_system.is_file_type(ty) {
+                                self.diagnostics.add(
+                                    DiagnosticKind::Error,
+                                    *span,
+                                    format!(
+                                        "the argument to {} must be a variable of file type",
+                                        procedure_name
+                                    ),
+                                );
+                            }
+                        }
+                    } else {
+                        self.diagnostics.add(
+                            DiagnosticKind::Error,
+                            *span,
+                            format!("a call to {} requires exactly one argument", procedure_name),
                         );
                     }
                 }
@@ -3103,6 +3570,23 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let type_name = &n.1;
 
         let param_ty = self.ctx.get_ast_type(type_name.id()).unwrap();
+        let param_ty = if self
+            .ctx
+            .type_system
+            .is_valid_component_type_of_file_type(param_ty)
+        {
+            param_ty
+        } else {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *type_name.loc(),
+                format!(
+                    "type {} cannot be used for a value parameter",
+                    self.ctx.type_system.get_type_name(param_ty)
+                ),
+            );
+            self.ctx.type_system.get_error_type()
+        };
 
         names.iter().for_each(|name| {
             self.declare_formal_parameter(name, param_ty, ParameterKind::Value);
@@ -3190,6 +3674,13 @@ fn init_global_scope(scope: &mut scope::Scope, semantic_context: &mut SemanticCo
     new_sym.set_const(Constant::Bool(false));
     let new_sym = semantic_context.new_symbol(new_sym);
     scope.add_entry("false", new_sym);
+
+    let mut new_sym = Symbol::new();
+    new_sym.set_name("text");
+    new_sym.set_kind(SymbolKind::Type);
+    new_sym.set_type(semantic_context.type_system.get_textfile_type());
+    let new_sym = semantic_context.new_symbol(new_sym);
+    scope.add_entry("text", new_sym);
 }
 
 pub fn check_program(
@@ -3207,6 +3698,7 @@ pub fn check_program(
         scope,
         in_type_definition_part: false,
         in_pointer_type: false,
+        program_heading_loc: None,
     };
 
     let loc = *program.loc();

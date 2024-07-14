@@ -16,7 +16,7 @@ use cranelift_codegen::ir::{
 use cranelift_codegen::isa::{CallConv, TargetFrontendConfig};
 use cranelift_codegen::settings;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_module::{DataDescription, Module};
+use cranelift_module::{DataDescription, DataId, Module};
 
 use cranelift_codegen::verifier::verify_function;
 
@@ -57,6 +57,9 @@ pub struct CodegenVisitor<'a> {
     globals_to_dispose: Vec<SymbolId>,
     size_align_cache: RefCell<HashMap<TypeId, SizeAndAlignment>>,
     trivially_copiable_cache: RefCell<HashMap<TypeId, bool>>,
+
+    input_data_id: Option<cranelift_module::DataId>,
+    output_data_id: Option<cranelift_module::DataId>,
 }
 
 impl<'a> CodegenVisitor<'a> {
@@ -97,6 +100,8 @@ impl<'a> CodegenVisitor<'a> {
             globals_to_dispose: vec![],
             size_align_cache: RefCell::new(HashMap::new()),
             trivially_copiable_cache: RefCell::new(HashMap::new()),
+            input_data_id: None,
+            output_data_id: None,
         };
 
         visitor.initialize_module();
@@ -125,108 +130,201 @@ impl<'a> CodegenVisitor<'a> {
 
     fn initialize_module(&mut self) {
         let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
         sig.params.push(AbiParam::new(self.pointer_type)); // string
-        self.rt.write_str = self.register_import("__pasko_write_str", sig);
+        self.rt.write_textfile_str = self.register_import("__pasko_write_textfile_str", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
         sig.params.push(AbiParam::new(I64)); // number
-        sig.params.push(AbiParam::new(I32)); // total_width
-        self.rt.write_i64 = self.register_import("__pasko_write_i64", sig);
+        sig.params.push(AbiParam::new(I64)); // total_width
+        self.rt.write_textfile_i64 = self.register_import("__pasko_write_textfile_i64", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
         sig.params.push(AbiParam::new(F64)); // number
-        sig.params.push(AbiParam::new(I32)); // total_width
-        sig.params.push(AbiParam::new(I32)); // frac_digits
-        self.rt.write_f64 = self.register_import("__pasko_write_f64", sig);
+        sig.params.push(AbiParam::new(I64)); // total_width
+        sig.params.push(AbiParam::new(I64)); // frac_digits
+        self.rt.write_textfile_f64 = self.register_import("__pasko_write_textfile_f64", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I8)); // number
-        self.rt.write_bool = self.register_import("__pasko_write_bool", sig);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
+        sig.params.push(AbiParam::new(I8)); // boolean
+        self.rt.write_textfile_bool = self.register_import("__pasko_write_textfile_bool", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
         sig.params.push(AbiParam::new(I32)); // number
-        self.rt.write_char = self.register_import("__pasko_write_char", sig);
-
-        let sig = Signature::new(CallConv::SystemV);
-        self.rt.write_newline = self.register_import("__pasko_write_newline", sig);
+        self.rt.write_textfile_char = self.register_import("__pasko_write_textfile_char", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
+        self.rt.write_textfile_newline =
+            self.register_import("__pasko_write_textfile_newline", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
         sig.returns.push(AbiParam::new(I64));
-        self.rt.read_i64 = self.register_import("__pasko_read_i64", sig);
+        self.rt.read_textfile_i64 = self.register_import("__pasko_read_textfile_i64", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
         sig.returns.push(AbiParam::new(F64));
-        self.rt.read_f64 = self.register_import("__pasko_read_f64", sig);
+        self.rt.read_textfile_f64 = self.register_import("__pasko_read_textfile_f64", sig);
 
-        let sig = Signature::new(CallConv::SystemV);
-        self.rt.read_newline = self.register_import("__pasko_read_newline", sig);
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
+        self.rt.read_textfile_newline = self.register_import("__pasko_read_textfile_newline", sig);
 
         // Set operations.
         let mut sig = Signature::new(CallConv::SystemV);
         sig.params.push(AbiParam::new(I64)); // N
-        sig.params.push(AbiParam::new(I64)); // values
-        sig.returns.push(AbiParam::new(I64)); // address to new set
+        sig.params.push(AbiParam::new(self.pointer_type)); // values
+        sig.returns.push(AbiParam::new(self.pointer_type)); // address to new set
         self.rt.set_new = self.register_import("__pasko_set_new", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // address to set
+        sig.params.push(AbiParam::new(self.pointer_type)); // address to set
         self.rt.set_dispose = self.register_import("__pasko_set_dispose", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // address to src set
-        sig.returns.push(AbiParam::new(I64)); // address to new set
+        sig.params.push(AbiParam::new(self.pointer_type)); // address to src set
+        sig.returns.push(AbiParam::new(self.pointer_type)); // address to new set
         self.rt.set_copy = self.register_import("__pasko_set_copy", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // x
-        sig.params.push(AbiParam::new(I64)); // y
-        sig.returns.push(AbiParam::new(I64)); // result
+        sig.params.push(AbiParam::new(self.pointer_type)); // x
+        sig.params.push(AbiParam::new(self.pointer_type)); // y
+        sig.returns.push(AbiParam::new(self.pointer_type)); // result
         self.rt.set_union = self.register_import("__pasko_set_union", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // x
-        sig.params.push(AbiParam::new(I64)); // y
-        sig.returns.push(AbiParam::new(I64)); // result
+        sig.params.push(AbiParam::new(self.pointer_type)); // x
+        sig.params.push(AbiParam::new(self.pointer_type)); // y
+        sig.returns.push(AbiParam::new(self.pointer_type)); // result
         self.rt.set_intersection = self.register_import("__pasko_set_intersection", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // x
-        sig.params.push(AbiParam::new(I64)); // y
-        sig.returns.push(AbiParam::new(I64)); // result
+        sig.params.push(AbiParam::new(self.pointer_type)); // x
+        sig.params.push(AbiParam::new(self.pointer_type)); // y
+        sig.returns.push(AbiParam::new(self.pointer_type)); // result
         self.rt.set_difference = self.register_import("__pasko_set_difference", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // set
-        sig.params.push(AbiParam::new(I64)); // x
+        sig.params.push(AbiParam::new(self.pointer_type)); // set
+        sig.params.push(AbiParam::new(self.pointer_type)); // x
         sig.returns.push(AbiParam::new(I8)); // result
         self.rt.set_contains = self.register_import("__pasko_set_contains", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // x
-        sig.params.push(AbiParam::new(I64)); // y
+        sig.params.push(AbiParam::new(self.pointer_type)); // x
+        sig.params.push(AbiParam::new(self.pointer_type)); // y
         sig.returns.push(AbiParam::new(I8)); // result
         self.rt.set_equal = self.register_import("__pasko_set_equal", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // x
-        sig.params.push(AbiParam::new(I64)); // y
+        sig.params.push(AbiParam::new(self.pointer_type)); // x
+        sig.params.push(AbiParam::new(self.pointer_type)); // y
         sig.returns.push(AbiParam::new(I8)); // result
         self.rt.set_not_equal = self.register_import("__pasko_set_not_equal", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // x
-        sig.params.push(AbiParam::new(I64)); // y
+        sig.params.push(AbiParam::new(self.pointer_type)); // x
+        sig.params.push(AbiParam::new(self.pointer_type)); // y
         sig.returns.push(AbiParam::new(I8)); // result
         self.rt.set_is_subset = self.register_import("__pasko_set_is_subset", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // addr to pointer
+        sig.params.push(AbiParam::new(self.pointer_type)); // addr to pointer
         sig.params.push(AbiParam::new(I64)); // size in bytes
         self.rt.pointer_new = self.register_import("__pasko_pointer_new", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // addr to pointer
+        sig.params.push(AbiParam::new(self.pointer_type)); // addr to pointer
         self.rt.pointer_dispose = self.register_import("__pasko_pointer_dispose", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I32)); // argc
+        sig.params.push(AbiParam::new(self.pointer_type)); // argv
+        sig.params.push(AbiParam::new(I32)); // num_program_parameters
+        sig.params.push(AbiParam::new(self.pointer_type)); // program_parameters
+        sig.params.push(AbiParam::new(I32)); // num_global_files
+        sig.params.push(AbiParam::new(self.pointer_type)); // global_files
+        self.rt.init = self.register_import("__pasko_init", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I32)); // num_global_files
+        sig.params.push(AbiParam::new(self.pointer_type)); // global_files
+        self.rt.finish = self.register_import("__pasko_finish", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.returns.push(AbiParam::new(self.pointer_type));
+        self.rt.input_file = self.register_import("__pasko_get_input", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.returns.push(AbiParam::new(self.pointer_type));
+        self.rt.output_file = self.register_import("__pasko_get_output", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        self.rt.rewrite_file = self.register_import("__pasko_rewrite_file", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        self.rt.rewrite_textfile = self.register_import("__pasko_rewrite_textfile", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        sig.params.push(AbiParam::new(I64)); // bytes
+        self.rt.reset_file = self.register_import("__pasko_reset_file", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        self.rt.reset_textfile = self.register_import("__pasko_reset_textfile", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        sig.params.push(AbiParam::new(I64)); // bytes
+        self.rt.put_file = self.register_import("__pasko_put_file", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        self.rt.put_textfile = self.register_import("__pasko_put_textfile", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        sig.params.push(AbiParam::new(I64)); // bytes
+        self.rt.get_file = self.register_import("__pasko_get_file", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        self.rt.get_textfile = self.register_import("__pasko_get_textfile", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        sig.params.push(AbiParam::new(I64));
+        sig.returns.push(AbiParam::new(self.pointer_type));
+        self.rt.buffer_var_file = self.register_import("__pasko_buffer_var_file", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        sig.returns.push(AbiParam::new(self.pointer_type));
+        self.rt.buffer_var_textfile = self.register_import("__pasko_buffer_var_textfile", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        sig.returns.push(AbiParam::new(I8));
+        self.rt.eof_file = self.register_import("__pasko_eof_file", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        sig.returns.push(AbiParam::new(I8));
+        self.rt.eof_textfile = self.register_import("__pasko_eof_textfile", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        sig.returns.push(AbiParam::new(I8));
+        self.rt.eoln_textfile = self.register_import("__pasko_eoln_textfile", sig);
     }
 
     pub fn type_to_cranelift_type(&self, ty: TypeId) -> cranelift_codegen::ir::Type {
@@ -369,6 +467,13 @@ impl<'a> CodegenVisitor<'a> {
                 align: 8,
             }
         } else if self.semantic_context.type_system.is_pointer_type(ty) {
+            SizeAndAlignment {
+                size: self.pointer_type.bytes() as usize,
+                align: 8,
+            }
+        } else if self.semantic_context.type_system.is_file_type(ty) {
+            // Sets are opaque reference types, so they take the size and
+            // alignment of a pointer.
             SizeAndAlignment {
                 size: self.pointer_type.bytes() as usize,
                 align: 8,
@@ -720,6 +825,42 @@ impl<'a> CodegenVisitor<'a> {
 
         r
     }
+
+    pub fn register_input_output(&mut self) {
+        let input_output: Vec<_> = (0..2)
+            .map(|_x| {
+                let data_id = self
+                    .object_module
+                    .as_mut()
+                    .unwrap()
+                    .declare_anonymous_data(true, false)
+                    .unwrap();
+
+                let mut data_desc = DataDescription::new();
+                let size_in_bytes = self.pointer_type.bytes();
+                data_desc.define_zeroinit(size_in_bytes as usize);
+                data_desc.set_align(size_in_bytes as u64);
+
+                self.object_module
+                    .as_mut()
+                    .unwrap()
+                    .define_data(data_id, &data_desc)
+                    .unwrap();
+                data_id
+            })
+            .collect();
+
+        self.input_data_id = Some(input_output[0]);
+        self.output_data_id = Some(input_output[1]);
+    }
+
+    pub fn get_input_file_data_id(&self) -> cranelift_module::DataId {
+        self.input_data_id.unwrap()
+    }
+
+    pub fn get_output_file_data_id(&self) -> cranelift_module::DataId {
+        self.output_data_id.unwrap()
+    }
 }
 
 impl<'a> VisitorMut for CodegenVisitor<'a> {
@@ -757,6 +898,10 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                 .walk_mut(self, variables.loc(), variables.id());
         }
 
+        // Create input and output as standard files.
+        // TODO: We only have to do this if input, output appear in program.
+        self.register_input_output();
+
         // Functions and procedures
         if let Some(procedures) = procedures {
             procedures
@@ -776,12 +921,48 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             .unwrap()
             .declare_function("main", Linkage::Export, &sig)
             .unwrap();
-
         let mut func = Function::with_name_signature(UserFuncName::user(0, func_id.as_u32()), sig);
+
+        // Obtain early reference to __pasko_init and __pasko_finish
+        let pasko_init_id = self.rt.init.unwrap();
+        let pasko_init_func_ref = self
+            .object_module
+            .as_mut()
+            .unwrap()
+            .declare_func_in_func(pasko_init_id, &mut func);
+        let pasko_finish_id = self.rt.finish.unwrap();
+        let pasko_finish_func_ref = self
+            .object_module
+            .as_mut()
+            .unwrap()
+            .declare_func_in_func(pasko_finish_id, &mut func);
+
+        let get_input_func_id = self.rt.input_file.unwrap();
+        let get_input_func_ref = self
+            .object_module
+            .as_mut()
+            .unwrap()
+            .declare_func_in_func(get_input_func_id, &mut func);
+
+        let get_output_func_id = self.rt.output_file.unwrap();
+        let get_output_func_ref = self
+            .object_module
+            .as_mut()
+            .unwrap()
+            .declare_func_in_func(get_output_func_id, &mut func);
+
+        let input_data_id = self.input_data_id.unwrap();
+        let output_data_id = self.output_data_id.unwrap();
+        let pointer_type = self.pointer_type;
+
         let mut func_builder_ctx = FunctionBuilderContext::new();
         let builder = FunctionBuilder::new(&mut func, &mut func_builder_ctx);
 
         let globals_to_dispose = std::mem::take(&mut self.globals_to_dispose);
+
+        let program_parameters = self.semantic_context.program_parameters.clone();
+        let num_program_params = program_parameters.len() as i64;
+        let global_files = self.semantic_context.global_files.clone();
 
         let mut function_codegen = FunctionCodegenVisitor::new(self, Some(builder));
 
@@ -789,6 +970,94 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         globals_to_dispose
             .iter()
             .for_each(|&sym| function_codegen.add_symbol_to_dispose(sym));
+
+        // Call __pasko_init
+        let entry_block = function_codegen.get_entry_block().unwrap();
+        let block_params = function_codegen.builder().block_params(entry_block);
+        let argc = block_params[0];
+        let argv = block_params[1];
+        let num_program_params = function_codegen
+            .builder()
+            .ins()
+            .iconst(I32, num_program_params);
+
+        let program_params_addr = {
+            let str_addresses: Vec<_> = program_parameters
+                .iter()
+                .map(|(s, _)| {
+                    let addr_string = function_codegen.emit_string_literal(s);
+                    addr_string
+                })
+                .collect();
+            function_codegen.emit_stack_ptr_array_null_ended(&str_addresses)
+        };
+
+        let global_files_addr = {
+            let object_addresses: Vec<_> = global_files
+                .iter()
+                .map(|sym_id| function_codegen.get_address_of_symbol(*sym_id))
+                .collect();
+            function_codegen.emit_stack_ptr_array_null_ended(&object_addresses)
+        };
+
+        let num_global_files = function_codegen
+            .builder()
+            .ins()
+            .iconst(I32, global_files.len() as i64);
+
+        function_codegen.builder().ins().call(
+            pasko_init_func_ref,
+            &[
+                argc,
+                argv,
+                num_program_params,
+                program_params_addr,
+                num_global_files,
+                global_files_addr,
+            ],
+        );
+
+        // Store the values of input and output.
+        let call = function_codegen
+            .builder()
+            .ins()
+            .call(get_input_func_ref, &[]);
+        let result = {
+            let results = function_codegen.builder().inst_results(call);
+            assert!(results.len() == 1, "Invalid number of results");
+            results[0]
+        };
+        let input_addr_gv = function_codegen.get_global_value(input_data_id);
+        let input_addr = function_codegen
+            .builder()
+            .ins()
+            .global_value(pointer_type, input_addr_gv);
+        function_codegen.builder().ins().store(
+            cranelift_codegen::ir::MemFlags::new(),
+            result,
+            input_addr,
+            0,
+        );
+        let call = function_codegen
+            .builder()
+            .ins()
+            .call(get_output_func_ref, &[]);
+        let result = {
+            let results = function_codegen.builder().inst_results(call);
+            assert!(results.len() == 1, "Invalid number of results");
+            results[0]
+        };
+        let output_addr_gv = function_codegen.get_global_value(output_data_id);
+        let output_addr = function_codegen
+            .builder()
+            .ins()
+            .global_value(pointer_type, output_addr_gv);
+        function_codegen.builder().ins().store(
+            cranelift_codegen::ir::MemFlags::new(),
+            result,
+            output_addr,
+            0,
+        );
 
         // Create the IR for the statements.
         statements
@@ -800,6 +1069,12 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
 
         // Now free the global stuff that needs to be freed.
         function_codegen.dispose_symbols();
+
+        // And now finalize the runtime.
+        function_codegen.builder().ins().call(
+            pasko_finish_func_ref,
+            &[num_global_files, global_files_addr],
+        );
 
         // So return 0 because this is a well behaved main.
         let zero = function_codegen.builder().ins().iconst(I32, 0);
@@ -892,6 +1167,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                 || self.semantic_context.type_system.is_record_type(ty)
                 || self.semantic_context.type_system.is_set_type(ty)
                 || self.semantic_context.type_system.is_pointer_type(ty)
+                || self.semantic_context.type_system.is_file_type(ty)
             {
                 let data_id = self
                     .object_module

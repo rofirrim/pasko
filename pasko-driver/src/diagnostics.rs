@@ -79,65 +79,73 @@ impl<'input_file> SimpleEmitter<'input_file> {
                 .filter(|e| e.0.line <= current_line && current_line <= e.1.line)
                 .collect();
 
+            // This is an empty line. Skip.
+            if end_offset < start_offset {
+                continue;
+            }
             // Active locations should not overlap, so there can be more than one active per a single line.
             let max_col = end_offset - start_offset + 1;
             let mut carets: Vec<char> = (1..=max_col).map(|_| ' ').collect();
 
-            for active_location in active_locations {
-                // println!("{active_location:?} || {max_col}");
-                // Sometimes our column points to the newline which is not a character
-                // in the current line and would cause an out of bounds access.
-                // So use end_col instead of active_location.1.col
-                if active_location.0.line < current_line && current_line < active_location.1.line {
-                    // This means that this span started in an earlier line and ends in a later line
-                    // Fill all the caret line with a marker.
-                    carets[0] = '╴';
-                    for col in 2..max_col {
-                        carets[col - 1] = '─';
-                    }
-                    carets[max_col - 1] = '╶';
-                    // No overlaps!
-                    break;
-                }
-                if active_location.0.line == current_line {
-                    // We start in this line
-                    if active_location.1.line == current_line {
-                        // And we end in this line
-                        if active_location.0.col + 1 == active_location.1.col {
-                            // But we only take one column!
-                            carets[active_location.0.col - 1] = '↑';
-                        } else {
-                            // We take more than one column.
-                            carets[active_location.0.col - 1] = '╰';
-                            let last_col = active_location.1.col - 1;
-                            for col in (active_location.0.col + 1)..last_col {
-                                carets[col - 1] = '─';
-                            }
-                            carets[last_col - 1] = '╯';
-                        }
-                    } else {
-                        // We don't end in this line, so fill it up until the end.
-                        carets[active_location.0.col - 1] = '╰';
-                        for col in active_location.0.col + 1..max_col {
+            if !active_locations.is_empty() {
+                for active_location in active_locations {
+                    // println!("{active_location:?} || {max_col}");
+                    // Sometimes our column points to the newline which is not a character
+                    // in the current line and would cause an out of bounds access.
+                    // So use end_col instead of active_location.1.col
+                    if active_location.0.line < current_line
+                        && current_line < active_location.1.line
+                    {
+                        // This means that this span started in an earlier line and ends in a later line
+                        // Fill all the caret line with a marker.
+                        carets[0] = '╴';
+                        for col in 2..max_col {
                             carets[col - 1] = '─';
                         }
                         carets[max_col - 1] = '╶';
+                        // No overlaps!
+                        break;
                     }
-                } else if active_location.1.line == current_line {
-                    // We end in this line but we didn't start in this one either.
-                    let end_col = std::cmp::min(max_col, active_location.1.col);
-                    carets[0] = '╴';
-                    for col in 2..end_col {
-                        carets[col - 1] = '─';
+                    if active_location.0.line == current_line {
+                        // We start in this line
+                        if active_location.1.line == current_line {
+                            // And we end in this line
+                            if active_location.0.col + 1 == active_location.1.col {
+                                // But we only take one column!
+                                carets[active_location.0.col - 1] = '↑';
+                            } else {
+                                // We take more than one column.
+                                carets[active_location.0.col - 1] = '╰';
+                                let last_col = active_location.1.col - 1;
+                                for col in (active_location.0.col + 1)..last_col {
+                                    carets[col - 1] = '─';
+                                }
+                                carets[last_col - 1] = '╯';
+                            }
+                        } else {
+                            // We don't end in this line, so fill it up until the end.
+                            carets[active_location.0.col - 1] = '╰';
+                            for col in active_location.0.col + 1..max_col {
+                                carets[col - 1] = '─';
+                            }
+                            carets[max_col - 1] = '╶';
+                        }
+                    } else if active_location.1.line == current_line {
+                        // We end in this line but we didn't start in this one either.
+                        let end_col = std::cmp::min(max_col, active_location.1.col);
+                        carets[0] = '╴';
+                        for col in 2..end_col {
+                            carets[col - 1] = '─';
+                        }
+                        carets[end_col - 1] = '╯';
                     }
-                    carets[end_col - 1] = '╯';
                 }
-            }
 
-            let linenum_indent: String = (0..linenum_str.len()).map(|_| ' ').collect();
-            let s: String = carets.into_iter().collect();
-            let s = s.trim_end();
-            eprintln!("{linenum_indent}│ {}", s);
+                let linenum_indent: String = (0..linenum_str.len()).map(|_| ' ').collect();
+                let s: String = carets.into_iter().collect();
+                let s = s.trim_end();
+                eprintln!("{linenum_indent}│ {}", s);
+            }
         }
         eprintln!("");
     }

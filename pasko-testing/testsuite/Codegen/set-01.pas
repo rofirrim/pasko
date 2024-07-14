@@ -22,66 +22,58 @@ end.
 
 {
 
-CHECK-LABEL: *** IR for procedure 'foo_val'
-CHECK: function u0:21(i64) system_v {
-CHECK:     ss0 = explicit_slot 8
-CHECK:     ss1 = explicit_slot 8
-CHECK:     sig0 = (i64, i64) -> i64 system_v
-CHECK:     sig1 = (i64) system_v
-CHECK:     fn0 = u0:9 sig0
-CHECK:     fn1 = u0:10 sig1
-CHECK-EMPTY:
-CHECK: block0(v0: i64):
-CHECK:     v1 = stack_addr.i64 ss0
-CHECK:     store v0, v1
-CHECK:     v2 = iconst.i64 51
-CHECK:     v3 = stack_addr.i64 ss1
-CHECK:     store v2, v3  ; v2 = 51
-CHECK:     v4 = iconst.i64 1
-CHECK:     v5 = call fn0(v4, v3)  ; v4 = 1
-CHECK:     v6 = stack_addr.i64 ss0
-CHECK:     v7 = load.i64 v6
-CHECK:     call fn1(v7)
-CHECK:     store v5, v6
-CHECK:     v8 = stack_addr.i64 ss0
-CHECK:     v9 = load.i64 v8
-CHECK:     call fn1(v9)
-CHECK:     return
-CHECK: }
-CHECK: *** IR for procedure 'foo_val' seems OK
+CHECK: *** IR for procedure 'foo_val'
+CHECK-NEXT: function u0:38(i64) system_v {
+CHECK-NEXT:     ss0 = explicit_slot 8
+CHECK-NEXT:     ss1 = explicit_slot 8
+CHECK-NEXT:     sig0 = (i64, i64) -> i64 system_v
+CHECK-NEXT:     sig1 = (i64) system_v
+CHECK-NEXT:     fn0 = u0:9 sig0
+CHECK-NEXT:     fn1 = u0:10 sig1
+CHECK-EMPTY: 
+CHECK-NEXT: block0(v0: i64):
+CHECK-NEXT:     v1 = stack_addr.i64 ss0
+CHECK-NEXT:     store v0, v1
+CHECK-NEXT:     v2 = iconst.i64 51
+CHECK-NEXT:     v3 = stack_addr.i64 ss1
+CHECK-NEXT:     store v2, v3  ; v2 = 51
+CHECK-NEXT:     v4 = iconst.i64 1
+CHECK-NEXT:     v5 = call fn0(v4, v3)  ; v4 = 1
+CHECK-NEXT:     v6 = stack_addr.i64 ss0
+CHECK-NEXT:     v7 = load.i64 v6
+CHECK-NEXT:     call fn1(v7)
+CHECK-NEXT:     store v5, v6
+CHECK-NEXT:     v8 = stack_addr.i64 ss0
+CHECK-NEXT:     v9 = load.i64 v8
+CHECK-NEXT:     call fn1(v9)
+CHECK-NEXT:     return
+CHECK-NEXT: }
+CHECK-NEXT: *** IR for procedure 'foo_val' seems OK
 
-CHECK-LABEL: *** IR for procedure 'foo_ref'
-CHECK: function u0:22(i64) system_v {
-CHECK:     ss0 = explicit_slot 8
-CHECK:     ss1 = explicit_slot 8
-CHECK:     sig0 = (i64, i64) -> i64 system_v
-CHECK:     sig1 = (i64) system_v
-CHECK:     fn0 = u0:9 sig0
-CHECK:     fn1 = u0:10 sig1
-CHECK-EMPTY:
-CHECK: block0(v0: i64):
-CHECK:     v1 = stack_addr.i64 ss0
-CHECK:     store v0, v1
-CHECK:     v2 = iconst.i64 42
-CHECK:     v3 = stack_addr.i64 ss1
-CHECK:     store v2, v3  ; v2 = 42
-CHECK:     v4 = iconst.i64 1
-CHECK:     v5 = call fn0(v4, v3)  ; v4 = 1
-CHECK:     v6 = stack_addr.i64 ss0
-CHECK:     v7 = load.i64 v6
-CHECK:     v8 = load.i64 v7
-CHECK:     call fn1(v8)
-CHECK:     store v5, v7
-CHECK:     return
-CHECK: }
-CHECK: *** IR for procedure 'foo_ref' seems OK
-
-CHECK-LABEL: *** IR for main
-CHECK: function u0:23(i32, i64) -> i32 system_v {
-CHECK: block0(v0: i32, v1: i64):
-CHECK:     v2 = iconst.i32 0
-CHECK:     return v2  ; v2 = 0
-CHECK: }
-CHECK: *** IR for main seems OK
+CHECK: *** IR for procedure 'foo_ref'
+CHECK-NEXT: function u0:39(i64) system_v {
+CHECK-NEXT:     ss0 = explicit_slot 8
+CHECK-NEXT:     ss1 = explicit_slot 8
+CHECK-NEXT:     sig0 = (i64, i64) -> i64 system_v
+CHECK-NEXT:     sig1 = (i64) system_v
+CHECK-NEXT:     fn0 = u0:9 sig0
+CHECK-NEXT:     fn1 = u0:10 sig1
+CHECK-EMPTY: 
+CHECK-NEXT: block0(v0: i64):
+CHECK-NEXT:     v1 = stack_addr.i64 ss0
+CHECK-NEXT:     store v0, v1
+CHECK-NEXT:     v2 = iconst.i64 42
+CHECK-NEXT:     v3 = stack_addr.i64 ss1
+CHECK-NEXT:     store v2, v3  ; v2 = 42
+CHECK-NEXT:     v4 = iconst.i64 1
+CHECK-NEXT:     v5 = call fn0(v4, v3)  ; v4 = 1
+CHECK-NEXT:     v6 = stack_addr.i64 ss0
+CHECK-NEXT:     v7 = load.i64 v6
+CHECK-NEXT:     v8 = load.i64 v7
+CHECK-NEXT:     call fn1(v8)
+CHECK-NEXT:     store v5, v7
+CHECK-NEXT:     return
+CHECK-NEXT: }
+CHECK-NEXT: *** IR for procedure 'foo_ref' seems OK
 
 }

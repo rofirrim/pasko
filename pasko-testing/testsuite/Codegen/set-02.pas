@@ -26,108 +26,136 @@ end.
 
 {
 
-CHECK-LABEL: *** IR for main
-CHECK: function u0:21(i32, i64) -> i32 system_v {
-CHECK:     ss0 = explicit_slot 24
-CHECK:     ss1 = explicit_slot 24
-CHECK:     gv0 = symbol colocated userextname1
-CHECK:     gv1 = symbol colocated userextname3
-CHECK:     gv2 = symbol colocated userextname4
-CHECK:     gv3 = symbol colocated userextname10
-CHECK:     sig0 = (i64, i64) -> i64 system_v
-CHECK:     sig1 = (i64) system_v
-CHECK:     sig2 = (i64) -> i64 system_v
-CHECK:     sig3 = (i64, i64) -> i64 system_v
-CHECK:     sig4 = (i64, i64) -> i64 system_v
-CHECK:     sig5 = (i64, i64) -> i64 system_v
-CHECK:     sig6 = (i64, i64) -> i8 system_v
-CHECK:     fn0 = u0:9 sig0
-CHECK:     fn1 = u0:10 sig1
-CHECK:     fn2 = u0:11 sig2
-CHECK:     fn3 = u0:12 sig3
-CHECK:     fn4 = u0:14 sig4
-CHECK:     fn5 = u0:13 sig5
-CHECK:     fn6 = u0:15 sig6
+CHECK: *** IR for main
+CHECK-NEXT: function u0:38(i32, i64) -> i32 system_v {
+CHECK-NEXT:     ss0 = explicit_slot 8
+CHECK-NEXT:     ss1 = explicit_slot 8
+CHECK-NEXT:     ss2 = explicit_slot 24
+CHECK-NEXT:     ss3 = explicit_slot 24
+CHECK-NEXT:     gv0 = symbol colocated userextname4
+CHECK-NEXT:     gv1 = symbol colocated userextname5
+CHECK-NEXT:     gv2 = symbol colocated userextname7
+CHECK-NEXT:     gv3 = symbol colocated userextname9
+CHECK-NEXT:     gv4 = symbol colocated userextname10
+CHECK-NEXT:     gv5 = symbol colocated userextname16
+CHECK-NEXT:     sig0 = (i32, i64, i32, i64, i32, i64) system_v
+CHECK-NEXT:     sig1 = (i32, i64) system_v
+CHECK-NEXT:     sig2 = () -> i64 system_v
+CHECK-NEXT:     sig3 = () -> i64 system_v
+CHECK-NEXT:     sig4 = (i64, i64) -> i64 system_v
+CHECK-NEXT:     sig5 = (i64) system_v
+CHECK-NEXT:     sig6 = (i64) -> i64 system_v
+CHECK-NEXT:     sig7 = (i64, i64) -> i64 system_v
+CHECK-NEXT:     sig8 = (i64, i64) -> i64 system_v
+CHECK-NEXT:     sig9 = (i64, i64) -> i64 system_v
+CHECK-NEXT:     sig10 = (i64, i64) -> i8 system_v
+CHECK-NEXT:     fn0 = u0:21 sig0
+CHECK-NEXT:     fn1 = u0:22 sig1
+CHECK-NEXT:     fn2 = u0:23 sig2
+CHECK-NEXT:     fn3 = u0:24 sig3
+CHECK-NEXT:     fn4 = u0:9 sig4
+CHECK-NEXT:     fn5 = u0:10 sig5
+CHECK-NEXT:     fn6 = u0:11 sig6
+CHECK-NEXT:     fn7 = u0:12 sig7
+CHECK-NEXT:     fn8 = u0:14 sig8
+CHECK-NEXT:     fn9 = u0:13 sig9
+CHECK-NEXT:     fn10 = u0:15 sig10
 CHECK-EMPTY:
-CHECK: block0(v0: i32, v1: i64):
-CHECK:     v2 = iconst.i64 1
-CHECK:     v3 = iconst.i64 2
-CHECK:     v4 = iconst.i64 3
-CHECK:     v5 = stack_addr.i64 ss0
-CHECK:     store v2, v5  ; v2 = 1
-CHECK:     store v3, v5+8  ; v3 = 2
-CHECK:     store v4, v5+16  ; v4 = 3
-CHECK:     v6 = iconst.i64 3
-CHECK:     v7 = call fn0(v6, v5)  ; v6 = 3
-CHECK:     v8 = global_value.i64 gv0
-CHECK:     v9 = load.i64 v8
-CHECK:     call fn1(v9)
-CHECK:     store v7, v8
-CHECK:     v10 = iconst.i64 4
-CHECK:     v11 = iconst.i64 5
-CHECK:     v12 = iconst.i64 6
-CHECK:     v13 = stack_addr.i64 ss1
-CHECK:     store v10, v13  ; v10 = 4
-CHECK:     store v11, v13+8  ; v11 = 5
-CHECK:     store v12, v13+16  ; v12 = 6
-CHECK:     v14 = iconst.i64 3
-CHECK:     v15 = call fn0(v14, v13)  ; v14 = 3
-CHECK:     v16 = global_value.i64 gv1
-CHECK:     v17 = load.i64 v16
-CHECK:     call fn1(v17)
-CHECK:     store v15, v16
-CHECK:     v18 = global_value.i64 gv0
-CHECK:     v19 = load.i64 v18
-CHECK:     v20 = global_value.i64 gv2
-CHECK:     v21 = load.i64 v20
-CHECK:     call fn1(v21)
-CHECK:     v22 = call fn2(v19)
-CHECK:     store v22, v20
-CHECK:     v23 = global_value.i64 gv0
-CHECK:     v24 = load.i64 v23
-CHECK:     v25 = global_value.i64 gv1
-CHECK:     v26 = load.i64 v25
-CHECK:     v27 = call fn3(v24, v26)
-CHECK:     v28 = global_value.i64 gv2
-CHECK:     v29 = load.i64 v28
-CHECK:     call fn1(v29)
-CHECK:     store v27, v28
-CHECK:     v30 = global_value.i64 gv0
-CHECK:     v31 = load.i64 v30
-CHECK:     v32 = global_value.i64 gv1
-CHECK:     v33 = load.i64 v32
-CHECK:     v34 = call fn4(v31, v33)
-CHECK:     v35 = global_value.i64 gv2
-CHECK:     v36 = load.i64 v35
-CHECK:     call fn1(v36)
-CHECK:     store v34, v35
-CHECK:     v37 = global_value.i64 gv0
-CHECK:     v38 = load.i64 v37
-CHECK:     v39 = global_value.i64 gv1
-CHECK:     v40 = load.i64 v39
-CHECK:     v41 = call fn5(v38, v40)
-CHECK:     v42 = global_value.i64 gv2
-CHECK:     v43 = load.i64 v42
-CHECK:     call fn1(v43)
-CHECK:     store v41, v42
-CHECK:     v44 = iconst.i64 3
-CHECK:     v45 = global_value.i64 gv0
-CHECK:     v46 = load.i64 v45
-CHECK:     v47 = call fn6(v46, v44)  ; v44 = 3
-CHECK:     v48 = global_value.i64 gv3
-CHECK:     store v47, v48
-CHECK:     v49 = global_value.i64 gv0
-CHECK:     v50 = load.i64 v49
-CHECK:     call fn1(v50)
-CHECK:     v51 = global_value.i64 gv1
-CHECK:     v52 = load.i64 v51
-CHECK:     call fn1(v52)
-CHECK:     v53 = global_value.i64 gv2
-CHECK:     v54 = load.i64 v53
-CHECK:     call fn1(v54)
-CHECK:     v55 = iconst.i32 0
-CHECK:     return v55  ; v55 = 0
-CHECK: }
-CHECK: *** IR for main seems OK
+CHECK-NEXT: block0(v0: i32, v1: i64):
+CHECK-NEXT:     v2 = iconst.i32 0
+CHECK-NEXT:     v3 = iconst.i64 0
+CHECK-NEXT:     stack_store v3, ss0  ; v3 = 0
+CHECK-NEXT:     v4 = stack_addr.i64 ss0
+CHECK-NEXT:     v5 = iconst.i64 0
+CHECK-NEXT:     stack_store v5, ss1  ; v5 = 0
+CHECK-NEXT:     v6 = stack_addr.i64 ss1
+CHECK-NEXT:     v7 = iconst.i32 0
+CHECK-NEXT:     call fn0(v0, v1, v2, v4, v7, v6)  ; v2 = 0, v7 = 0
+CHECK-NEXT:     v8 = call fn2()
+CHECK-NEXT:     v9 = global_value.i64 gv0
+CHECK-NEXT:     store v8, v9
+CHECK-NEXT:     v10 = call fn3()
+CHECK-NEXT:     v11 = global_value.i64 gv1
+CHECK-NEXT:     store v10, v11
+CHECK-NEXT:     v12 = iconst.i64 1
+CHECK-NEXT:     v13 = iconst.i64 2
+CHECK-NEXT:     v14 = iconst.i64 3
+CHECK-NEXT:     v15 = stack_addr.i64 ss2
+CHECK-NEXT:     store v12, v15  ; v12 = 1
+CHECK-NEXT:     store v13, v15+8  ; v13 = 2
+CHECK-NEXT:     store v14, v15+16  ; v14 = 3
+CHECK-NEXT:     v16 = iconst.i64 3
+CHECK-NEXT:     v17 = call fn4(v16, v15)  ; v16 = 3
+CHECK-NEXT:     v18 = global_value.i64 gv2
+CHECK-NEXT:     v19 = load.i64 v18
+CHECK-NEXT:     call fn5(v19)
+CHECK-NEXT:     store v17, v18
+CHECK-NEXT:     v20 = iconst.i64 4
+CHECK-NEXT:     v21 = iconst.i64 5
+CHECK-NEXT:     v22 = iconst.i64 6
+CHECK-NEXT:     v23 = stack_addr.i64 ss3
+CHECK-NEXT:     store v20, v23  ; v20 = 4
+CHECK-NEXT:     store v21, v23+8  ; v21 = 5
+CHECK-NEXT:     store v22, v23+16  ; v22 = 6
+CHECK-NEXT:     v24 = iconst.i64 3
+CHECK-NEXT:     v25 = call fn4(v24, v23)  ; v24 = 3
+CHECK-NEXT:     v26 = global_value.i64 gv3
+CHECK-NEXT:     v27 = load.i64 v26
+CHECK-NEXT:     call fn5(v27)
+CHECK-NEXT:     store v25, v26
+CHECK-NEXT:     v28 = global_value.i64 gv2
+CHECK-NEXT:     v29 = load.i64 v28
+CHECK-NEXT:     v30 = global_value.i64 gv4
+CHECK-NEXT:     v31 = load.i64 v30
+CHECK-NEXT:     call fn5(v31)
+CHECK-NEXT:     v32 = call fn6(v29)
+CHECK-NEXT:     store v32, v30
+CHECK-NEXT:     v33 = global_value.i64 gv2
+CHECK-NEXT:     v34 = load.i64 v33
+CHECK-NEXT:     v35 = global_value.i64 gv3
+CHECK-NEXT:     v36 = load.i64 v35
+CHECK-NEXT:     v37 = call fn7(v34, v36)
+CHECK-NEXT:     v38 = global_value.i64 gv4
+CHECK-NEXT:     v39 = load.i64 v38
+CHECK-NEXT:     call fn5(v39)
+CHECK-NEXT:     store v37, v38
+CHECK-NEXT:     v40 = global_value.i64 gv2
+CHECK-NEXT:     v41 = load.i64 v40
+CHECK-NEXT:     v42 = global_value.i64 gv3
+CHECK-NEXT:     v43 = load.i64 v42
+CHECK-NEXT:     v44 = call fn8(v41, v43)
+CHECK-NEXT:     v45 = global_value.i64 gv4
+CHECK-NEXT:     v46 = load.i64 v45
+CHECK-NEXT:     call fn5(v46)
+CHECK-NEXT:     store v44, v45
+CHECK-NEXT:     v47 = global_value.i64 gv2
+CHECK-NEXT:     v48 = load.i64 v47
+CHECK-NEXT:     v49 = global_value.i64 gv3
+CHECK-NEXT:     v50 = load.i64 v49
+CHECK-NEXT:     v51 = call fn9(v48, v50)
+CHECK-NEXT:     v52 = global_value.i64 gv4
+CHECK-NEXT:     v53 = load.i64 v52
+CHECK-NEXT:     call fn5(v53)
+CHECK-NEXT:     store v51, v52
+CHECK-NEXT:     v54 = iconst.i64 3
+CHECK-NEXT:     v55 = global_value.i64 gv2
+CHECK-NEXT:     v56 = load.i64 v55
+CHECK-NEXT:     v57 = call fn10(v56, v54)  ; v54 = 3
+CHECK-NEXT:     v58 = global_value.i64 gv5
+CHECK-NEXT:     store v57, v58
+CHECK-NEXT:     v59 = global_value.i64 gv2
+CHECK-NEXT:     v60 = load.i64 v59
+CHECK-NEXT:     call fn5(v60)
+CHECK-NEXT:     v61 = global_value.i64 gv3
+CHECK-NEXT:     v62 = load.i64 v61
+CHECK-NEXT:     call fn5(v62)
+CHECK-NEXT:     v63 = global_value.i64 gv4
+CHECK-NEXT:     v64 = load.i64 v63
+CHECK-NEXT:     call fn5(v64)
+CHECK-NEXT:     call fn1(v7, v6)  ; v7 = 0
+CHECK-NEXT:     v65 = iconst.i32 0
+CHECK-NEXT:     return v65  ; v65 = 0
+CHECK-NEXT: }
+CHECK-NEXT: *** IR for main seems OK
 
 }

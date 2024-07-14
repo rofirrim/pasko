@@ -49,6 +49,7 @@ struct SymbolInfo {
     def_loc: Option<span::SpanLoc>,
     val: Option<Constant>,
     defined: bool,
+    required: bool,
     // FIXME: We can reduce the memory used by this by grouping these less
     // common things by the kind of Symbol.
     parameter: Option<ParameterKind>,
@@ -175,6 +176,14 @@ impl Symbol {
 
     pub fn get_return_symbol(&self) -> Option<SymbolId> {
         self.info.return_symbol
+    }
+
+    pub fn set_required(&mut self, required: bool) {
+        self.info.required = required
+    }
+
+    pub fn is_required(&self) -> bool {
+        self.info.required
     }
 }
 

@@ -49,6 +49,11 @@ pub enum TypeKind {
     GenericSet,
     Pointer(TypeId),
     GenericPointer,
+    File {
+        packed: bool,
+        component: TypeId,
+    },
+    TextFile,
 }
 
 #[derive(Debug, Default, Hash, PartialEq, Eq)]
@@ -277,6 +282,27 @@ impl Type {
             _ => false,
         }
     }
+
+    fn is_file_type(&self) -> bool {
+        match self.info.kind {
+            TypeKind::File { .. } | TypeKind::TextFile => true,
+            _ => false,
+        }
+    }
+
+    fn is_textfile_type(&self) -> bool {
+        match self.info.kind {
+            TypeKind::TextFile => true,
+            _ => false,
+        }
+    }
+
+    fn file_type_get_component_type(&self) -> TypeId {
+        match self.info.kind {
+            TypeKind::File { component: ty, .. } => ty,
+            _ => panic!("This is not a (non-text) file type"),
+        }
+    }
 }
 
 impl Hash for Type {
@@ -310,6 +336,7 @@ pub struct TypeSystem {
     error_type_id: TypeId,
     generic_set_type_id: TypeId,
     generic_pointer_type_id: TypeId,
+    textfile_type_id: TypeId,
 
     symbol_map: symbol::SymbolMap,
 }
@@ -357,6 +384,11 @@ impl TypeSystem {
         let generic_pointer_type_id = generic_pointer_type.id();
         types.insert(generic_pointer_type_id, Rc::new(generic_pointer_type));
 
+        let mut textfile_type = Type::default();
+        textfile_type.set_kind(TypeKind::TextFile);
+        let textfile_type_id = textfile_type.id();
+        types.insert(textfile_type_id, Rc::new(textfile_type));
+
         Self {
             types,
             derived_types: HashSet::new(),
@@ -368,6 +400,7 @@ impl TypeSystem {
             error_type_id,
             generic_set_type_id,
             generic_pointer_type_id,
+            textfile_type_id,
             symbol_map,
         }
     }
@@ -666,6 +699,52 @@ impl TypeSystem {
         ty.pointer_type_get_pointee_type()
     }
 
+    pub fn get_file_type(&mut self, packed: bool, component: TypeId) -> TypeId {
+        let mut new_file_type = Type::default();
+        new_file_type.set_kind(TypeKind::File { packed, component });
+
+        let new_file_type = Rc::new(new_file_type);
+        match self.derived_types.get(&new_file_type.clone()) {
+            Some(x) => return x.id(),
+            _ => {}
+        }
+
+        let new_id = new_file_type.id();
+        self.derived_types.insert(new_file_type.clone());
+        self.types.insert(new_id, new_file_type);
+
+        new_id
+    }
+
+    pub fn get_textfile_type(&self) -> TypeId {
+        self.textfile_type_id
+    }
+
+    pub fn is_file_type(&self, ty: TypeId) -> bool {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.is_file_type()
+    }
+
+    pub fn is_textfile_type(&self, ty: TypeId) -> bool {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.is_textfile_type()
+    }
+
+    pub fn file_type_get_component_type(&self, ty: TypeId) -> TypeId {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        if ty.is_textfile_type() {
+            self.get_char_type()
+        } else {
+            ty.file_type_get_component_type()
+        }
+    }
+
     pub fn get_type_name(&self, id: TypeId) -> String {
         format!("{}", self.get_type_name_impl(id, false, HashSet::new()))
     }
@@ -770,6 +849,12 @@ impl TypeSystem {
                 "^{}",
                 self.get_type_name_impl(pointee, skip_alias, cycles.clone()),
             ),
+            TypeKind::File { packed, component } => format!(
+                "{}file of {}",
+                if packed { "packed " } else { "" },
+                self.get_type_name_impl(component, skip_alias, cycles.clone())
+            ),
+            TypeKind::TextFile => "text".to_owned(),
             TypeKind::None => "<no type>".to_owned(),
             _ => {
                 unreachable!("Cannot print name of type {:?}", ty.get_kind());
@@ -779,7 +864,7 @@ impl TypeSystem {
 
     pub fn is_builtin_type_name(&self, name: &str) -> bool {
         match name {
-            "integer" | "real" | "boolean" => true,
+            "integer" | "real" | "boolean" | "char" | "text" => true,
             _ => false,
         }
     }
@@ -838,15 +923,37 @@ impl TypeSystem {
                     component: c2,
                 },
             ) => (p1 == p2) && self.same_type(i1, i2) && self.same_type(c1, c2),
+            (
+                TypeKind::File {
+                    packed: p1,
+                    component: c1,
+                },
+                TypeKind::File {
+                    packed: p2,
+                    component: c2,
+                },
+            ) => p1 == p2 && self.same_type(c1, c2),
             // Integer, Real, Bool, Char, Error, Enum and Record
             // GenericSet, GenericPointer
             _ => a == b,
         }
     }
 
-    pub fn is_valid_component_type_of_file_type(&self, _ty: TypeId) -> bool {
-        // TODO:
-        true
+    pub fn is_valid_component_type_of_file_type(&self, ty: TypeId) -> bool {
+        if self.is_file_type(ty) {
+            return false;
+        } else if self.is_record_type(ty) {
+            let fields = self.record_type_get_fields(ty);
+
+            fields.iter().all(|field| {
+                let sym = self.symbol_map.borrow().get_symbol(*field);
+                let sym = sym.borrow();
+
+                self.is_valid_component_type_of_file_type(sym.get_type().unwrap())
+            });
+        }
+
+        return true;
     }
 
     pub fn is_simple_type(&self, ty: TypeId) -> bool {
