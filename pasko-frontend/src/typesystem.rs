@@ -289,7 +289,7 @@ impl Type {
         }
     }
 
-    fn file_type_get_component(&self) -> TypeId {
+    fn file_type_get_component_type(&self) -> TypeId {
         match self.info.kind {
             TypeKind::File { component: ty, .. } => ty,
             _ => panic!("This is not a file type"),
@@ -708,11 +708,11 @@ impl TypeSystem {
         ty.is_file_type()
     }
 
-    pub fn file_type_get_component(&self, ty: TypeId) -> TypeId {
+    pub fn file_type_get_component_type(&self, ty: TypeId) -> TypeId {
         let ty = self.ultimate_type(ty);
         let ty = self.get_type_internal(ty);
 
-        ty.file_type_get_component()
+        ty.file_type_get_component_type()
     }
 
     pub fn get_type_name(&self, id: TypeId) -> String {
@@ -892,7 +892,16 @@ impl TypeSystem {
                     component: c2,
                 },
             ) => (p1 == p2) && self.same_type(i1, i2) && self.same_type(c1, c2),
-            (TypeKind::File{packed: p1, component: c1}, TypeKind::File{packed: p2, component: c2}) => p1 == p2 && self.same_type(c1, c2),
+            (
+                TypeKind::File {
+                    packed: p1,
+                    component: c1,
+                },
+                TypeKind::File {
+                    packed: p2,
+                    component: c2,
+                },
+            ) => p1 == p2 && self.same_type(c1, c2),
             // Integer, Real, Bool, Char, Error, Enum and Record
             // GenericSet, GenericPointer
             _ => a == b,

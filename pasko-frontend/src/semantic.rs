@@ -1641,20 +1641,22 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         _span: &span::SpanLoc,
         id: span::SpanId,
     ) {
-        let pointer_type = self.ctx.get_ast_type(n.0.id()).unwrap();
-        if self.ctx.type_system.is_error_type(pointer_type) {
+        let deref_type = self.ctx.get_ast_type(n.0.id()).unwrap();
+        if self.ctx.type_system.is_error_type(deref_type) {
             self.ctx
                 .set_ast_type(id, self.ctx.type_system.get_error_type());
             return;
         }
 
-        if !self.ctx.type_system.is_pointer_type(pointer_type) {
+        if !self.ctx.type_system.is_pointer_type(deref_type)
+            && self.ctx.type_system.is_file_type(deref_type)
+        {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *n.0.loc(),
                 format!(
-                    "expression has type {} which is not a pointer",
-                    self.ctx.type_system.get_type_name(pointer_type)
+                    "expression has type {} which is not a pointer type or a file type",
+                    self.ctx.type_system.get_type_name(deref_type)
                 ),
             );
             self.ctx
@@ -1662,11 +1664,18 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             return;
         }
 
-        let pointee_type = self
-            .ctx
-            .type_system
-            .pointer_type_get_pointee_type(pointer_type);
-        self.ctx.set_ast_type(id, pointee_type);
+        let value_type = if self.ctx.type_system.is_pointer_type(deref_type) {
+            self.ctx
+                .type_system
+                .pointer_type_get_pointee_type(deref_type)
+        } else if self.ctx.type_system.is_file_type(deref_type) {
+            self.ctx
+                .type_system
+                .file_type_get_component_type(deref_type)
+        } else {
+            unreachable!("Unexpected type");
+        };
+        self.ctx.set_ast_type(id, value_type);
     }
 
     fn visit_pre_expr(
