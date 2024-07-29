@@ -3176,6 +3176,23 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let type_name = &n.1;
 
         let param_ty = self.ctx.get_ast_type(type_name.id()).unwrap();
+        let param_ty = if self
+            .ctx
+            .type_system
+            .is_valid_component_type_of_file_type(param_ty)
+        {
+            param_ty
+        } else {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *type_name.loc(),
+                format!(
+                    "type {} cannot be used for a value parameter",
+                    self.ctx.type_system.get_type_name(param_ty)
+                ),
+            );
+            self.ctx.type_system.get_error_type()
+        };
 
         names.iter().for_each(|name| {
             self.declare_formal_parameter(name, param_ty, ParameterKind::Value);
