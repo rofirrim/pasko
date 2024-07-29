@@ -246,12 +246,84 @@ struct pasko_file_t {
 static pasko_file_t __pasko_file_output;
 static pasko_file_t __pasko_file_input;
 
+static void __pasko_check_read(pasko_file_t *f) {
+  if (f->mode != PASKO_FILE_MODE_INSPECT)
+    __pasko_runtime_error("invalid file mode for operation");
+}
+static void __pasko_check_write(pasko_file_t *f) {
+  if (f->mode != PASKO_FILE_MODE_GENERATE)
+    __pasko_runtime_error("invalid file mode for operation");
+}
+
+static const uint64_t log10_table[] = {UINT64_C(10),
+                                       UINT64_C(100),
+                                       UINT64_C(1000),
+                                       UINT64_C(10000),
+                                       UINT64_C(100000),
+                                       UINT64_C(1000000),
+                                       UINT64_C(10000000),
+                                       UINT64_C(100000000),
+                                       UINT64_C(1000000000),
+                                       UINT64_C(10000000000),
+                                       UINT64_C(100000000000),
+                                       UINT64_C(1000000000000),
+                                       UINT64_C(10000000000000),
+                                       UINT64_C(100000000000000),
+                                       UINT64_C(1000000000000000),
+                                       UINT64_C(10000000000000000),
+                                       UINT64_C(100000000000000000),
+                                       UINT64_C(1000000000000000000),
+                                       UINT64_C(10000000000000000000)};
+
+static unsigned __pasko_i64_size(int64_t x) {
+  if (x == INT64_MIN)
+    __pasko_runtime_error("integer out of range");
+
+  uint64_t a = x < 0 ? -x : x;
+
+  // [lower, upper)
+  int lower = 0;
+  int upper = 19;
+  do {
+    int mid_point = (upper - lower) / 2;
+    if (a < log10_table[mid_point]) {
+      upper = mid_point;
+    } else if (log10_table[mid_point] < a) {
+      lower = mid_point + 1;
+    } else {
+      return mid_point + 1;
+    }
+  } while (lower < upper);
+
+  return lower + 1;
+}
+
 void __pasko_write_textfile_i64(pasko_file_t *f, int64_t num, int total_width) {
-  if (total_width == 0) {
-    fprintf(f->file, "%" PRId64, num);
+  __pasko_check_write(f);
+  if (total_width < 0)
+    total_width = 0;
+  unsigned int_digits = __pasko_i64_size(num);
+
+  if (num == INT64_MIN)
+    __pasko_runtime_error("integer out of range");
+
+  int64_t a = num < 0 ? -num : num;
+
+  if ((unsigned)total_width >= int_digits + 1) {
+    int num_spaces = total_width - int_digits - 1;
+    for (int i = 0; i < num_spaces; i++) {
+      fprintf(f->file, " ");
+    }
+    if (num < 0)
+      fprintf(f->file, "-");
+    else
+      fprintf(f->file, " ");
   } else {
-    fprintf(f->file, "%*" PRId64, total_width, num);
+    //
+    if (num < 0)
+      fprintf(f->file, "-");
   }
+  fprintf(f->file, "%ld", a);
 }
 void __pasko_write_i64(int64_t num, int total_width) {
   __pasko_write_textfile_i64(&__pasko_file_output, num, total_width);
@@ -259,6 +331,10 @@ void __pasko_write_i64(int64_t num, int total_width) {
 
 void __pasko_write_textfile_f64(pasko_file_t *f, double num, int total_width,
                                 int frac_digits) {
+  __pasko_check_write(f);
+  if (total_width < 0) total_width = 0;
+  if (frac_digits < 0) frac_digits = 0;
+  // FIXME: We should implement the ISO Pascal algorithm.
   if (total_width == 0) {
     fprintf(f->file, "%f", num);
   } else if (frac_digits == 0) {
@@ -273,6 +349,7 @@ void __pasko_write_f64(double num, int total_width, int frac_digits) {
 }
 
 void __pasko_write_textfile_str(pasko_file_t *f, const uint32_t *str) {
+  __pasko_check_write(f);
   // FIXME: Assuming the environment is UTF-8.
   uint8_t *c = NULL;
   __pasko_utf32_to_utf8(str, &c);
@@ -292,6 +369,7 @@ void __pasko_write_char(uint32_t c) {
 }
 
 void __pasko_write_textfile_bool(pasko_file_t *f, uint8_t b) {
+  __pasko_check_write(f);
   fprintf(f->file, "%s", b ? "True" : "False");
 }
 void __pasko_write_bool(uint8_t b) {
@@ -299,6 +377,7 @@ void __pasko_write_bool(uint8_t b) {
 }
 
 void __pasko_write_textfile_newline(pasko_file_t *f) {
+  __pasko_check_write(f);
   fprintf(f->file, "%s", "\n");
 }
 void __pasko_write_newline(void) {
@@ -306,6 +385,7 @@ void __pasko_write_newline(void) {
 }
 
 int64_t __pasko_read_textfile_i64(pasko_file_t *f) {
+  __pasko_check_read(f);
   uint64_t tmp_result = 0;
   uint32_t v = __pasko_buffer_char_peek(f->read_buffer);
   bool neg = false;
@@ -338,6 +418,7 @@ int64_t __pasko_read_i64(void) {
 }
 
 double __pasko_read_textfile_f64(pasko_file_t *f) {
+  __pasko_check_read(f);
   enum { MAX_LITERAL_LENGTH = 128 };
   char c[MAX_LITERAL_LENGTH];
   int position = 0;
@@ -432,6 +513,7 @@ double __pasko_read_f64(void) {
 }
 
 void __pasko_read_textfile_newline(pasko_file_t *f) {
+  __pasko_check_read(f);
   uint32_t v = __pasko_buffer_char_peek(f->read_buffer);
   while (v != '\n' && v != UTF8_EOF) {
     __pasko_buffer_char_skip(f->read_buffer);

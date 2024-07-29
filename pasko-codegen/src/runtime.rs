@@ -25,4 +25,7 @@ pub struct RuntimeFunctions {
     // Pointer operations
     pub pointer_new: Option<cranelift_module::FuncId>,
     pub pointer_dispose: Option<cranelift_module::FuncId>,
+
+    // Runtime
+    pub init: Option<cranelift_module::FuncId>,
 }

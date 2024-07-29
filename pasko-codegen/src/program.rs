@@ -164,69 +164,74 @@ impl<'a> CodegenVisitor<'a> {
         // Set operations.
         let mut sig = Signature::new(CallConv::SystemV);
         sig.params.push(AbiParam::new(I64)); // N
-        sig.params.push(AbiParam::new(I64)); // values
-        sig.returns.push(AbiParam::new(I64)); // address to new set
+        sig.params.push(AbiParam::new(self.pointer_type)); // values
+        sig.returns.push(AbiParam::new(self.pointer_type)); // address to new set
         self.rt.set_new = self.register_import("__pasko_set_new", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // address to set
+        sig.params.push(AbiParam::new(self.pointer_type)); // address to set
         self.rt.set_dispose = self.register_import("__pasko_set_dispose", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // address to src set
-        sig.returns.push(AbiParam::new(I64)); // address to new set
+        sig.params.push(AbiParam::new(self.pointer_type)); // address to src set
+        sig.returns.push(AbiParam::new(self.pointer_type)); // address to new set
         self.rt.set_copy = self.register_import("__pasko_set_copy", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // x
-        sig.params.push(AbiParam::new(I64)); // y
-        sig.returns.push(AbiParam::new(I64)); // result
+        sig.params.push(AbiParam::new(self.pointer_type)); // x
+        sig.params.push(AbiParam::new(self.pointer_type)); // y
+        sig.returns.push(AbiParam::new(self.pointer_type)); // result
         self.rt.set_union = self.register_import("__pasko_set_union", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // x
-        sig.params.push(AbiParam::new(I64)); // y
-        sig.returns.push(AbiParam::new(I64)); // result
+        sig.params.push(AbiParam::new(self.pointer_type)); // x
+        sig.params.push(AbiParam::new(self.pointer_type)); // y
+        sig.returns.push(AbiParam::new(self.pointer_type)); // result
         self.rt.set_intersection = self.register_import("__pasko_set_intersection", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // x
-        sig.params.push(AbiParam::new(I64)); // y
-        sig.returns.push(AbiParam::new(I64)); // result
+        sig.params.push(AbiParam::new(self.pointer_type)); // x
+        sig.params.push(AbiParam::new(self.pointer_type)); // y
+        sig.returns.push(AbiParam::new(self.pointer_type)); // result
         self.rt.set_difference = self.register_import("__pasko_set_difference", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // set
-        sig.params.push(AbiParam::new(I64)); // x
+        sig.params.push(AbiParam::new(self.pointer_type)); // set
+        sig.params.push(AbiParam::new(self.pointer_type)); // x
         sig.returns.push(AbiParam::new(I8)); // result
         self.rt.set_contains = self.register_import("__pasko_set_contains", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // x
-        sig.params.push(AbiParam::new(I64)); // y
+        sig.params.push(AbiParam::new(self.pointer_type)); // x
+        sig.params.push(AbiParam::new(self.pointer_type)); // y
         sig.returns.push(AbiParam::new(I8)); // result
         self.rt.set_equal = self.register_import("__pasko_set_equal", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // x
-        sig.params.push(AbiParam::new(I64)); // y
+        sig.params.push(AbiParam::new(self.pointer_type)); // x
+        sig.params.push(AbiParam::new(self.pointer_type)); // y
         sig.returns.push(AbiParam::new(I8)); // result
         self.rt.set_not_equal = self.register_import("__pasko_set_not_equal", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // x
-        sig.params.push(AbiParam::new(I64)); // y
+        sig.params.push(AbiParam::new(self.pointer_type)); // x
+        sig.params.push(AbiParam::new(self.pointer_type)); // y
         sig.returns.push(AbiParam::new(I8)); // result
         self.rt.set_is_subset = self.register_import("__pasko_set_is_subset", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // addr to pointer
+        sig.params.push(AbiParam::new(self.pointer_type)); // addr to pointer
         sig.params.push(AbiParam::new(I64)); // size in bytes
         self.rt.pointer_new = self.register_import("__pasko_pointer_new", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // addr to pointer
+        sig.params.push(AbiParam::new(self.pointer_type)); // addr to pointer
         self.rt.pointer_dispose = self.register_import("__pasko_pointer_dispose", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I32)); // argc
+        sig.params.push(AbiParam::new(self.pointer_type)); // argv
+        self.rt.init = self.register_import("__pasko_init", sig);
     }
 
     pub fn type_to_cranelift_type(&self, ty: TypeId) -> cranelift_codegen::ir::Type {
@@ -776,8 +781,16 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             .unwrap()
             .declare_function("main", Linkage::Export, &sig)
             .unwrap();
-
         let mut func = Function::with_name_signature(UserFuncName::user(0, func_id.as_u32()), sig);
+
+        // Obtain early reference to __pasko_init.
+        let pasko_init_id = self.rt.init.unwrap();
+        let pasko_init_func_ref = self
+            .object_module
+            .as_mut()
+            .unwrap()
+            .declare_func_in_func(pasko_init_id, &mut func);
+
         let mut func_builder_ctx = FunctionBuilderContext::new();
         let builder = FunctionBuilder::new(&mut func, &mut func_builder_ctx);
 
@@ -789,6 +802,13 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         globals_to_dispose
             .iter()
             .for_each(|&sym| function_codegen.add_symbol_to_dispose(sym));
+
+        // Call __pasko_init
+        let entry_block = function_codegen.get_entry_block().unwrap();
+        let block_params = function_codegen.builder().block_params(entry_block);
+        let argc = block_params[0];
+        let argv = block_params[1];
+        function_codegen.builder().ins().call(pasko_init_func_ref, &[argc, argv]);
 
         // Create the IR for the statements.
         statements

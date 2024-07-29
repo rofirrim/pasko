@@ -79,6 +79,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         self.builder().switch_to_block(entry_block);
     }
 
+    pub fn get_entry_block(&self) -> Option<cranelift_codegen::ir::Block> {
+        self.entry_block
+    }
+
     pub fn get_codegen(&mut self) -> &mut CodegenVisitor<'b> {
         self.codegen
     }
