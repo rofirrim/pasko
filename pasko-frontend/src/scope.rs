@@ -25,6 +25,11 @@ impl Scope {
         });
     }
 
+    pub fn is_global(&self) -> bool {
+        // We always have a bottom scope, so 2.
+        self.stack.len() == 2
+    }
+
     pub fn pop_scope(&mut self) {
         assert!(self.stack.len() > 1);
         self.stack.pop();

@@ -21,6 +21,7 @@ pub struct SemanticContext {
     ast_symbols: HashMap<span::SpanId, SymbolId>,
     ast_values: HashMap<span::SpanId, Constant>,
 
+    program_parameters: Vec<(String, span::SpanLoc)>,
     pending_type_definitions: Vec<SymbolId>,
 }
 
@@ -59,6 +60,7 @@ impl SemanticContext {
             ast_symbols: HashMap::new(),
             ast_values: HashMap::new(),
 
+            program_parameters: vec![],
             pending_type_definitions: vec![],
         };
 
@@ -850,20 +852,31 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         _id: span::SpanId,
     ) {
         let x = &node.1;
+        let mut already_seen = Vec::new();
         x.iter().for_each(|s| {
             // The presence of "input" / "output" makes them a defining point.
             // They are files.
+            if already_seen.contains(s.get()) {
+                self.diagnostics.add(
+                    DiagnosticKind::Error,
+                    *s.loc(),
+                    format!("program parameter '{}' already declared", s.get()),
+                );
+            }
+            already_seen.push(s.get().to_string());
             if s.get() == "input" || s.get() == "output" {
                 let mut new_sym = Symbol::new();
                 new_sym.set_name(s.get().as_str());
                 new_sym.set_kind(SymbolKind::Variable);
-                // FIXME: Set their types to files!!!
+                new_sym.set_type(self.ctx.type_system.get_textfile_type());
                 new_sym.set_defining_point(*span);
 
                 let new_sym = self.ctx.new_symbol(new_sym);
                 self.scope.add_entry(s.get().as_str(), new_sym);
             } else {
-                self.lookup_symbol(s.get().as_str(), s.loc());
+                self.ctx
+                    .program_parameters
+                    .push((s.get().to_string(), *s.loc()));
             }
         });
     }
@@ -874,6 +887,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
+        // Note this also includes the program block.
         self.scope.push_scope(None);
         true
     }
@@ -1447,6 +1461,33 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             } else {
                 self.ctx
                     .set_ast_type(id, self.ctx.type_system.get_error_type());
+            }
+        }
+    }
+
+    fn visit_post_variable_declaration_part(
+        &mut self,
+        _n: &mut ast::VariableDeclarationPart,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) {
+        if self.scope.is_global() {
+            // Check whether program parameters have been declared.
+            let program_parameters = std::mem::take(&mut self.ctx.program_parameters);
+            for (program_param, loc) in program_parameters {
+                if let Some(sym) = self.lookup_symbol(&program_param, &loc) {
+                    let sym = self.ctx.get_symbol(sym);
+                    let ty = sym.borrow().get_type().unwrap();
+                    if !self.ctx.type_system.is_file_type(ty) {
+                        self.diagnostics.add_with_extra(
+                            DiagnosticKind::Error,
+                            sym.borrow().get_defining_point().unwrap(),
+                            format!("only file types are allowed as program parameters"),
+                            vec![loc],
+                            vec![],
+                        );
+                    }
+                }
             }
         }
     }
