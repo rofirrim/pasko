@@ -378,6 +378,13 @@ impl<'a> CodegenVisitor<'a> {
                 size: self.pointer_type.bytes() as usize,
                 align: 8,
             }
+        } else if self.semantic_context.type_system.is_file_type(ty) {
+            // Sets are opaque reference types, so they take the size and
+            // alignment of a pointer.
+            SizeAndAlignment {
+                size: self.pointer_type.bytes() as usize,
+                align: 8,
+            }
         } else {
             panic!(
                 "Unexpected size request for type {}",
@@ -808,7 +815,10 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         let block_params = function_codegen.builder().block_params(entry_block);
         let argc = block_params[0];
         let argv = block_params[1];
-        function_codegen.builder().ins().call(pasko_init_func_ref, &[argc, argv]);
+        function_codegen
+            .builder()
+            .ins()
+            .call(pasko_init_func_ref, &[argc, argv]);
 
         // Create the IR for the statements.
         statements
@@ -912,6 +922,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                 || self.semantic_context.type_system.is_record_type(ty)
                 || self.semantic_context.type_system.is_set_type(ty)
                 || self.semantic_context.type_system.is_pointer_type(ty)
+                || self.semantic_context.type_system.is_file_type(ty)
             {
                 let data_id = self
                     .object_module

@@ -53,6 +53,7 @@ pub enum TypeKind {
         packed: bool,
         component: TypeId,
     },
+    TextFile,
 }
 
 #[derive(Debug, Default, Hash, PartialEq, Eq)]
@@ -284,7 +285,14 @@ impl Type {
 
     fn is_file_type(&self) -> bool {
         match self.info.kind {
-            TypeKind::File { .. } => true,
+            TypeKind::File { .. } | TypeKind::TextFile => true,
+            _ => false,
+        }
+    }
+
+    fn is_textfile_type(&self) -> bool {
+        match self.info.kind {
+            TypeKind::TextFile => true,
             _ => false,
         }
     }
@@ -292,7 +300,7 @@ impl Type {
     fn file_type_get_component_type(&self) -> TypeId {
         match self.info.kind {
             TypeKind::File { component: ty, .. } => ty,
-            _ => panic!("This is not a file type"),
+            _ => panic!("This is not a (non-text) file type"),
         }
     }
 }
@@ -328,6 +336,7 @@ pub struct TypeSystem {
     error_type_id: TypeId,
     generic_set_type_id: TypeId,
     generic_pointer_type_id: TypeId,
+    textfile_type_id: TypeId,
 
     symbol_map: symbol::SymbolMap,
 }
@@ -375,6 +384,11 @@ impl TypeSystem {
         let generic_pointer_type_id = generic_pointer_type.id();
         types.insert(generic_pointer_type_id, Rc::new(generic_pointer_type));
 
+        let mut textfile_type = Type::default();
+        textfile_type.set_kind(TypeKind::TextFile);
+        let textfile_type_id = textfile_type.id();
+        types.insert(textfile_type_id, Rc::new(textfile_type));
+
         Self {
             types,
             derived_types: HashSet::new(),
@@ -386,6 +400,7 @@ impl TypeSystem {
             error_type_id,
             generic_set_type_id,
             generic_pointer_type_id,
+            textfile_type_id,
             symbol_map,
         }
     }
@@ -701,6 +716,10 @@ impl TypeSystem {
         new_id
     }
 
+    pub fn get_textfile_type(&self) -> TypeId {
+        self.textfile_type_id
+    }
+
     pub fn is_file_type(&self, ty: TypeId) -> bool {
         let ty = self.ultimate_type(ty);
         let ty = self.get_type_internal(ty);
@@ -712,7 +731,11 @@ impl TypeSystem {
         let ty = self.ultimate_type(ty);
         let ty = self.get_type_internal(ty);
 
-        ty.file_type_get_component_type()
+        if ty.is_textfile_type() {
+            self.get_char_type()
+        } else {
+            ty.file_type_get_component_type()
+        }
     }
 
     pub fn get_type_name(&self, id: TypeId) -> String {
@@ -824,6 +847,7 @@ impl TypeSystem {
                 if packed { "packed " } else { "" },
                 self.get_type_name_impl(component, skip_alias, cycles.clone())
             ),
+            TypeKind::TextFile => "text".to_owned(),
             TypeKind::None => "<no type>".to_owned(),
             _ => {
                 unreachable!("Cannot print name of type {:?}", ty.get_kind());
@@ -833,7 +857,7 @@ impl TypeSystem {
 
     pub fn is_builtin_type_name(&self, name: &str) -> bool {
         match name {
-            "integer" | "real" | "boolean" => true,
+            "integer" | "real" | "boolean" | "char" | "text" => true,
             _ => false,
         }
     }

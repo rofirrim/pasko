@@ -3222,6 +3222,13 @@ fn init_global_scope(scope: &mut scope::Scope, semantic_context: &mut SemanticCo
     new_sym.set_const(Constant::Bool(false));
     let new_sym = semantic_context.new_symbol(new_sym);
     scope.add_entry("false", new_sym);
+
+    let mut new_sym = Symbol::new();
+    new_sym.set_name("text");
+    new_sym.set_kind(SymbolKind::Type);
+    new_sym.set_type(semantic_context.type_system.get_textfile_type());
+    let new_sym = semantic_context.new_symbol(new_sym);
+    scope.add_entry("text", new_sym);
 }
 
 pub fn check_program(
