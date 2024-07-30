@@ -912,6 +912,9 @@ impl<'a> SemanticCheckerVisitor<'a> {
                 }
                 file_component = self.ctx.type_system.file_type_get_component_type(ty);
                 first_arg = 1;
+            } else if self.ctx.type_system.is_error_type(ty) {
+                file_component = self.ctx.type_system.get_error_type();
+                is_textfile = false;
             } else {
                 self._ensure_global_file(global_file, span);
                 file_component = self.ctx.type_system.get_char_type();
@@ -934,6 +937,9 @@ impl<'a> SemanticCheckerVisitor<'a> {
                     is_textfile = true;
                     file_component = self.ctx.type_system.get_char_type();
                     first_arg = 1;
+                } else if self.ctx.type_system.is_error_type(ty) {
+                    file_component = self.ctx.type_system.get_char_type();
+                    is_textfile = true;
                 } else {
                     self._ensure_global_file(global_file, span);
                     file_component = self.ctx.type_system.get_char_type();
@@ -2803,7 +2809,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let proc_name = callee.get().as_str();
         if is_required_procedure(proc_name) {
             match proc_name {
-                "readln" | "writeln" | "new" | "dispose" => return true,
+                "read" | "readln" | "write" | "writeln" | "new" | "dispose" => return true,
                 _ => {
                     self.unimplemented(*span, &format!("required procedure '{}'", proc_name));
                     return false;
@@ -2889,7 +2895,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         &mut self,
         node: &mut ast::ExprWriteParameter,
         _span: &span::SpanLoc,
-        _id: span::SpanId,
+        id: span::SpanId,
     ) {
         let mut check_parameter = |param_name: &str, id: span::SpanId, loc: span::SpanLoc| {
             let type_id = self.ctx.get_ast_type(id).unwrap();
@@ -2918,12 +2924,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         }
 
         let ty = self.ctx.get_ast_type(node.0.id()).unwrap();
-        if must_be_real && !self.ctx.type_system.is_real_type(ty) {
+        let ty = if must_be_real && !self.ctx.type_system.is_real_type(ty) {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *node.0.loc(),
                 format!("argument must be of real type because frac-width was specified",),
             );
+            self.ctx.type_system.get_error_type()
         } else if !self.ctx.type_system.is_real_type(ty)
             && !self.ctx.type_system.is_bool_type(ty)
             && !self.ctx.type_system.is_integer_type(ty)
@@ -2933,7 +2940,11 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     *node.0.loc(),
                     format!("argument of writeln must be an expression of integer-type, real-type or Boolean-type"),
                 );
-        }
+            self.ctx.type_system.get_error_type()
+        } else {
+            ty
+        };
+        self.ctx.set_ast_type(id, ty);
     }
 
     fn visit_post_stmt_procedure_call(
@@ -3039,6 +3050,16 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                     );
                                 }
                             } else {
+                                match arg.get() {
+                                    ast::Expr::WriteParameter(..) => {
+                                        self.diagnostics.add(
+                                                DiagnosticKind::Error,
+                                                *arg.loc(),
+                                                format!("a write to a non-textfile does not allow this kind of argument")
+                                            );
+                                    }
+                                    _ => {}
+                                }
                                 if !self.ctx.type_system.is_error_type(file_component)
                                     && !self.ctx.type_system.is_error_type(ty)
                                     && !self.is_assignment_compatible(file_component, ty)
