@@ -842,6 +842,85 @@ impl<'a> SemanticCheckerVisitor<'a> {
     fn contains_invalid_type_cycle(&self, root_ty: TypeId) -> bool {
         self.contains_invalid_type_cycle_impl(true, root_ty, root_ty)
     }
+
+    fn _ensure_global_file(&self, _name: &str) {
+        // nothing
+    }
+
+    fn ensure_input(&self) {
+        self._ensure_global_file("input");
+    }
+    fn ensure_output(&self) {
+        self._ensure_global_file("input");
+    }
+
+    fn analyze_write_read_args(
+        &mut self,
+        procedure_name: &str,
+        global_file: &str,
+        is_newline_version: bool,
+        span: &span::SpanLoc,
+        args: &Vec<span::SpannedBox<ast::Expr>>,
+    ) -> (usize, TypeId, bool) {
+        let is_textfile;
+        let file_component: TypeId;
+        let mut first_arg = 0;
+        if !is_newline_version && args.len() < 2 {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *span,
+                format!("too few arguments in call to {}", procedure_name),
+            );
+            file_component = self.ctx.type_system.get_error_type();
+            is_textfile = false;
+        } else if !is_newline_version {
+            debug_assert!(args.len() >= 2);
+            let file_arg = &args[0];
+            let ty = self.ctx.get_ast_type(file_arg.id()).unwrap();
+            if self.ctx.type_system.is_file_type(ty) {
+                if self.ctx.type_system.is_textfile_type(ty) {
+                    is_textfile = true;
+                }
+                else {
+                    is_textfile = false;
+                }
+                file_component = self.ctx.type_system.file_type_get_component_type(ty);
+                first_arg = 1;
+            } else {
+                self._ensure_global_file(global_file);
+                file_component = self.ctx.type_system.get_char_type();
+                is_textfile = true;
+            }
+        } else {
+            assert!(is_newline_version);
+            if args.len() > 0 {
+                // Check if the first argument is a textfile.
+                let file_arg = &args[0];
+                let ty = self.ctx.get_ast_type(file_arg.id()).unwrap();
+                if self.ctx.type_system.is_file_type(ty) {
+                    if !self.ctx.type_system.is_textfile_type(ty) {
+                        self.diagnostics.add(
+                            DiagnosticKind::Error,
+                            *file_arg.loc(),
+                            format!("{}ln can only be applied to textfiles", procedure_name),
+                        );
+                    }
+                    is_textfile = true;
+                    file_component = self.ctx.type_system.get_char_type();
+                    first_arg = 1;
+                } else {
+                    self._ensure_global_file(global_file);
+                    file_component = self.ctx.type_system.get_char_type();
+                    is_textfile = true;
+                }
+            } else {
+                self._ensure_global_file(global_file);
+                file_component = self.ctx.type_system.get_char_type();
+                is_textfile = true;
+            }
+        }
+        (first_arg, file_component, is_textfile)
+    }
 }
 
 impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
@@ -2841,11 +2920,52 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let procedure_name = callee.get().as_str();
         if is_required_procedure(procedure_name) {
             match procedure_name {
-                "readln" => {
+                "read" | "readln" => {
+                    let is_readln = procedure_name == "readln";
                     if let Some(args) = &node.1 {
-                        for arg in args {
+                        let (first_arg, file_component, is_textfile) =
+                            self.analyze_write_read_args("read", "input", is_readln, span, args);
+                        for arg in &args[first_arg..] {
                             match arg.get() {
-                                ast::Expr::Variable(_) => {}
+                                ast::Expr::Variable(_) => {
+                                    let ty = self.ctx.get_ast_type(arg.id()).unwrap();
+                                    if is_textfile {
+                                        if !self.ctx.type_system.is_error_type(ty)
+                                            && !self.ctx.type_system.is_real_type(ty)
+                                            && !self.ctx.type_system.is_string_type(ty)
+                                            && !self.is_compatible(
+                                                self.ctx.type_system.get_char_type(),
+                                                ty,
+                                            )
+                                            && !self.is_compatible(
+                                                self.ctx.type_system.get_integer_type(),
+                                                ty,
+                                            )
+                                        {
+                                            self.diagnostics.add(
+                                                DiagnosticKind::Error,
+                                                *arg.loc(),
+                                                format!(
+                                                    "variable of type {} is not valid for textfile",
+                                                    self.ctx.type_system.get_type_name(ty)
+                                                ),
+                                            );
+                                        }
+                                    } else {
+                                        if !self.ctx.type_system.is_error_type(file_component)
+                                            && !self.ctx.type_system.is_error_type(ty)
+                                            && !self.is_assignment_compatible(ty, file_component)
+                                        {
+                                            self.diagnostics.add(
+                                                DiagnosticKind::Error,
+                                                *arg.loc(),
+                                                format!("variable of type {} is not assignment compatible with the file component type {}",
+                                                self.ctx.type_system.get_type_name(ty),
+                                                self.ctx.type_system.get_type_name(file_component))
+                                            );
+                                        }
+                                    }
+                                }
                                 _ => {
                                     self.diagnostics.add(
                                         DiagnosticKind::Error,
@@ -2855,9 +2975,69 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                 }
                             }
                         }
+                    } else {
+                        if !is_readln {
+                            self.diagnostics.add(
+                                DiagnosticKind::Error,
+                                *span,
+                                format!("too few arguments in call to read"),
+                            );
+                        } else {
+                            self.ensure_input();
+                        }
                     }
                 }
-                "writeln" => {}
+                "write" | "writeln" => {
+                    let is_writeln = procedure_name == "writeln";
+                    if let Some(args) = &node.1 {
+                        let (first_arg, file_component, is_textfile) =
+                            self.analyze_write_read_args("write", "output", is_writeln, span, args);
+                        for arg in &args[first_arg..] {
+                            let ty = self.ctx.get_ast_type(arg.id()).unwrap();
+                            if is_textfile {
+                                if !self.ctx.type_system.is_error_type(ty)
+                                    && !self.ctx.type_system.is_integer_type(ty)
+                                    && !self.ctx.type_system.is_real_type(ty)
+                                    && !self.ctx.type_system.is_char_type(ty)
+                                    && !self.ctx.type_system.is_bool_type(ty)
+                                    && !self.ctx.type_system.is_string_type(ty)
+                                {
+                                    self.diagnostics.add(
+                                        DiagnosticKind::Error,
+                                        *arg.loc(),
+                                        format!(
+                                            "argument of type {} is not valid for a textfile",
+                                            self.ctx.type_system.get_type_name(ty)
+                                        ),
+                                    );
+                                }
+                            } else {
+                                if !self.ctx.type_system.is_error_type(file_component)
+                                    && !self.ctx.type_system.is_error_type(ty)
+                                    && !self.is_assignment_compatible(file_component, ty)
+                                {
+                                    self.diagnostics.add(
+                                                DiagnosticKind::Error,
+                                                *arg.loc(),
+                                                format!("argument of write is of type {} not assignment compatible with the file component type {}",
+                                                self.ctx.type_system.get_type_name(ty),
+                                                self.ctx.type_system.get_type_name(file_component))
+                                            );
+                                }
+                            }
+                        }
+                    } else {
+                        if !is_writeln {
+                            self.diagnostics.add(
+                                DiagnosticKind::Error,
+                                *span,
+                                format!("too few arguments in call to write"),
+                            );
+                        } else {
+                            self.ensure_output();
+                        }
+                    }
+                }
                 "new" | "dispose" => {
                     if let Some(args) = &node.1 {
                         for (idx, arg) in args.iter().enumerate() {

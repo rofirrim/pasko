@@ -727,6 +727,13 @@ impl TypeSystem {
         ty.is_file_type()
     }
 
+    pub fn is_textfile_type(&self, ty: TypeId) -> bool {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.is_textfile_type()
+    }
+
     pub fn file_type_get_component_type(&self, ty: TypeId) -> TypeId {
         let ty = self.ultimate_type(ty);
         let ty = self.get_type_internal(ty);
