@@ -846,7 +846,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
     }
 
     fn _ensure_global_file(&mut self, name: &str, span: &span::SpanLoc) {
-        let query = self.scope.lookup_global_scope(name);
+        let query = self.scope.lookup_program_scope(name);
         if query.is_none() {
             self.diagnostics.add_with_extra(
                 DiagnosticKind::Error,
@@ -856,14 +856,11 @@ impl<'a> SemanticCheckerVisitor<'a> {
                     name
                 ),
                 vec![],
-                vec![
-                    Diagnostic::new(
-                        DiagnosticKind::Info,
-                        self.program_heading_loc.unwrap(),
-                        format!(
-                            "'{}' should be mentioned here", name
-                        ))
-                ]
+                vec![Diagnostic::new(
+                    DiagnosticKind::Info,
+                    self.program_heading_loc.unwrap(),
+                    format!("'{}' should be mentioned here", name),
+                )],
             );
             let mut new_sym = Symbol::new();
             new_sym.set_name(name);
@@ -872,7 +869,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
             new_sym.set_defining_point(*span);
 
             let new_sym = self.ctx.new_symbol(new_sym);
-            self.scope.add_entry_global(name, new_sym);
+            self.scope.add_entry_program_scope(name, new_sym);
         }
     }
 

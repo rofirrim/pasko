@@ -64,6 +64,17 @@ impl Scope {
         None
     }
 
+    // Note: global scope includes only the bottom scope (where program parameters live)
+    pub fn lookup_program_scope(&self, name: &str) -> Option<SymbolId> {
+        for scope in self.stack[0..=0].iter().rev() {
+            let query = scope.map.get(name);
+            if query.is_some() {
+                return query.cloned();
+            }
+        }
+        None
+    }
+
     pub fn add_entry(&mut self, name: &str, symbol: SymbolId) {
         self.stack
             .last_mut()
@@ -72,7 +83,13 @@ impl Scope {
             .insert(name.to_string(), symbol);
     }
 
-    pub fn add_entry_global(&mut self, name: &str, symbol: SymbolId) {
+    pub fn add_entry_global_scope(&mut self, name: &str, symbol: SymbolId) {
+        self.stack[GLOBAL_SCOPE_IDX]
+            .map
+            .insert(name.to_string(), symbol);
+    }
+
+    pub fn add_entry_program_scope(&mut self, name: &str, symbol: SymbolId) {
         self.stack[GLOBAL_SCOPE_IDX]
             .map
             .insert(name.to_string(), symbol);
