@@ -11,6 +11,8 @@ pub struct Scope {
     stack: Vec<ScopeItem>,
 }
 
+const GLOBAL_SCOPE_IDX: usize = 1;
+
 impl Scope {
     pub fn new() -> Scope {
         Scope {
@@ -27,7 +29,7 @@ impl Scope {
 
     pub fn is_global(&self) -> bool {
         // We always have a bottom scope, so 2.
-        self.stack.len() == 2
+        self.stack.len() == GLOBAL_SCOPE_IDX + 1
     }
 
     pub fn pop_scope(&mut self) {
@@ -50,10 +52,28 @@ impl Scope {
         current_scope.map.get(name).cloned()
     }
 
+    // Note: global scope includes the bottom scope (where program parameters live)
+    // and the scope of the program block.
+    pub fn lookup_global_scope(&self, name: &str) -> Option<SymbolId> {
+        for scope in self.stack[0..=GLOBAL_SCOPE_IDX].iter().rev() {
+            let query = scope.map.get(name);
+            if query.is_some() {
+                return query.cloned();
+            }
+        }
+        None
+    }
+
     pub fn add_entry(&mut self, name: &str, symbol: SymbolId) {
         self.stack
             .last_mut()
             .unwrap()
+            .map
+            .insert(name.to_string(), symbol);
+    }
+
+    pub fn add_entry_global(&mut self, name: &str, symbol: SymbolId) {
+        self.stack[GLOBAL_SCOPE_IDX]
             .map
             .insert(name.to_string(), symbol);
     }

@@ -124,6 +124,8 @@ struct SemanticCheckerVisitor<'a> {
 
     in_type_definition_part: bool,
     in_pointer_type: bool,
+
+    program_heading_loc: Option<span::SpanLoc>,
 }
 
 enum FunctionProcedureDeclarationStatus {
@@ -843,15 +845,43 @@ impl<'a> SemanticCheckerVisitor<'a> {
         self.contains_invalid_type_cycle_impl(true, root_ty, root_ty)
     }
 
-    fn _ensure_global_file(&self, _name: &str) {
-        // nothing
+    fn _ensure_global_file(&mut self, name: &str, span: &span::SpanLoc) {
+        let query = self.scope.lookup_global_scope(name);
+        if query.is_none() {
+            self.diagnostics.add_with_extra(
+                DiagnosticKind::Error,
+                *span,
+                format!(
+                    "program parameters should mention the required file variable '{}'",
+                    name
+                ),
+                vec![],
+                vec![
+                    Diagnostic::new(
+                        DiagnosticKind::Info,
+                        self.program_heading_loc.unwrap(),
+                        format!(
+                            "'{}' should be mentioned here", name
+                        ))
+                ]
+            );
+            let mut new_sym = Symbol::new();
+            new_sym.set_name(name);
+            new_sym.set_kind(SymbolKind::Variable);
+            new_sym.set_type(self.ctx.type_system.get_textfile_type());
+            new_sym.set_defining_point(*span);
+
+            let new_sym = self.ctx.new_symbol(new_sym);
+            self.scope.add_entry_global(name, new_sym);
+        }
     }
 
-    fn ensure_input(&self) {
-        self._ensure_global_file("input");
+    fn ensure_input(&mut self, span: &span::SpanLoc) {
+        self._ensure_global_file("input", span);
     }
-    fn ensure_output(&self) {
-        self._ensure_global_file("input");
+
+    fn ensure_output(&mut self, span: &span::SpanLoc) {
+        self._ensure_global_file("input", span);
     }
 
     fn analyze_write_read_args(
@@ -880,14 +910,13 @@ impl<'a> SemanticCheckerVisitor<'a> {
             if self.ctx.type_system.is_file_type(ty) {
                 if self.ctx.type_system.is_textfile_type(ty) {
                     is_textfile = true;
-                }
-                else {
+                } else {
                     is_textfile = false;
                 }
                 file_component = self.ctx.type_system.file_type_get_component_type(ty);
                 first_arg = 1;
             } else {
-                self._ensure_global_file(global_file);
+                self._ensure_global_file(global_file, span);
                 file_component = self.ctx.type_system.get_char_type();
                 is_textfile = true;
             }
@@ -909,12 +938,12 @@ impl<'a> SemanticCheckerVisitor<'a> {
                     file_component = self.ctx.type_system.get_char_type();
                     first_arg = 1;
                 } else {
-                    self._ensure_global_file(global_file);
+                    self._ensure_global_file(global_file, span);
                     file_component = self.ctx.type_system.get_char_type();
                     is_textfile = true;
                 }
             } else {
-                self._ensure_global_file(global_file);
+                self._ensure_global_file(global_file, span);
                 file_component = self.ctx.type_system.get_char_type();
                 is_textfile = true;
             }
@@ -930,6 +959,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         span: &span::SpanLoc,
         _id: span::SpanId,
     ) {
+        self.program_heading_loc = Some(*span);
         let x = &node.1;
         let mut already_seen = Vec::new();
         x.iter().for_each(|s| {
@@ -2983,7 +3013,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                 format!("too few arguments in call to read"),
                             );
                         } else {
-                            self.ensure_input();
+                            self.ensure_input(span);
                         }
                     }
                 }
@@ -3034,7 +3064,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                 format!("too few arguments in call to write"),
                             );
                         } else {
-                            self.ensure_output();
+                            self.ensure_output(span);
                         }
                     }
                 }
@@ -3484,6 +3514,7 @@ pub fn check_program(
         scope,
         in_type_definition_part: false,
         in_pointer_type: false,
+        program_heading_loc: None,
     };
 
     let loc = *program.loc();
