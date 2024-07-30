@@ -231,6 +231,7 @@ impl<'a> CodegenVisitor<'a> {
         let mut sig = Signature::new(CallConv::SystemV);
         sig.params.push(AbiParam::new(I32)); // argc
         sig.params.push(AbiParam::new(self.pointer_type)); // argv
+        sig.params.push(AbiParam::new(self.pointer_type)); // program_parameters
         self.rt.init = self.register_import("__pasko_init", sig);
     }
 
@@ -815,10 +816,11 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         let block_params = function_codegen.builder().block_params(entry_block);
         let argc = block_params[0];
         let argv = block_params[1];
+        let program_params_arg = function_codegen.emit_const_integer(0);
         function_codegen
             .builder()
             .ins()
-            .call(pasko_init_func_ref, &[argc, argv]);
+            .call(pasko_init_func_ref, &[argc, argv, program_params_arg]);
 
         // Create the IR for the statements.
         statements

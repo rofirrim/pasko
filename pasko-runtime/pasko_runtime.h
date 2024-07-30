@@ -19,23 +19,25 @@
 #endif
 #endif
 
-
 typedef struct pasko_file_t pasko_file_t;
 
-PASKO_RUNTIME_PUBLIC void __pasko_init(int argc, char *argv[]);
+PASKO_RUNTIME_PUBLIC void __pasko_init(int argc, char *argv[],
+                                       char *program_params[]);
 
 // I/O
 // file output
-PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_i64(pasko_file_t *file,
-                                                 int64_t num, int total_width);
-PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_f64(pasko_file_t *file, double num,
-                                                 int total_width,
-                                                 int frac_digits);
+PASKO_RUNTIME_PUBLIC void
+__pasko_write_textfile_i64(pasko_file_t *file, int64_t num, int total_width);
+PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_f64(pasko_file_t *file,
+                                                     double num,
+                                                     int total_width,
+                                                     int frac_digits);
 PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_str(pasko_file_t *file,
-                                                 const uint32_t *);
-PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_char(pasko_file_t *file, uint32_t);
+                                                     const uint32_t *);
+PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_char(pasko_file_t *file,
+                                                      uint32_t);
 PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_bool(pasko_file_t *file,
-                                                  uint8_t b);
+                                                      uint8_t b);
 
 PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_newline(pasko_file_t *file);
 
