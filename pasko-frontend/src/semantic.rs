@@ -21,7 +21,7 @@ pub struct SemanticContext {
     ast_symbols: HashMap<span::SpanId, SymbolId>,
     ast_values: HashMap<span::SpanId, Constant>,
 
-    program_parameters: Vec<(String, span::SpanLoc)>,
+    pub program_parameters: Vec<(String, span::SpanLoc)>,
     pending_type_definitions: Vec<SymbolId>,
 }
 
@@ -1585,7 +1585,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     ) {
         if self.scope.is_global() {
             // Check whether program parameters have been declared.
-            let program_parameters = std::mem::take(&mut self.ctx.program_parameters);
+            let program_parameters = self.ctx.program_parameters.clone();
             for (program_param, loc) in program_parameters {
                 if let Some(sym) = self.lookup_symbol(&program_param, &loc) {
                     let sym = self.ctx.get_symbol(sym);
@@ -2974,7 +2974,11 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                     if is_textfile {
                                         if !self.ctx.type_system.is_error_type(ty)
                                             && !self.ctx.type_system.is_real_type(ty)
-                                            && !self.ctx.type_system.is_string_type(ty)
+                                            // This looks like a mistake in the
+                                            // Basic spec though we will
+                                            // implement the same that Extended
+                                            // spec does.
+                                            && !self.ctx.type_system.is_string_type(ty) 
                                             && !self.is_compatible(
                                                 self.ctx.type_system.get_char_type(),
                                                 ty,

@@ -57,6 +57,7 @@ pub struct CodegenVisitor<'a> {
     globals_to_dispose: Vec<SymbolId>,
     size_align_cache: RefCell<HashMap<TypeId, SizeAndAlignment>>,
     trivially_copiable_cache: RefCell<HashMap<TypeId, bool>>,
+    global_files: Vec<SymbolId>,
 }
 
 impl<'a> CodegenVisitor<'a> {
@@ -97,6 +98,7 @@ impl<'a> CodegenVisitor<'a> {
             globals_to_dispose: vec![],
             size_align_cache: RefCell::new(HashMap::new()),
             trivially_copiable_cache: RefCell::new(HashMap::new()),
+            global_files: vec![],
         };
 
         visitor.initialize_module();
@@ -231,7 +233,10 @@ impl<'a> CodegenVisitor<'a> {
         let mut sig = Signature::new(CallConv::SystemV);
         sig.params.push(AbiParam::new(I32)); // argc
         sig.params.push(AbiParam::new(self.pointer_type)); // argv
+        sig.params.push(AbiParam::new(I32)); // num_program_parameters
         sig.params.push(AbiParam::new(self.pointer_type)); // program_parameters
+        sig.params.push(AbiParam::new(I32)); // num_global_files
+        sig.params.push(AbiParam::new(self.pointer_type)); // global_files
         self.rt.init = self.register_import("__pasko_init", sig);
     }
 
@@ -804,6 +809,10 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
 
         let globals_to_dispose = std::mem::take(&mut self.globals_to_dispose);
 
+        let program_parameters = self.semantic_context.program_parameters.clone();
+        let num_program_params = program_parameters.len() as i64;
+        let global_files = self.global_files.clone();
+
         let mut function_codegen = FunctionCodegenVisitor::new(self, Some(builder));
 
         function_codegen.init_function();
@@ -816,11 +825,47 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         let block_params = function_codegen.builder().block_params(entry_block);
         let argc = block_params[0];
         let argv = block_params[1];
-        let program_params_arg = function_codegen.emit_const_integer(0);
-        function_codegen
+        let num_program_params = function_codegen
             .builder()
             .ins()
-            .call(pasko_init_func_ref, &[argc, argv, program_params_arg]);
+            .iconst(I32, num_program_params);
+
+        // Emit array of strings.
+        let program_params_addr = {
+            let str_addresses: Vec<_> = program_parameters
+                .iter()
+                .map(|(s, _)| {
+                    let addr_string = function_codegen.emit_string_literal(s);
+                    addr_string
+                })
+                .collect();
+            function_codegen.emit_stack_ptr_array_null_ended(&str_addresses)
+        };
+
+        let global_files_addr = {
+            let object_addresses: Vec<_> = global_files
+                .iter()
+                .map(|sym_id| function_codegen.get_address_of_symbol(*sym_id))
+                .collect();
+            function_codegen.emit_stack_ptr_array_null_ended(&object_addresses)
+        };
+
+        let num_global_files = function_codegen
+            .builder()
+            .ins()
+            .iconst(I32, global_files.len() as i64);
+
+        function_codegen.builder().ins().call(
+            pasko_init_func_ref,
+            &[
+                argc,
+                argv,
+                num_program_params,
+                program_params_addr,
+                num_global_files,
+                global_files_addr,
+            ],
+        );
 
         // Create the IR for the statements.
         statements
@@ -949,6 +994,18 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
 
                 if self.semantic_context.type_system.is_set_type(ty) {
                     self.add_global_to_dispose(sym_id);
+                }
+                if self.semantic_context.type_system.is_file_type(ty)
+                    && self
+                        .semantic_context
+                        .program_parameters
+                        .iter()
+                        // FIXME: We should use SymbolId's!
+                        .find(|x| &x.0 == sym.get_name())
+                        .is_some()
+                {
+                    // This is a global file.
+                    self.global_files.push(sym_id);
                 }
             } else {
                 panic!(

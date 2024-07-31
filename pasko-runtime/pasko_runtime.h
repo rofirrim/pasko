@@ -22,7 +22,10 @@
 typedef struct pasko_file_t pasko_file_t;
 
 PASKO_RUNTIME_PUBLIC void __pasko_init(int argc, char *argv[],
-                                       char *program_params[]);
+                                       int num_program_params,
+                                       char *program_params[],
+                                       int num_global_files,
+                                       pasko_file_t** global_files[]);
 
 // I/O
 // file output

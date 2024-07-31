@@ -140,6 +140,77 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         }
     }
 
+    pub fn emit_stack_ptr_array_null_ended(
+        &mut self,
+        values: &[cranelift_codegen::ir::Value],
+    ) -> cranelift_codegen::ir::Value {
+        let stack_slot = self.allocate_storage_in_stack(
+            self.codegen.pointer_type.bytes() * (values.len() + 1) as u32,
+        );
+
+        let pointer_type = self.codegen.pointer_type;
+        for (idx, v) in values.iter().enumerate() {
+            self.builder().ins().stack_store(
+                *v,
+                stack_slot,
+                (pointer_type.bytes() * idx as u32) as i32,
+            );
+        }
+
+        // End with zero.
+        let zero = self.emit_const_integer(0);
+        self.builder().ins().stack_store(
+            zero,
+            stack_slot,
+            (pointer_type.bytes() * values.len() as u32) as i32,
+        );
+
+        self.builder().ins().stack_addr(pointer_type, stack_slot, 0)
+    }
+
+    pub fn emit_string_literal(&mut self, s: &str) -> cranelift_codegen::ir::Value {
+        let data_id = match self.codegen.string_table.entry(s.to_owned()) {
+            std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                let data_id = self
+                    .codegen
+                    .object_module
+                    .as_mut()
+                    .unwrap()
+                    .declare_anonymous_data(false, false)
+                    .unwrap();
+                entry.insert(data_id);
+
+                let mut data_desc = cranelift_module::DataDescription::new();
+                let mut unicode_points = s.chars().map(|x| u32::from(x)).collect::<Vec<_>>();
+                unicode_points.push(0); // NULL.
+                let bytes = unicode_points
+                    .iter()
+                    // FIXME: endianness is dependent of the platform
+                    .map(|x| x.to_le_bytes())
+                    .flatten()
+                    .collect::<Vec<_>>();
+                data_desc.define(bytes.into_boxed_slice());
+
+                self.codegen
+                    .object_module
+                    .as_mut()
+                    .unwrap()
+                    .define_data(data_id, &data_desc)
+                    .unwrap();
+
+                data_id
+            }
+        };
+
+        let pointer_type = self.codegen.pointer_type;
+        let gv = self.get_global_value(data_id);
+
+        // This is the address???
+        let v = self.builder().ins().global_value(pointer_type, gv);
+        v
+    }
+
     pub fn new(
         codegen: &'a mut CodegenVisitor<'b>,
         builder_obj: Option<FunctionBuilder<'c>>,
@@ -527,6 +598,14 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 addr
             }
         }
+    }
+
+    pub fn get_address_of_symbol(
+        &mut self,
+        sym_id: pasko_frontend::symbol::SymbolId,
+    ) -> cranelift_codegen::ir::Value {
+        let storage = *self.codegen.data_location.get(&sym_id).unwrap();
+        self.get_address_of_data_location(storage)
     }
 
     pub fn add_symbol_to_dispose(&mut self, sym: pasko_frontend::symbol::SymbolId) {
@@ -933,46 +1012,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .type_system
             .is_string_type(literal_ty)
         {
-            let data_id = match self.codegen.string_table.entry(n.0.get().to_owned()) {
-                std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
-                std::collections::hash_map::Entry::Vacant(entry) => {
-                    let data_id = self
-                        .codegen
-                        .object_module
-                        .as_mut()
-                        .unwrap()
-                        .declare_anonymous_data(false, false)
-                        .unwrap();
-                    entry.insert(data_id);
-
-                    let mut data_desc = cranelift_module::DataDescription::new();
-                    let mut unicode_points =
-                        n.0.get().chars().map(|x| u32::from(x)).collect::<Vec<_>>();
-                    unicode_points.push(0); // NULL.
-                    let bytes = unicode_points
-                        .iter()
-                        // FIXME: endianness is dependent of the platform
-                        .map(|x| x.to_le_bytes())
-                        .flatten()
-                        .collect::<Vec<_>>();
-                    data_desc.define(bytes.into_boxed_slice());
-
-                    self.codegen
-                        .object_module
-                        .as_mut()
-                        .unwrap()
-                        .define_data(data_id, &data_desc)
-                        .unwrap();
-
-                    data_id
-                }
-            };
-
-            let pointer_type = self.codegen.pointer_type;
-            let gv = self.get_global_value(data_id);
-
-            // This is the address???
-            let v = self.builder().ins().global_value(pointer_type, gv);
+            let v = self.emit_string_literal(n.0.get());
             self.set_value(id, v);
         } else {
             panic!(
@@ -1251,10 +1291,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         let sym = sym.borrow();
 
         let addr_value = match sym.get_kind() {
-            symbol::SymbolKind::Variable => {
-                let storage = *self.codegen.data_location.get(&sym_id).unwrap();
-                self.get_address_of_data_location(storage)
-            }
+            symbol::SymbolKind::Variable => self.get_address_of_symbol(sym_id),
             _ => {
                 panic!(
                     "Unexpected kind of symbol {}",
