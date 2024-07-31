@@ -537,32 +537,6 @@ void __pasko_read_newline(void) {
   __pasko_read_textfile_newline(&__pasko_file_input);
 }
 
-void __pasko_reset_textfile(pasko_file_t *f) {
-  if (f->file == NULL)
-    __pasko_runtime_error("file is undefined");
-  f->mode = PASKO_FILE_MODE_INSPECT;
-  rewind(f->file);
-  f->read_buffer =
-      __pasko_buffer_char_new(__pasko_buffer_textfile_new(f->file));
-}
-
-void __pasko_reset_file(pasko_file_t *f) {
-  if (f->file == NULL)
-    __pasko_runtime_error("file is undefined");
-  f->mode = PASKO_FILE_MODE_INSPECT;
-  rewind(f->file);
-}
-
-void __pasko_rewrite_file(pasko_file_t *f) {
-  if (f->file == NULL)
-    __pasko_runtime_error("file is undefined");
-  rewind(f->file);
-  ftruncate(fileno(f->file), 0);
-  f->mode = PASKO_FILE_MODE_GENERATE;
-}
-
-void __pasko_rewrite_textfile(pasko_file_t *f) { __pasko_rewrite_file(f); }
-
 void __pasko_buffer_var_allocate_if_neded(pasko_file_t *f, uint64_t bytes) {
   if (f->buffer_var == NULL) {
     f->buffer_var = malloc(bytes);
@@ -574,12 +548,50 @@ void *__pasko_buffer_var_file(pasko_file_t *f, uint64_t bytes) {
   return f->buffer_var;
 }
 
-void __pasko_set_buffer_var_textfile(pasko_file_t* f, uint32_t c) {
+void __pasko_reset_file(pasko_file_t *f, uint64_t bytes) {
+  if (f->file == NULL)
+    __pasko_runtime_error("file is undefined");
+  f->mode = PASKO_FILE_MODE_INSPECT;
+  rewind(f->file);
+  if (!feof(f->file)) {
+    fread(__pasko_buffer_var_file(f, bytes), bytes, 1, f->file);
+  }
+}
+
+void __pasko_reset_textfile(pasko_file_t *f) {
+  if (f->file == NULL)
+    __pasko_runtime_error("file is undefined");
+  f->mode = PASKO_FILE_MODE_INSPECT;
+  rewind(f->file);
+  if (f->read_buffer) {
+    __pasko_buffer_char_finish(f->read_buffer);
+  }
+  f->read_buffer =
+      __pasko_buffer_char_new(__pasko_buffer_textfile_new(f->file));
+}
+
+void __pasko_set_buffer_var_textfile(pasko_file_t *f, uint32_t c) {
   __pasko_write_textfile_char(f, c);
 }
 
 uint32_t __pasko_get_buffer_var_textfile(pasko_file_t *f) {
   return __pasko_buffer_char_peek(f->read_buffer);
+}
+
+void __pasko_rewrite_file(pasko_file_t *f) {
+  if (f->file == NULL)
+    __pasko_runtime_error("file is undefined");
+  rewind(f->file);
+  f->read_buffer = NULL;
+  ftruncate(fileno(f->file), 0);
+  f->mode = PASKO_FILE_MODE_GENERATE;
+}
+
+void __pasko_rewrite_textfile(pasko_file_t *f) {
+  if (f->read_buffer) {
+    __pasko_buffer_char_finish(f->read_buffer);
+  }
+  __pasko_rewrite_file(f);
 }
 
 void __pasko_init_io(int argc, char *argv[], int num_program_params,
