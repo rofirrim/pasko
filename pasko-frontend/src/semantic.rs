@@ -22,6 +22,7 @@ pub struct SemanticContext {
     ast_values: HashMap<span::SpanId, Constant>,
 
     pub program_parameters: Vec<(String, span::SpanLoc)>,
+    pub global_files : Vec<SymbolId>,
     pending_type_definitions: Vec<SymbolId>,
 }
 
@@ -61,6 +62,7 @@ impl SemanticContext {
             ast_values: HashMap::new(),
 
             program_parameters: vec![],
+            global_files: vec![],
             pending_type_definitions: vec![],
         };
 
@@ -1587,8 +1589,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             // Check whether program parameters have been declared.
             let program_parameters = self.ctx.program_parameters.clone();
             for (program_param, loc) in program_parameters {
-                if let Some(sym) = self.lookup_symbol(&program_param, &loc) {
-                    let sym = self.ctx.get_symbol(sym);
+                if let Some(sym_id) = self.lookup_symbol(&program_param, &loc) {
+                    let sym = self.ctx.get_symbol(sym_id);
                     let ty = sym.borrow().get_type().unwrap();
                     if !self.ctx.type_system.is_file_type(ty) {
                         self.diagnostics.add_with_extra(
@@ -1602,6 +1604,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                 format!("declaration of program parameter"),
                             )],
                         );
+                    }
+                    else {
+                      self.ctx.global_files.push(sym_id);
                     }
                 }
             }

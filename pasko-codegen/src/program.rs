@@ -57,7 +57,6 @@ pub struct CodegenVisitor<'a> {
     globals_to_dispose: Vec<SymbolId>,
     size_align_cache: RefCell<HashMap<TypeId, SizeAndAlignment>>,
     trivially_copiable_cache: RefCell<HashMap<TypeId, bool>>,
-    global_files: Vec<SymbolId>,
 }
 
 impl<'a> CodegenVisitor<'a> {
@@ -98,7 +97,6 @@ impl<'a> CodegenVisitor<'a> {
             globals_to_dispose: vec![],
             size_align_cache: RefCell::new(HashMap::new()),
             trivially_copiable_cache: RefCell::new(HashMap::new()),
-            global_files: vec![],
         };
 
         visitor.initialize_module();
@@ -811,7 +809,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
 
         let program_parameters = self.semantic_context.program_parameters.clone();
         let num_program_params = program_parameters.len() as i64;
-        let global_files = self.global_files.clone();
+        let global_files = self.semantic_context.global_files.clone();
 
         let mut function_codegen = FunctionCodegenVisitor::new(self, Some(builder));
 
@@ -994,18 +992,6 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
 
                 if self.semantic_context.type_system.is_set_type(ty) {
                     self.add_global_to_dispose(sym_id);
-                }
-                if self.semantic_context.type_system.is_file_type(ty)
-                    && self
-                        .semantic_context
-                        .program_parameters
-                        .iter()
-                        // FIXME: We should use SymbolId's!
-                        .find(|x| &x.0 == sym.get_name())
-                        .is_some()
-                {
-                    // This is a global file.
-                    self.global_files.push(sym_id);
                 }
             } else {
                 panic!(

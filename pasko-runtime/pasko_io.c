@@ -2,11 +2,16 @@
 #include <pasko_runtime.h>
 
 #include <assert.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+// ftruncate
+#include <unistd.h>
 
 // Buffer of characters + EOF.
 typedef struct pasko_buffer_textfile_t {
@@ -239,7 +244,10 @@ typedef enum pasko_file_mode_t {
 
 struct pasko_file_t {
   FILE *file;
-  pasko_buffer_char_t *read_buffer;
+  union {
+    pasko_buffer_char_t *read_buffer;
+    void *buffer_var;
+  };
   pasko_file_mode_t mode : 2;
 };
 
@@ -332,8 +340,10 @@ void __pasko_write_i64(int64_t num, int total_width) {
 void __pasko_write_textfile_f64(pasko_file_t *f, double num, int total_width,
                                 int frac_digits) {
   __pasko_check_write(f);
-  if (total_width < 0) total_width = 0;
-  if (frac_digits < 0) frac_digits = 0;
+  if (total_width < 0)
+    total_width = 0;
+  if (frac_digits < 0)
+    frac_digits = 0;
   // FIXME: We should implement the ISO Pascal algorithm.
   if (total_width == 0) {
     fprintf(f->file, "%f", num);
@@ -527,10 +537,62 @@ void __pasko_read_newline(void) {
   __pasko_read_textfile_newline(&__pasko_file_input);
 }
 
-void __pasko_init_io(int argc, char *argv[]) {
-  (void)argc;
-  (void)argv;
+void __pasko_reset_textfile(pasko_file_t *f) {
+  if (f->file == NULL)
+    __pasko_runtime_error("file is undefined");
+  f->mode = PASKO_FILE_MODE_INSPECT;
+  rewind(f->file);
+  f->read_buffer =
+      __pasko_buffer_char_new(__pasko_buffer_textfile_new(f->file));
+}
 
+void __pasko_reset_file(pasko_file_t *f) {
+  if (f->file == NULL)
+    __pasko_runtime_error("file is undefined");
+  f->mode = PASKO_FILE_MODE_INSPECT;
+  rewind(f->file);
+}
+
+void __pasko_rewrite_file(pasko_file_t *f) {
+  if (f->file == NULL)
+    __pasko_runtime_error("file is undefined");
+  rewind(f->file);
+  ftruncate(fileno(f->file), 0);
+  f->mode = PASKO_FILE_MODE_GENERATE;
+}
+
+void __pasko_rewrite_textfile(pasko_file_t *f) { __pasko_rewrite_file(f); }
+
+void __pasko_buffer_var_allocate_if_neded(pasko_file_t *f, uint64_t bytes) {
+  if (f->buffer_var == NULL) {
+    f->buffer_var = malloc(bytes);
+  }
+}
+
+void *__pasko_buffer_var_file(pasko_file_t *f, uint64_t bytes) {
+  __pasko_buffer_var_allocate_if_neded(f, bytes);
+  return f->buffer_var;
+}
+
+void __pasko_set_buffer_var_textfile(pasko_file_t* f, uint32_t c) {
+  __pasko_write_textfile_char(f, c);
+}
+
+uint32_t __pasko_get_buffer_var_textfile(pasko_file_t *f) {
+  return __pasko_buffer_char_peek(f->read_buffer);
+}
+
+void __pasko_init_io(int argc, char *argv[], int num_program_params,
+                     char *program_params[], int num_global_files,
+                     pasko_file_t **global_files[]) {
+  if (num_program_params != num_global_files) {
+    __pasko_runtime_error(
+        "inconsistent number of program parameters and global files");
+  }
+
+  // Required files.
+  // We always make them available regardless of the program
+  // actually using them.
   __pasko_file_output.file = stdout;
   __pasko_file_output.read_buffer = NULL;
   __pasko_file_output.mode = PASKO_FILE_MODE_GENERATE;
@@ -539,6 +601,97 @@ void __pasko_init_io(int argc, char *argv[]) {
   __pasko_file_input.read_buffer =
       __pasko_buffer_char_new(__pasko_buffer_textfile_new(stdin));
   __pasko_file_input.mode = PASKO_FILE_MODE_INSPECT;
+
+  // Parse arguments.
+  for (int i = 1; i < argc; i++) {
+    char *equal = strchr(argv[i], '=');
+    if (strncmp(argv[i], "--", 2) != 0) {
+      __pasko_ignoring_argument(argv[i], "does not start with --");
+      continue;
+    }
+    if (argv[i][2] == '\0') {
+      __pasko_ignoring_argument(argv[i], "nothing after --");
+      continue;
+    }
+    if (!equal) {
+      __pasko_ignoring_argument(argv[i], "missing equals sign (=)");
+      continue;
+    }
+    if (equal == &argv[i][0]) {
+      __pasko_ignoring_argument(argv[i], "expecting value before the sign (=)");
+      continue;
+    }
+    if (*(equal + 1) == '\0') {
+      __pasko_ignoring_argument(argv[i], "expecting value after the sign (=)");
+      continue;
+    }
+
+    ptrdiff_t colon_idx = equal - &argv[i][0];
+    char *argument = strdup(argv[i]);
+    argument[colon_idx] = '\0';
+    char *argument_name = argument;
+    char *argument_value = argument + (colon_idx + 1);
+
+    // Now check name appears in the global names.
+    // Sadly we made them to be UTF-32 encoded characters, so we better pass the
+    // to utf8 first.
+    bool found = false;
+    int program_param_idx;
+    for (program_param_idx = 0; program_param_idx < num_program_params;
+         program_param_idx++) {
+      char *program_param_str;
+      __pasko_utf32_to_utf8((uint32_t *)program_params[program_param_idx],
+                            (uint8_t **)&program_param_str);
+
+      // In all honesty we should use UTF-8 aware routines here.
+      if (strcmp(argument_name, program_param_str) == 0) {
+        found = true;
+
+        // We found the parameter. The compiler emits the global file pointer in
+        // the same order so we can reuse the index.
+        pasko_file_t **addr_to_var = global_files[program_param_idx];
+        if (!addr_to_var) {
+          __pasko_ignoring_argument(argv[i], "file has already been bound");
+          __pasko_deallocate(program_param_str);
+          continue;
+        }
+        FILE *f = fopen(argument_value, "r+");
+        if (f == NULL) {
+          char msg[256];
+          snprintf(msg, 255,
+                   "cannot bind file variable '%s' to external file '%s'. "
+                   "Reason: %s",
+                   argument_name, argument_value, strerror(errno));
+          msg[255] = '\0';
+          __pasko_runtime_error(msg);
+        }
+
+        pasko_file_t *new_file = __pasko_allocate(sizeof(*new_file));
+        new_file->file = f;
+        new_file->read_buffer = NULL;
+        new_file->mode = PASKO_FILE_MODE_NONE;
+
+        *addr_to_var = new_file;
+
+        // So we know this file has already been bound.
+        global_files[program_param_idx] = NULL;
+        break;
+      }
+
+      __pasko_deallocate(program_param_str);
+    }
+    if (!found) {
+      char msg[256];
+      snprintf(msg, 255, "there is no parameter program named '%s'",
+               argument_name);
+      msg[255] = '\0';
+      __pasko_ignoring_argument(argv[i], msg);
+      free(argument);
+      continue;
+    }
+
+    free(argument);
+  }
 }
 
 void __pasko_finish_io(void) {

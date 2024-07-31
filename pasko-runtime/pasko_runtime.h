@@ -68,6 +68,12 @@ PASKO_RUNTIME_PUBLIC int64_t __pasko_read_i64(void);
 PASKO_RUNTIME_PUBLIC double __pasko_read_f64(void);
 PASKO_RUNTIME_PUBLIC void __pasko_read_newline(void);
 
+// Files
+PASKO_RUNTIME_PUBLIC void __pasko_reset_file(pasko_file_t *f);
+PASKO_RUNTIME_PUBLIC void __pasko_reset_textfile(pasko_file_t *f);
+PASKO_RUNTIME_PUBLIC void __pasko_rewrite_file(pasko_file_t *f);
+PASKO_RUNTIME_PUBLIC void __pasko_rewrite_textfile(pasko_file_t *f);
+
 // Set type
 typedef struct pasko_set_t pasko_set_t;
 PASKO_RUNTIME_PUBLIC pasko_set_t *__pasko_set_new(uint64_t N, int64_t *values);

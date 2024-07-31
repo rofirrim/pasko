@@ -4,9 +4,13 @@
 void __pasko_init(int argc, char *argv[], int num_program_params,
                   char *program_params[], int num_global_files,
                   pasko_file_t **global_files[]) {
-  (void)num_program_params;
-  (void)program_params;
-  (void)num_global_files;
-  (void)global_files;
-  __pasko_init_io(argc, argv);
+  __pasko_init_io(argc, argv, num_program_params, program_params,
+                  num_global_files, global_files);
+}
+
+void __pasko_ignoring_argument(const char *arg, const char *reason) {
+  if (!reason)
+    fprintf(stderr, "WARNING: ignoring argument '%s'", arg);
+  else
+    fprintf(stderr, "WARNING: ignoring argument '%s'. Reason: %s", arg, reason);
 }
