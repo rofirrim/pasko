@@ -1595,8 +1595,12 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                             DiagnosticKind::Error,
                             sym.borrow().get_defining_point().unwrap(),
                             format!("only file types are allowed as program parameters"),
-                            vec![loc],
                             vec![],
+                            vec![Diagnostic::new(
+                                DiagnosticKind::Info,
+                                loc,
+                                format!("declaration of program parameter"),
+                            )],
                         );
                     }
                 }

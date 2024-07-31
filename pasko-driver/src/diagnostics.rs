@@ -79,6 +79,10 @@ impl<'input_file> SimpleEmitter<'input_file> {
                 .filter(|e| e.0.line <= current_line && current_line <= e.1.line)
                 .collect();
 
+            // This is an empty line. Skip.
+            if end_offset < start_offset {
+                continue;
+            }
             // Active locations should not overlap, so there can be more than one active per a single line.
             let max_col = end_offset - start_offset + 1;
             let mut carets: Vec<char> = (1..=max_col).map(|_| ' ').collect();
