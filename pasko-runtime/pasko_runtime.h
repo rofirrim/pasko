@@ -1,9 +1,7 @@
-#include <wchar.h>
 #ifndef PASKO_RUNTIME_H
 #define PASK_RUNTIME _H
 
 #include <stdint.h>
-#include <stdio.h>
 
 #if defined _WIN32 || defined __CYGWIN__
 #ifdef BUILDING_PASKO_RUNTIME

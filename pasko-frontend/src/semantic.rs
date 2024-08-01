@@ -984,6 +984,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 new_sym.set_kind(SymbolKind::Variable);
                 new_sym.set_type(self.ctx.type_system.get_textfile_type());
                 new_sym.set_defining_point(*span);
+                new_sym.set_required(true);
 
                 let new_sym = self.ctx.new_symbol(new_sym);
                 self.scope.add_entry(s.get().as_str(), new_sym);

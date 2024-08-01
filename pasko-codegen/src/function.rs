@@ -604,6 +604,37 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         &mut self,
         sym_id: pasko_frontend::symbol::SymbolId,
     ) -> cranelift_codegen::ir::Value {
+        let sym = self.codegen.semantic_context.get_symbol(sym_id);
+        let sym = sym.borrow();
+        if sym.is_required() {
+            match sym.get_name().as_str() {
+                "input" => {
+                    let func_id = self.codegen.rt.input_file.unwrap();
+                    let func_ref = self.get_function_reference(func_id);
+                    let call = self.builder().ins().call(func_ref, &[]);
+                    let result = {
+                        let results = self.builder().inst_results(call);
+                        assert!(results.len() == 1, "Invalid number of results");
+                        results[0]
+                    };
+                    return result;
+                }
+                "output" => {
+                    let func_id = self.codegen.rt.output_file.unwrap();
+                    let func_ref = self.get_function_reference(func_id);
+                    let call = self.builder().ins().call(func_ref, &[]);
+                    let result = {
+                        let results = self.builder().inst_results(call);
+                        assert!(results.len() == 1, "Invalid number of results");
+                        results[0]
+                    };
+                    return result;
+                }
+                _ => {
+                    panic!("unexpected required variable '{}'", sym.get_name());
+                }
+            }
+        }
         let storage = *self.codegen.data_location.get(&sym_id).unwrap();
         self.get_address_of_data_location(storage)
     }
@@ -675,10 +706,12 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         if pasko_frontend::semantic::is_required_procedure(procedure_name) {
             match procedure_name {
-                "writeln" => {
+                "write" | "writeln" => {
+                    let is_writeln = procedure_name == "writeln";
+                    let mut file_argument = None;
                     if let Some(args) = &n.1 {
                         let zero = self.builder().ins().iconst(I32, 0);
-                        for arg in args {
+                        for (arg_idx, arg) in args.iter().enumerate() {
                             let (v, type_id, total_width, fract_digits): (
                                 cranelift_codegen::ir::Value,
                                 TypeId,
@@ -702,53 +735,93 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 }
                             };
 
-                            if self
+                            if arg_idx == 0
+                                && self
+                                    .codegen
+                                    .semantic_context
+                                    .type_system
+                                    .is_file_type(type_id)
+                            {
+                                file_argument = Some(v);
+                            } else if self
                                 .codegen
                                 .semantic_context
                                 .type_system
                                 .is_integer_type(type_id)
                             {
-                                let func_id = self.codegen.rt.write_i64.unwrap();
-                                let func_ref = self.get_function_reference(func_id);
-                                self.builder().ins().call(func_ref, &[v, total_width]);
+                                if let Some(file) = file_argument {
+                                    let func_id = self.codegen.rt.write_textfile_i64.unwrap();
+                                    let func_ref = self.get_function_reference(func_id);
+                                    self.builder().ins().call(func_ref, &[file, v, total_width]);
+                                } else {
+                                    let func_id = self.codegen.rt.write_i64.unwrap();
+                                    let func_ref = self.get_function_reference(func_id);
+                                    self.builder().ins().call(func_ref, &[v, total_width]);
+                                }
                             } else if self
                                 .codegen
                                 .semantic_context
                                 .type_system
                                 .is_real_type(type_id)
                             {
-                                let func_id = self.codegen.rt.write_f64.unwrap();
-                                let func_ref = self.get_function_reference(func_id);
-                                self.builder()
-                                    .ins()
-                                    .call(func_ref, &[v, total_width, fract_digits]);
+                                if let Some(file) = file_argument {
+                                    let func_id = self.codegen.rt.write_textfile_f64.unwrap();
+                                    let func_ref = self.get_function_reference(func_id);
+                                    self.builder()
+                                        .ins()
+                                        .call(func_ref, &[file, v, total_width, fract_digits]);
+                                } else {
+                                    let func_id = self.codegen.rt.write_f64.unwrap();
+                                    let func_ref = self.get_function_reference(func_id);
+                                    self.builder()
+                                        .ins()
+                                        .call(func_ref, &[v, total_width, fract_digits]);
+                                }
                             } else if self
                                 .codegen
                                 .semantic_context
                                 .type_system
                                 .is_string_type(type_id)
                             {
-                                let func_id = self.codegen.rt.write_str.unwrap();
-                                let func_ref = self.get_function_reference(func_id);
-                                self.builder().ins().call(func_ref, &[v]);
+                                if let Some(file) = file_argument {
+                                    let func_id = self.codegen.rt.write_textfile_str.unwrap();
+                                    let func_ref = self.get_function_reference(func_id);
+                                    self.builder().ins().call(func_ref, &[file, v]);
+                                } else {
+                                    let func_id = self.codegen.rt.write_str.unwrap();
+                                    let func_ref = self.get_function_reference(func_id);
+                                    self.builder().ins().call(func_ref, &[v]);
+                                }
                             } else if self
                                 .codegen
                                 .semantic_context
                                 .type_system
                                 .is_bool_type(type_id)
                             {
-                                let func_id = self.codegen.rt.write_bool.unwrap();
-                                let func_ref = self.get_function_reference(func_id);
-                                self.builder().ins().call(func_ref, &[v]);
+                                if let Some(file) = file_argument {
+                                    let func_id = self.codegen.rt.write_textfile_bool.unwrap();
+                                    let func_ref = self.get_function_reference(func_id);
+                                    self.builder().ins().call(func_ref, &[file, v]);
+                                } else {
+                                    let func_id = self.codegen.rt.write_bool.unwrap();
+                                    let func_ref = self.get_function_reference(func_id);
+                                    self.builder().ins().call(func_ref, &[v]);
+                                }
                             } else if self
                                 .codegen
                                 .semantic_context
                                 .type_system
                                 .is_char_type(type_id)
                             {
-                                let func_id = self.codegen.rt.write_char.unwrap();
-                                let func_ref = self.get_function_reference(func_id);
-                                self.builder().ins().call(func_ref, &[v]);
+                                if let Some(file) = file_argument {
+                                    let func_id = self.codegen.rt.write_textfile_char.unwrap();
+                                    let func_ref = self.get_function_reference(func_id);
+                                    self.builder().ins().call(func_ref, &[file, v]);
+                                } else {
+                                    let func_id = self.codegen.rt.write_char.unwrap();
+                                    let func_ref = self.get_function_reference(func_id);
+                                    self.builder().ins().call(func_ref, &[v]);
+                                }
                             } else {
                                 panic!(
                                     "Unexpected type for writeln {}",
@@ -761,10 +834,17 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         }
                     }
 
+                    if is_writeln
                     {
-                        let func_id = self.codegen.rt.write_newline.unwrap();
-                        let func_ref = self.get_function_reference(func_id);
-                        self.builder().ins().call(func_ref, &[]);
+                        if let Some(file) = file_argument {
+                            let func_id = self.codegen.rt.write_textfile_newline.unwrap();
+                            let func_ref = self.get_function_reference(func_id);
+                            self.builder().ins().call(func_ref, &[file]);
+                        } else {
+                            let func_id = self.codegen.rt.write_newline.unwrap();
+                            let func_ref = self.get_function_reference(func_id);
+                            self.builder().ins().call(func_ref, &[]);
+                        }
                     }
                 }
                 "readln" => {
@@ -1225,6 +1305,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             self.set_value(id, v);
         } else if self.codegen.semantic_context.type_system.is_array_type(ty)
             || self.codegen.semantic_context.type_system.is_record_type(ty)
+            || self.codegen.semantic_context.type_system.is_file_type(ty)
         {
             // Structured types cannot have value semantics in the cranelift IR.
             self.set_value(id, addr);

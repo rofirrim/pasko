@@ -129,9 +129,20 @@ impl<'a> CodegenVisitor<'a> {
         self.rt.write_str = self.register_import("__pasko_write_str", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
+        sig.params.push(AbiParam::new(self.pointer_type)); // string
+        self.rt.write_textfile_str = self.register_import("__pasko_write_textfile_str", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
         sig.params.push(AbiParam::new(I64)); // number
         sig.params.push(AbiParam::new(I32)); // total_width
         self.rt.write_i64 = self.register_import("__pasko_write_i64", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
+        sig.params.push(AbiParam::new(I64)); // number
+        sig.params.push(AbiParam::new(I32)); // total_width
+        self.rt.write_textfile_i64 = self.register_import("__pasko_write_textfile_i64", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
         sig.params.push(AbiParam::new(F64)); // number
@@ -140,15 +151,36 @@ impl<'a> CodegenVisitor<'a> {
         self.rt.write_f64 = self.register_import("__pasko_write_f64", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I8)); // number
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
+        sig.params.push(AbiParam::new(F64)); // number
+        sig.params.push(AbiParam::new(I32)); // total_width
+        sig.params.push(AbiParam::new(I32)); // frac_digits
+        self.rt.write_textfile_f64 = self.register_import("__pasko_write_textfile_f64", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I8)); // boolean
         self.rt.write_bool = self.register_import("__pasko_write_bool", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
+        sig.params.push(AbiParam::new(I8)); // boolean
+        self.rt.write_textfile_bool = self.register_import("__pasko_write_textfile_bool", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
         sig.params.push(AbiParam::new(I32)); // number
         self.rt.write_char = self.register_import("__pasko_write_char", sig);
 
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
+        sig.params.push(AbiParam::new(I32)); // number
+        self.rt.write_textfile_char = self.register_import("__pasko_write_textfile_char", sig);
+
         let sig = Signature::new(CallConv::SystemV);
         self.rt.write_newline = self.register_import("__pasko_write_newline", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
+        self.rt.write_textfile_newline = self.register_import("__pasko_write_textfile_newline", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
         sig.returns.push(AbiParam::new(I64));
@@ -236,6 +268,14 @@ impl<'a> CodegenVisitor<'a> {
         sig.params.push(AbiParam::new(I32)); // num_global_files
         sig.params.push(AbiParam::new(self.pointer_type)); // global_files
         self.rt.init = self.register_import("__pasko_init", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.returns.push(AbiParam::new(self.pointer_type));
+        self.rt.input_file = self.register_import("__pasko_get_input", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.returns.push(AbiParam::new(self.pointer_type));
+        self.rt.output_file = self.register_import("__pasko_get_output", sig);
     }
 
     pub fn type_to_cranelift_type(&self, ty: TypeId) -> cranelift_codegen::ir::Type {

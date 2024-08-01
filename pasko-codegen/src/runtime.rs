@@ -1,11 +1,17 @@
 #[derive(Default)]
 pub struct RuntimeFunctions {
     pub write_str: Option<cranelift_module::FuncId>,
+    pub write_textfile_str: Option<cranelift_module::FuncId>,
     pub write_i64: Option<cranelift_module::FuncId>,
+    pub write_textfile_i64: Option<cranelift_module::FuncId>,
     pub write_f64: Option<cranelift_module::FuncId>,
+    pub write_textfile_f64: Option<cranelift_module::FuncId>,
     pub write_bool: Option<cranelift_module::FuncId>,
+    pub write_textfile_bool: Option<cranelift_module::FuncId>,
     pub write_char: Option<cranelift_module::FuncId>,
+    pub write_textfile_char: Option<cranelift_module::FuncId>,
     pub write_newline: Option<cranelift_module::FuncId>,
+    pub write_textfile_newline: Option<cranelift_module::FuncId>,
     pub read_i64: Option<cranelift_module::FuncId>,
     pub read_f64: Option<cranelift_module::FuncId>,
     pub read_newline: Option<cranelift_module::FuncId>,
@@ -28,4 +34,8 @@ pub struct RuntimeFunctions {
 
     // Runtime
     pub init: Option<cranelift_module::FuncId>,
+
+    // File
+    pub output_file: Option<cranelift_module::FuncId>,
+    pub input_file: Option<cranelift_module::FuncId>,
 }
