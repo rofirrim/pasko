@@ -136,9 +136,12 @@ static int __pasko_buffer_char_peek(pasko_buffer_char_t *b) {
     if (b0 == EOF) {
       // We're done.
       b->buffer[b->end] = UTF8_EOF;
+      // Do not skip the input.
     } else if (b0 < 0x80) {
       // 1 byte.
       b->buffer[b->end] = (unsigned char)b0;
+      // Done
+      __pasko_buffer_textfile_skip(b->src);
     } else if (((unsigned char)b0 >> 5) == 0x6) {
       // 2 bytes.
       // Read another byte.
@@ -154,6 +157,8 @@ static int __pasko_buffer_char_peek(pasko_buffer_char_t *b) {
         value |= (((unsigned char)b0 >> 2) & 0x7) << 8;
         b->buffer[b->end] = value;
       }
+      // Done
+      __pasko_buffer_textfile_skip(b->src);
     } else if ((unsigned char)b0 >> 4 == 0xe) {
       // 3 bytes
       // Read another byte.
@@ -178,6 +183,8 @@ static int __pasko_buffer_char_peek(pasko_buffer_char_t *b) {
           b->buffer[b->end] = value;
         }
       }
+      // Done
+      __pasko_buffer_textfile_skip(b->src);
     } else if ((unsigned char)b0 >> 3 == 0x1e) {
       // 4 bytes
       // Read another byte.
@@ -211,8 +218,11 @@ static int __pasko_buffer_char_peek(pasko_buffer_char_t *b) {
           }
         }
       }
+      // Done
+      __pasko_buffer_textfile_skip(b->src);
     } else {
       b->buffer[b->end] = UNICODE_REPLACEMENT_CHAR;
+      __pasko_buffer_textfile_skip(b->src);
     }
     b->end++;
   }
@@ -611,13 +621,9 @@ void __pasko_rewrite_textfile(pasko_file_t *f) {
   __pasko_rewrite_file(f);
 }
 
-pasko_file_t* __pasko_get_input(void) {
-  return &__pasko_file_input;
-}
+pasko_file_t *__pasko_get_input(void) { return &__pasko_file_input; }
 
-pasko_file_t* __pasko_get_output(void) {
-  return &__pasko_file_output;
-}
+pasko_file_t *__pasko_get_output(void) { return &__pasko_file_output; }
 
 void __pasko_init_io(int argc, char *argv[], int num_program_params,
                      char *program_params[], int num_global_files,

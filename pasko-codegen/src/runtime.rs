@@ -13,8 +13,11 @@ pub struct RuntimeFunctions {
     pub write_newline: Option<cranelift_module::FuncId>,
     pub write_textfile_newline: Option<cranelift_module::FuncId>,
     pub read_i64: Option<cranelift_module::FuncId>,
+    pub read_textfile_i64: Option<cranelift_module::FuncId>,
     pub read_f64: Option<cranelift_module::FuncId>,
+    pub read_textfile_f64: Option<cranelift_module::FuncId>,
     pub read_newline: Option<cranelift_module::FuncId>,
+    pub read_textfile_newline: Option<cranelift_module::FuncId>,
 
     // Set operations
     pub set_new: Option<cranelift_module::FuncId>,

@@ -1,5 +1,6 @@
 #include "pasko_internal.h"
 #include "pasko_runtime.h"
+#include <stdio.h>
 
 void __pasko_init(int argc, char *argv[], int num_program_params,
                   char *program_params[], int num_global_files,

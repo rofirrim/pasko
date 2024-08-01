@@ -22,7 +22,7 @@ pub struct SemanticContext {
     ast_values: HashMap<span::SpanId, Constant>,
 
     pub program_parameters: Vec<(String, span::SpanLoc)>,
-    pub global_files : Vec<SymbolId>,
+    pub global_files: Vec<SymbolId>,
     pending_type_definitions: Vec<SymbolId>,
 }
 
@@ -894,7 +894,8 @@ impl<'a> SemanticCheckerVisitor<'a> {
         let is_textfile;
         let file_component: TypeId;
         let mut first_arg = 0;
-        if !is_newline_version && args.len() < 2 {
+        if !is_newline_version && args.is_empty() {
+            // This is unlikelyy to happen.
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *span,
@@ -903,7 +904,6 @@ impl<'a> SemanticCheckerVisitor<'a> {
             file_component = self.ctx.type_system.get_error_type();
             is_textfile = false;
         } else if !is_newline_version {
-            debug_assert!(args.len() >= 2);
             let file_arg = &args[0];
             let ty = self.ctx.get_ast_type(file_arg.id()).unwrap();
             if self.ctx.type_system.is_file_type(ty) {
@@ -911,6 +911,15 @@ impl<'a> SemanticCheckerVisitor<'a> {
                     is_textfile = true;
                 } else {
                     is_textfile = false;
+                }
+                if args.len() < 2 {
+                    // write(file)
+                    // read(file)
+                    self.diagnostics.add(
+                        DiagnosticKind::Error,
+                        *span,
+                        format!("too few arguments in call to {}", procedure_name),
+                    );
                 }
                 file_component = self.ctx.type_system.file_type_get_component_type(ty);
                 first_arg = 1;
@@ -1605,9 +1614,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                 format!("declaration of program parameter"),
                             )],
                         );
-                    }
-                    else {
-                      self.ctx.global_files.push(sym_id);
+                    } else {
+                        self.ctx.global_files.push(sym_id);
                     }
                 }
             }
@@ -2984,7 +2992,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                             // Basic spec though we will
                                             // implement the same that Extended
                                             // spec does.
-                                            && !self.ctx.type_system.is_string_type(ty) 
+                                            && !self.ctx.type_system.is_string_type(ty)
                                             && !self.is_compatible(
                                                 self.ctx.type_system.get_char_type(),
                                                 ty,

@@ -180,18 +180,33 @@ impl<'a> CodegenVisitor<'a> {
 
         let mut sig = Signature::new(CallConv::SystemV);
         sig.params.push(AbiParam::new(self.pointer_type)); // file
-        self.rt.write_textfile_newline = self.register_import("__pasko_write_textfile_newline", sig);
+        self.rt.write_textfile_newline =
+            self.register_import("__pasko_write_textfile_newline", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
         sig.returns.push(AbiParam::new(I64));
         self.rt.read_i64 = self.register_import("__pasko_read_i64", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
+        sig.returns.push(AbiParam::new(I64));
+        self.rt.read_textfile_i64 = self.register_import("__pasko_read_textfile_i64", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
         sig.returns.push(AbiParam::new(F64));
         self.rt.read_f64 = self.register_import("__pasko_read_f64", sig);
 
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
+        sig.returns.push(AbiParam::new(F64));
+        self.rt.read_textfile_f64 = self.register_import("__pasko_read_textfile_f64", sig);
+
         let sig = Signature::new(CallConv::SystemV);
         self.rt.read_newline = self.register_import("__pasko_read_newline", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type)); // file
+        self.rt.read_textfile_newline = self.register_import("__pasko_read_textfile_newline", sig);
 
         // Set operations.
         let mut sig = Signature::new(CallConv::SystemV);

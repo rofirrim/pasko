@@ -680,6 +680,48 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             }
         }
     }
+
+    fn compute_first_argument(
+        &mut self,
+        args_tree: &Option<Vec<span::SpannedBox<ast::Expr>>>,
+    ) -> (Option<cranelift_codegen::ir::Value>, bool) {
+        if let Some(args) = args_tree {
+            if let Some(first_arg) = args.first() {
+                match first_arg.get() {
+                    ast::Expr::WriteParameter(_) => (None, true),
+                    _ => {
+                        let first_arg_type = self
+                            .codegen
+                            .semantic_context
+                            .get_ast_type(first_arg.id())
+                            .unwrap();
+                        if self
+                            .codegen
+                            .semantic_context
+                            .type_system
+                            .is_file_type(first_arg_type)
+                        {
+                            first_arg
+                                .get()
+                                .walk_mut(self, first_arg.loc(), first_arg.id());
+                            let is_textfile = self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .is_textfile_type(first_arg_type);
+                            (Some(self.get_value(first_arg.id())), is_textfile)
+                        } else {
+                            (None, true)
+                        }
+                    }
+                }
+            } else {
+                (None, true)
+            }
+        } else {
+            (None, true)
+        }
+    }
 }
 
 impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
@@ -708,10 +750,15 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             match procedure_name {
                 "write" | "writeln" => {
                     let is_writeln = procedure_name == "writeln";
-                    let mut file_argument = None;
+                    // Compute first argument if any.
+                    let (file_argument, is_textfile) = self.compute_first_argument(&n.1);
+
+                    // is_writeln implies is_textfile
+                    assert!(!is_writeln || is_textfile);
+
                     if let Some(args) = &n.1 {
                         let zero = self.builder().ins().iconst(I32, 0);
-                        for (arg_idx, arg) in args.iter().enumerate() {
+                        for arg in &args[if file_argument.is_none() { 0 } else { 1 }..] {
                             let (v, type_id, total_width, fract_digits): (
                                 cranelift_codegen::ir::Value,
                                 TypeId,
@@ -735,14 +782,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 }
                             };
 
-                            if arg_idx == 0
-                                && self
-                                    .codegen
-                                    .semantic_context
-                                    .type_system
-                                    .is_file_type(type_id)
-                            {
-                                file_argument = Some(v);
+                            if !is_textfile {
+                                todo!("non-textfiles write");
                             } else if self
                                 .codegen
                                 .semantic_context
@@ -834,8 +875,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         }
                     }
 
-                    if is_writeln
-                    {
+                    if is_writeln {
                         if let Some(file) = file_argument {
                             let func_id = self.codegen.rt.write_textfile_newline.unwrap();
                             let func_ref = self.get_function_reference(func_id);
@@ -847,9 +887,16 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         }
                     }
                 }
-                "readln" => {
+                "read" | "readln" => {
+                    let is_readln = procedure_name == "readln";
+                    // Compute first argument if any.
+                    let (file_argument, is_textfile) = self.compute_first_argument(&n.1);
+
+                    // is_readln implies is_textfile
+                    assert!(!is_readln || is_textfile);
+
                     if let Some(args) = &n.1 {
-                        for arg in args {
+                        for arg in &args[if file_argument.is_none() { 0 } else { 1 }..] {
                             match arg.get() {
                                 ast::Expr::Variable(expr_var) => {
                                     let var = &expr_var.0;
@@ -863,7 +910,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                         .get_ast_type(var.id())
                                         .unwrap();
 
-                                    if self
+                                    if !is_textfile {
+                                        todo!("non-textfiles read");
+                                    } else if self
                                         .codegen
                                         .semantic_context
                                         .type_system
@@ -874,19 +923,36 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                             .type_system
                                             .is_real_type(var_ty)
                                     {
-                                        let func_id = if self
+                                        let (func_id, call_args) = if self
                                             .codegen
                                             .semantic_context
                                             .type_system
                                             .is_integer_type(var_ty)
                                         {
-                                            self.codegen.rt.read_i64.unwrap()
+                                            if let Some(file) = file_argument {
+                                                (
+                                                    self.codegen.rt.read_textfile_i64.unwrap(),
+                                                    vec![file],
+                                                )
+                                            } else {
+                                                (self.codegen.rt.read_i64.unwrap(), vec![])
+                                            }
                                         } else {
-                                            self.codegen.rt.read_f64.unwrap()
+                                            if let Some(file) = file_argument {
+                                                (
+                                                    self.codegen.rt.read_textfile_f64.unwrap(),
+                                                    vec![file],
+                                                )
+                                            } else {
+                                                (self.codegen.rt.read_f64.unwrap(), vec![])
+                                            }
                                         };
                                         let func_ref = self.get_function_reference(func_id);
 
-                                        let call = self.builder().ins().call(func_ref, &[]);
+                                        let call = self
+                                            .builder()
+                                            .ins()
+                                            .call(func_ref, call_args.as_slice());
                                         let result = {
                                             let results = self.builder().inst_results(call);
                                             assert!(
@@ -918,10 +984,16 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                             }
                         }
                     }
-                    {
-                        let func_id = self.codegen.rt.read_newline.unwrap();
-                        let func_ref = self.get_function_reference(func_id);
-                        self.builder().ins().call(func_ref, &[]);
+                    if is_readln {
+                        if let Some(file) = file_argument {
+                            let func_id = self.codegen.rt.read_textfile_newline.unwrap();
+                            let func_ref = self.get_function_reference(func_id);
+                            self.builder().ins().call(func_ref, &[file]);
+                        } else {
+                            let func_id = self.codegen.rt.read_newline.unwrap();
+                            let func_ref = self.get_function_reference(func_id);
+                            self.builder().ins().call(func_ref, &[]);
+                        }
                     }
                 }
                 "new" => {
