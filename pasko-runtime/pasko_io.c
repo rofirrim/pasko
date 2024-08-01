@@ -611,6 +611,14 @@ void __pasko_rewrite_textfile(pasko_file_t *f) {
   __pasko_rewrite_file(f);
 }
 
+pasko_file_t* __pasko_get_input(void) {
+  return &__pasko_file_input;
+}
+
+pasko_file_t* __pasko_get_output(void) {
+  return &__pasko_file_output;
+}
+
 void __pasko_init_io(int argc, char *argv[], int num_program_params,
                      char *program_params[], int num_global_files,
                      pasko_file_t **global_files[]) {
@@ -734,7 +742,7 @@ void __pasko_init_io(int argc, char *argv[], int num_program_params,
       __pasko_utf32_to_utf8((uint32_t *)program_params[i],
                             (uint8_t **)&program_param_str);
       char msg[256];
-      snprintf(msg, 255, "file '%s' has not been bound to a file",
+      snprintf(msg, 255, "file '%s' has not been bound to an external file",
                program_param_str);
       msg[255] = '\0';
       __pasko_runtime_error(msg);
