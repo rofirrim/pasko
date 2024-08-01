@@ -11,6 +11,7 @@
 #include <string.h>
 
 // ftruncate
+#include <sys/types.h>
 #include <unistd.h>
 
 // Buffer of characters + EOF.
@@ -548,6 +549,22 @@ void *__pasko_buffer_var_file(pasko_file_t *f, uint64_t bytes) {
   return f->buffer_var;
 }
 
+void __pasko_get_file(pasko_file_t *f, uint64_t bytes) {
+  fread(__pasko_buffer_var_file(f, bytes), bytes, 1, f->file);
+}
+
+void __pasko_put_file(pasko_file_t *f, uint64_t bytes) {
+  fwrite(__pasko_buffer_var_file(f, bytes), bytes, 1, f->file);
+}
+
+void __pasko_get_textfile(pasko_file_t *f) {
+  __pasko_buffer_char_skip(f->read_buffer);
+}
+
+void __pasko_put_textfile(pasko_file_t *f) {
+  __pasko_put_file(f, sizeof(uint32_t));
+}
+
 void __pasko_reset_file(pasko_file_t *f, uint64_t bytes) {
   if (f->file == NULL)
     __pasko_runtime_error("file is undefined");
@@ -614,6 +631,11 @@ void __pasko_init_io(int argc, char *argv[], int num_program_params,
       __pasko_buffer_char_new(__pasko_buffer_textfile_new(stdin));
   __pasko_file_input.mode = PASKO_FILE_MODE_INSPECT;
 
+  bool file_is_open[64] = {0};
+  if (num_global_files > 64) {
+    __pasko_runtime_error("too many files");
+  }
+
   // Parse arguments.
   for (int i = 1; i < argc; i++) {
     char *equal = strchr(argv[i], '=');
@@ -662,7 +684,7 @@ void __pasko_init_io(int argc, char *argv[], int num_program_params,
         // We found the parameter. The compiler emits the global file pointer in
         // the same order so we can reuse the index.
         pasko_file_t **addr_to_var = global_files[program_param_idx];
-        if (!addr_to_var) {
+        if (file_is_open[program_param_idx]) {
           __pasko_ignoring_argument(argv[i], "file has already been bound");
           __pasko_deallocate(program_param_str);
           continue;
@@ -686,7 +708,7 @@ void __pasko_init_io(int argc, char *argv[], int num_program_params,
         *addr_to_var = new_file;
 
         // So we know this file has already been bound.
-        global_files[program_param_idx] = NULL;
+        file_is_open[program_param_idx] = true;
         break;
       }
 
@@ -703,6 +725,20 @@ void __pasko_init_io(int argc, char *argv[], int num_program_params,
     }
 
     free(argument);
+  }
+
+  // Now check all the files have been bound.
+  for (int i = 0; i < num_global_files; i++) {
+    if (!file_is_open[i]) {
+      char *program_param_str;
+      __pasko_utf32_to_utf8((uint32_t *)program_params[i],
+                            (uint8_t **)&program_param_str);
+      char msg[256];
+      snprintf(msg, 255, "file '%s' has not been bound to a file",
+               program_param_str);
+      msg[255] = '\0';
+      __pasko_runtime_error(msg);
+    }
   }
 }
 
