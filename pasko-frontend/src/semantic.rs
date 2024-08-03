@@ -2827,9 +2827,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let proc_name = callee.get().as_str();
         if is_required_procedure(proc_name) {
             match proc_name {
-                "read" | "readln" | "write" | "writeln" | "new" | "dispose" | "rewrite" => {
-                    return true
-                }
+                "read" | "readln" | "write" | "writeln" | "new" | "dispose" | "rewrite"
+                | "reset" => return true,
                 _ => {
                     self.unimplemented(*span, &format!("required procedure '{}'", proc_name));
                     return false;

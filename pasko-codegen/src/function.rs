@@ -1084,6 +1084,44 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         self.builder().ins().call(func_ref, &[value]);
                     }
                 }
+                "reset" => {
+                    if let Some(args) = &n.1 {
+                        assert!(args.len() == 1);
+                        let arg = &args[0];
+                        arg.get().walk_mut(self, arg.loc(), arg.id());
+                            let ty = self
+                                .codegen
+                                .semantic_context
+                                .get_ast_type(arg.id())
+                                .unwrap();
+                        let (value, is_textfile) = {
+                            (
+                                self.get_value(arg.id()),
+                                self.codegen
+                                    .semantic_context
+                                    .type_system
+                                    .is_textfile_type(ty),
+                            )
+                        };
+
+                        let (func_id, args) = if is_textfile {
+                            (self.codegen.rt.reset_textfile.unwrap(), vec![value])
+                        } else {
+                            let component_ty = self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .file_type_get_component_type(ty);
+                            let component_size = self.codegen.size_in_bytes(component_ty);
+                            (
+                                self.codegen.rt.reset_textfile.unwrap(),
+                                vec![value, self.emit_const_integer(component_size as i64)],
+                            )
+                        };
+                        let func_ref = self.get_function_reference(func_id);
+                        self.builder().ins().call(func_ref, args.as_slice());
+                    }
+                }
                 _ => {
                     panic!(
                         "Lowering of call to required procedure {} not implemented yet",

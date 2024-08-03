@@ -406,9 +406,23 @@ void __pasko_write_newline(void) {
   __pasko_write_textfile_newline(&__pasko_file_output);
 }
 
+static bool is_whitespace(uint32_t c) {
+  return c == ' ';
+}
+
+static void __pasko_skip_whitespace(pasko_file_t* f) {
+  uint32_t v = __pasko_buffer_char_peek(f->read_buffer);
+  while (is_whitespace(v)) {
+    __pasko_buffer_char_skip(f->read_buffer);
+    v = __pasko_buffer_char_peek(f->read_buffer);
+  }
+}
+
 int64_t __pasko_read_textfile_i64(pasko_file_t *f) {
   __pasko_check_read(f);
   uint64_t tmp_result = 0;
+
+  __pasko_skip_whitespace(f);
   uint32_t v = __pasko_buffer_char_peek(f->read_buffer);
   bool neg = false;
   if (v == '+' || v == '-') {
@@ -445,6 +459,7 @@ double __pasko_read_textfile_f64(pasko_file_t *f) {
   char c[MAX_LITERAL_LENGTH];
   int position = 0;
 
+  __pasko_skip_whitespace(f);
   uint32_t v = __pasko_buffer_char_peek(f->read_buffer);
   if (v == '+' || v == '-') {
     c[position++] = (char)v;
@@ -456,13 +471,16 @@ double __pasko_read_textfile_f64(pasko_file_t *f) {
     do {
       c[position++] = (char)v;
       if (position == MAX_LITERAL_LENGTH)
-        __pasko_runtime_error("literal is too long");
+        __pasko_runtime_error("float literal is too long");
       __pasko_buffer_char_skip(f->read_buffer);
       v = __pasko_buffer_char_peek(f->read_buffer);
     } while ('0' <= v && v <= '9');
 
     bool needs_e = true;
     if (v == '.') {
+      c[position++] = (char)v;
+      if (position == MAX_LITERAL_LENGTH)
+        __pasko_runtime_error("float literal is too long");
       needs_e = false;
       __pasko_buffer_char_skip(f->read_buffer);
       v = __pasko_buffer_char_peek(f->read_buffer);
@@ -470,7 +488,7 @@ double __pasko_read_textfile_f64(pasko_file_t *f) {
         do {
           c[position++] = (char)v;
           if (position == MAX_LITERAL_LENGTH)
-            __pasko_runtime_error("literal is too long");
+            __pasko_runtime_error("float literal is too long");
           __pasko_buffer_char_skip(f->read_buffer);
           v = __pasko_buffer_char_peek(f->read_buffer);
         } while ('0' <= v && v <= '9');
@@ -482,7 +500,7 @@ double __pasko_read_textfile_f64(pasko_file_t *f) {
       // Let's add a . so we can use sscanf
       c[position++] = '.';
       if (position == MAX_LITERAL_LENGTH)
-        __pasko_runtime_error("literal is too long");
+        __pasko_runtime_error("float literal is too long");
     }
 
     if (v != 'e' && needs_e) {
@@ -496,7 +514,7 @@ double __pasko_read_textfile_f64(pasko_file_t *f) {
       if (v == '+' || v == '-') {
         c[position++] = (char)v;
         if (position == MAX_LITERAL_LENGTH)
-          __pasko_runtime_error("literal is too long");
+          __pasko_runtime_error("float literal is too long");
         __pasko_buffer_char_skip(f->read_buffer);
         v = __pasko_buffer_char_peek(f->read_buffer);
       }
@@ -504,7 +522,7 @@ double __pasko_read_textfile_f64(pasko_file_t *f) {
         do {
           c[position++] = (char)v;
           if (position == MAX_LITERAL_LENGTH)
-            __pasko_runtime_error("literal is too long");
+            __pasko_runtime_error("float literal is too long");
           __pasko_buffer_char_skip(f->read_buffer);
           v = __pasko_buffer_char_peek(f->read_buffer);
         } while ('0' <= v && v <= '9');
