@@ -2827,7 +2827,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let proc_name = callee.get().as_str();
         if is_required_procedure(proc_name) {
             match proc_name {
-                "read" | "readln" | "write" | "writeln" | "new" | "dispose" => return true,
+                "read" | "readln" | "write" | "writeln" | "new" | "dispose" | "rewrite" => {
+                    return true
+                }
                 _ => {
                     self.unimplemented(*span, &format!("required procedure '{}'", proc_name));
                     return false;
@@ -3137,6 +3139,40 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                         format!("must be a variable"),
                                     );
                                 }
+                            }
+                        }
+                    } else {
+                        self.diagnostics.add(
+                            DiagnosticKind::Error,
+                            *span,
+                            format!("a call to {} requires exactly one argument", procedure_name),
+                        );
+                    }
+                }
+                "rewrite" | "reset" => {
+                    if let Some(args) = &node.1 {
+                        for (idx, arg) in args.iter().enumerate() {
+                            if idx > 0 {
+                                self.diagnostics.add(
+                                    DiagnosticKind::Error,
+                                    *span,
+                                    format!(
+                                        "a call to {} requires exactly one argument",
+                                        procedure_name
+                                    ),
+                                );
+                                break;
+                            }
+                            let ty = self.ctx.get_ast_type(arg.id()).unwrap();
+                            if !self.ctx.type_system.is_file_type(ty) {
+                                self.diagnostics.add(
+                                    DiagnosticKind::Error,
+                                    *span,
+                                    format!(
+                                        "the argument to {} must be a variable of file type",
+                                        procedure_name
+                                    ),
+                                );
                             }
                         }
                     } else {

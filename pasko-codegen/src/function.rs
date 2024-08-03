@@ -1053,6 +1053,37 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         self.builder().ins().call(func_ref, &[var_addr]);
                     }
                 }
+                "rewrite" => {
+                    if let Some(args) = &n.1 {
+                        assert!(args.len() == 1);
+                        let arg = &args[0];
+                        arg.get().walk_mut(self, arg.loc(), arg.id());
+                        let (value, is_textfile) = {
+                            let ty = self
+                                .codegen
+                                .semantic_context
+                                .get_ast_type(arg.id())
+                                .unwrap();
+
+                            (
+                                self.get_value(arg.id()),
+                                self.codegen
+                                    .semantic_context
+                                    .type_system
+                                    .is_textfile_type(ty),
+                            )
+                        };
+
+                        let func_id = if is_textfile {
+                            self.codegen.rt.rewrite_textfile
+                        } else {
+                            self.codegen.rt.rewrite_file
+                        }
+                        .unwrap();
+                        let func_ref = self.get_function_reference(func_id);
+                        self.builder().ins().call(func_ref, &[value]);
+                    }
+                }
                 _ => {
                     panic!(
                         "Lowering of call to required procedure {} not implemented yet",
@@ -1377,12 +1408,13 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             self.set_value(id, v);
         } else if self.codegen.semantic_context.type_system.is_array_type(ty)
             || self.codegen.semantic_context.type_system.is_record_type(ty)
-            || self.codegen.semantic_context.type_system.is_file_type(ty)
         {
             // Structured types cannot have value semantics in the cranelift IR.
             self.set_value(id, addr);
-        } else if self.codegen.semantic_context.type_system.is_set_type(ty) {
-            // Set types are opaque pointers so in some sense they're like simple types
+        } else if self.codegen.semantic_context.type_system.is_set_type(ty)
+            || self.codegen.semantic_context.type_system.is_file_type(ty)
+        {
+            // Set and file types types are opaque pointers so in some sense they're like simple types
             // but with an opaque pointer type.
             let pointer_type = self.codegen.pointer_type;
             let v = self.builder().ins().load(

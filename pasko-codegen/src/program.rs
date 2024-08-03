@@ -285,12 +285,34 @@ impl<'a> CodegenVisitor<'a> {
         self.rt.init = self.register_import("__pasko_init", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(I32)); // num_global_files
+        sig.params.push(AbiParam::new(self.pointer_type)); // global_files
+        self.rt.finish = self.register_import("__pasko_finish", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
         sig.returns.push(AbiParam::new(self.pointer_type));
         self.rt.input_file = self.register_import("__pasko_get_input", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
         sig.returns.push(AbiParam::new(self.pointer_type));
         self.rt.output_file = self.register_import("__pasko_get_output", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        self.rt.rewrite_file = self.register_import("__pasko_rewrite_file", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        self.rt.rewrite_textfile = self.register_import("__pasko_rewrite_textfile", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        sig.params.push(AbiParam::new(I64)); // bytes
+        self.rt.reset_file = self.register_import("__pasko_reset_file", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        self.rt.reset_textfile = self.register_import("__pasko_reset_textfile", sig);
     }
 
     pub fn type_to_cranelift_type(&self, ty: TypeId) -> cranelift_codegen::ir::Type {

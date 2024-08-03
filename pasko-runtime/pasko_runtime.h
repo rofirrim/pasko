@@ -23,7 +23,9 @@ PASKO_RUNTIME_PUBLIC void __pasko_init(int argc, char *argv[],
                                        int num_program_params,
                                        char *program_params[],
                                        int num_global_files,
-                                       pasko_file_t** global_files[]);
+                                       pasko_file_t **global_files[]);
+PASKO_RUNTIME_PUBLIC void __pasko_finish(int num_global_files,
+                                         pasko_file_t **global_files[]);
 
 // I/O
 // file output
@@ -52,7 +54,7 @@ PASKO_RUNTIME_PUBLIC int64_t __pasko_read_i64(void);
 PASKO_RUNTIME_PUBLIC double __pasko_read_f64(void);
 PASKO_RUNTIME_PUBLIC void __pasko_read_newline(void);
 
-PASKO_RUNTIME_PUBLIC pasko_file_t* __pasko_get_input(void);
+PASKO_RUNTIME_PUBLIC pasko_file_t *__pasko_get_input(void);
 
 // output
 PASKO_RUNTIME_PUBLIC void __pasko_write_i64(int64_t num, int total_width);
@@ -63,7 +65,7 @@ PASKO_RUNTIME_PUBLIC void __pasko_write_char(uint32_t);
 PASKO_RUNTIME_PUBLIC void __pasko_write_bool(uint8_t b);
 PASKO_RUNTIME_PUBLIC void __pasko_write_newline(void);
 
-PASKO_RUNTIME_PUBLIC pasko_file_t* __pasko_get_output(void);
+PASKO_RUNTIME_PUBLIC pasko_file_t *__pasko_get_output(void);
 
 // files i/o
 PASKO_RUNTIME_PUBLIC void __pasko_reset_file(pasko_file_t *f, uint64_t bytes);

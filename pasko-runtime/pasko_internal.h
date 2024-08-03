@@ -13,8 +13,9 @@ void __pasko_utf32_to_utf8(const uint32_t *input_buffer,
                            uint8_t **ref_out_buffer);
 
 void __pasko_init_io(int argc, char *argv[], int num_program_params,
-                  char *program_params[], int num_global_files,
-                  pasko_file_t **global_files[]);
+                     char *program_params[], int num_global_files,
+                     pasko_file_t **global_files[]);
+void __pasko_finish_io(int num_global_files, pasko_file_t **global_files[]);
 
 void __pasko_ignoring_argument(const char *arg, const char *reason);
 

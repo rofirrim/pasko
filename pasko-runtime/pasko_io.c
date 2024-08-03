@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-// ftruncate
+#include <fcntl.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -260,6 +260,7 @@ struct pasko_file_t {
     void *buffer_var;
   };
   pasko_file_mode_t mode : 2;
+  bool is_textfile : 1;
 };
 
 static pasko_file_t __pasko_file_output;
@@ -583,6 +584,7 @@ void __pasko_reset_file(pasko_file_t *f, uint64_t bytes) {
   if (!feof(f->file)) {
     fread(__pasko_buffer_var_file(f, bytes), bytes, 1, f->file);
   }
+  f->is_textfile = false;
 }
 
 void __pasko_reset_textfile(pasko_file_t *f) {
@@ -595,6 +597,7 @@ void __pasko_reset_textfile(pasko_file_t *f) {
   }
   f->read_buffer =
       __pasko_buffer_char_new(__pasko_buffer_textfile_new(f->file));
+  f->is_textfile = true;
 }
 
 void __pasko_set_buffer_var_textfile(pasko_file_t *f, uint32_t c) {
@@ -612,6 +615,7 @@ void __pasko_rewrite_file(pasko_file_t *f) {
   f->read_buffer = NULL;
   ftruncate(fileno(f->file), 0);
   f->mode = PASKO_FILE_MODE_GENERATE;
+  f->is_textfile = false;
 }
 
 void __pasko_rewrite_textfile(pasko_file_t *f) {
@@ -619,6 +623,7 @@ void __pasko_rewrite_textfile(pasko_file_t *f) {
     __pasko_buffer_char_finish(f->read_buffer);
   }
   __pasko_rewrite_file(f);
+  f->is_textfile = true;
 }
 
 pasko_file_t *__pasko_get_input(void) { return &__pasko_file_input; }
@@ -677,7 +682,7 @@ void __pasko_init_io(int argc, char *argv[], int num_program_params,
     ptrdiff_t colon_idx = equal - &argv[i][0];
     char *argument = strdup(argv[i]);
     argument[colon_idx] = '\0';
-    char *argument_name = argument;
+    char *argument_name = argument + 2;
     char *argument_value = argument + (colon_idx + 1);
 
     // Now check name appears in the global names.
@@ -703,8 +708,12 @@ void __pasko_init_io(int argc, char *argv[], int num_program_params,
           __pasko_deallocate(program_param_str);
           continue;
         }
-        FILE *f = fopen(argument_value, "r+");
-        if (f == NULL) {
+        int fd =
+            open(argument_value, O_RDWR | O_CREAT, 0644);
+        FILE *f = NULL;
+        if (fd >= 0)
+          f = fdopen(fd, "r+");
+        if (fd < 0 || f == NULL) {
           char msg[256];
           snprintf(msg, 255,
                    "cannot bind file variable '%s' to external file '%s'. "
@@ -718,6 +727,7 @@ void __pasko_init_io(int argc, char *argv[], int num_program_params,
         new_file->file = f;
         new_file->read_buffer = NULL;
         new_file->mode = PASKO_FILE_MODE_NONE;
+        new_file->is_textfile = 0;
 
         *addr_to_var = new_file;
 
@@ -756,6 +766,18 @@ void __pasko_init_io(int argc, char *argv[], int num_program_params,
   }
 }
 
-void __pasko_finish_io(void) {
+void __pasko_finish_io(int num_global_files, pasko_file_t **global_files[]) {
   __pasko_buffer_char_finish(__pasko_file_input.read_buffer);
+
+  for (int i = 0; i < num_global_files; i++) {
+    pasko_file_t *f = *global_files[i];
+    if (f->is_textfile && f->mode == PASKO_FILE_MODE_INSPECT) {
+      if (f->read_buffer)
+        __pasko_buffer_char_finish(f->read_buffer);
+    } else {
+      if (f->buffer_var)
+        __pasko_deallocate(f->buffer_var);
+    }
+    fclose(f->file);
+  }
 }
