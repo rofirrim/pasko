@@ -2990,10 +2990,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                         if !self.ctx.type_system.is_error_type(ty)
                                             && !self.ctx.type_system.is_real_type(ty)
                                             // This looks like a mistake in the
-                                            // Basic spec though we will
-                                            // implement the same that Extended
-                                            // spec does.
-                                            && !self.ctx.type_system.is_string_type(ty)
+                                            // Basic spec, in which it appears
+                                            // mentioned as a valid variable but
+                                            // never describes its semantics.
+                                            /* && !self.ctx.type_system.is_string_type(ty) */
                                             && !self.is_compatible(
                                                 self.ctx.type_system.get_char_type(),
                                                 ty,
