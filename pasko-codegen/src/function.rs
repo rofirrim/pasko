@@ -1772,7 +1772,14 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 .semantic_context
                 .type_system
                 .is_textfile_type(pointee_type);
-            let file_value = self.get_value(n.0.id());
+            let file_addr = self.get_value(n.0.id());
+            let pointer_ty = self.codegen.pointer_type;
+            let file_value = self.builder().ins().load(
+                pointer_ty,
+                cranelift_codegen::ir::MemFlags::new(),
+                file_addr,
+                0,
+            );
             let component_ty = self
                 .codegen
                 .semantic_context
@@ -1791,7 +1798,13 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 (func_ref, vec![file_value, size])
             };
 
-            self.builder().ins().call(func_ref, args.as_slice());
+            let call = self.builder().ins().call(func_ref, args.as_slice());
+            let result = {
+                let results = self.builder().inst_results(call);
+                assert!(results.len() == 1, "Invalid number of results");
+                results[0]
+            };
+            self.set_value(id, result);
         } else {
             let pointer_addr = self.get_value(n.0.id());
 

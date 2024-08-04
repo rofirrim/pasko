@@ -571,14 +571,14 @@ void __pasko_read_newline(void) {
   __pasko_read_textfile_newline(&__pasko_file_input);
 }
 
-void __pasko_buffer_var_allocate_if_neded(pasko_file_t *f, uint64_t bytes) {
+void __pasko_buffer_var_allocate_if_needed(pasko_file_t *f, uint64_t bytes) {
   if (f->buffer_var == NULL) {
     f->buffer_var = __pasko_allocate(bytes);
   }
 }
 
 void *__pasko_buffer_var_file(pasko_file_t *f, uint64_t bytes) {
-  __pasko_buffer_var_allocate_if_neded(f, bytes);
+  __pasko_buffer_var_allocate_if_needed(f, bytes);
   return f->buffer_var;
 }
 
@@ -595,7 +595,12 @@ void __pasko_get_textfile(pasko_file_t *f) {
 }
 
 void __pasko_put_textfile(pasko_file_t *f) {
-  __pasko_put_file(f, sizeof(uint32_t));
+  uint32_t value = *__pasko_buffer_var_textfile(f);
+  uint32_t str[] = {value, 0};
+  uint8_t *out;
+  __pasko_utf32_to_utf8(str, &out);
+  fprintf(f->file, "%s", (char *)out);
+  __pasko_deallocate(out);
 }
 
 void __pasko_reset_file(pasko_file_t *f, uint64_t bytes) {
@@ -625,8 +630,11 @@ void __pasko_reset_textfile(pasko_file_t *f) {
 uint32_t *__pasko_buffer_var_textfile(pasko_file_t *f) {
   if (f->mode == PASKO_FILE_MODE_INSPECT)
     return __pasko_buffer_char_peek_addr(f->read_buffer);
+  else if (f->mode == PASKO_FILE_MODE_GENERATE)
+    return (uint32_t *)__pasko_buffer_var_file(f, sizeof(uint32_t));
   else
-    return (uint32_t*)__pasko_buffer_var_file(f, sizeof(uint32_t));
+    __pasko_runtime_error(
+        "invalid mode for textfile when accessing its buffer variable");
 }
 
 void __pasko_rewrite_file(pasko_file_t *f) {
