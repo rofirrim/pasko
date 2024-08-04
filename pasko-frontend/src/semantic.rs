@@ -2828,7 +2828,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         if is_required_procedure(proc_name) {
             match proc_name {
                 "read" | "readln" | "write" | "writeln" | "new" | "dispose" | "rewrite"
-                | "reset" | "put" => return true,
+                | "reset" | "put" | "get" => return true,
                 _ => {
                     self.unimplemented(*span, &format!("required procedure '{}'", proc_name));
                     return false;
