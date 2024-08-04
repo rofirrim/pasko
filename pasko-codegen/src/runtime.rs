@@ -43,6 +43,9 @@ pub struct RuntimeFunctions {
     pub output_file: Option<cranelift_module::FuncId>,
     pub input_file: Option<cranelift_module::FuncId>,
 
+    pub write_file: Option<cranelift_module::FuncId>,
+    pub read_file: Option<cranelift_module::FuncId>,
+
     pub rewrite_file: Option<cranelift_module::FuncId>,
     pub rewrite_textfile: Option<cranelift_module::FuncId>,
 

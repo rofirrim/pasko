@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 
 use cranelift_codegen::ir::StackSlot;
+use cranelift_codegen::ir::Value;
 use cranelift_codegen::settings::Configurable;
 use cranelift_object::object::read::elf::ElfSectionIterator32;
 use cranelift_object::object::SymbolKind;
@@ -245,14 +246,18 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, size))
     }
 
+    pub fn allocate_storage_for_type_in_stack(&mut self, ty: TypeId) -> StackSlot {
+        let size = self.codegen.size_in_bytes(ty) as u32;
+
+        self.allocate_storage_in_stack(size)
+    }
+
     pub fn allocate_value_in_stack(&mut self, sym_id: pasko_frontend::symbol::SymbolId) {
         let symbol = self.codegen.semantic_context.get_symbol(sym_id);
         let symbol = symbol.borrow();
         let symbol_type = symbol.get_type().unwrap();
 
-        let size = self.codegen.size_in_bytes(symbol_type) as u32;
-
-        let stack_slot = self.allocate_storage_in_stack(size);
+        let stack_slot = self.allocate_storage_for_type_in_stack(symbol_type);
 
         self.codegen
             .data_location
@@ -267,6 +272,197 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         self.codegen
             .data_location
             .insert(sym_id, DataLocation::StackVarAddress(stack_slot));
+    }
+
+    fn store_value_into_address_impl(
+        &mut self,
+        addr: cranelift_codegen::ir::Value,
+        addr_ty: pasko_frontend::typesystem::TypeId,
+        value: cranelift_codegen::ir::Value,
+        value_ty: pasko_frontend::typesystem::TypeId,
+        value_is_variable: bool,
+    ) {
+        if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_simple_type(addr_ty)
+        {
+            self.builder()
+                .ins()
+                .store(cranelift_codegen::ir::MemFlags::new(), value, addr, 0);
+        } else if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_array_type(addr_ty)
+            || self
+                .codegen
+                .semantic_context
+                .type_system
+                .is_record_type(addr_ty)
+        {
+            let size = self.emit_const_integer(self.codegen.size_in_bytes(addr_ty) as i64);
+            let target_config = {
+                let object_module = self.codegen.object_module.as_ref().unwrap();
+                object_module.target_config()
+            };
+            assert!(
+                self.codegen.size_in_bytes(addr_ty) == self.codegen.size_in_bytes(value_ty),
+                "Type sizes must match"
+            );
+            self.builder()
+                .call_memmove(target_config, addr, value, size);
+        } else if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_set_type(addr_ty)
+        {
+            // To assign we need first to free the lhs and then copy, if the right hand side is a temporary we can just move the value.
+            let pointer_type = self.codegen.pointer_type;
+            let pointer_value = self.builder().ins().load(
+                pointer_type,
+                cranelift_codegen::ir::MemFlags::new(),
+                addr,
+                0,
+            );
+            self.dispose_set_variable(pointer_value);
+
+            let src_value = if value_is_variable {
+                // We need to copy the pointer from this variable.
+                let func_id = self.codegen.rt.set_copy.unwrap();
+                let func_ref = self.get_function_reference(func_id);
+                let call = self.builder().ins().call(func_ref, &[value]);
+
+                let result = {
+                    let results = self.builder().inst_results(call);
+                    assert!(results.len() == 1, "Invalid number of results");
+                    results[0]
+                };
+
+                result
+            } else {
+                self.remove_temporary_to_dispose(value);
+                value
+            };
+
+            // Finally, store the address of the rhs set.
+            self.builder()
+                .ins()
+                .store(cranelift_codegen::ir::MemFlags::new(), src_value, addr, 0);
+        } else if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_pointer_type(addr_ty)
+        {
+            self.builder()
+                .ins()
+                .store(cranelift_codegen::ir::MemFlags::new(), value, addr, 0);
+        } else {
+            panic!(
+                "Do not know how to assign a value of type {}",
+                self.codegen
+                    .semantic_context
+                    .type_system
+                    .get_type_name(addr_ty)
+            );
+        }
+    }
+
+    fn store_value_into_address(
+        &mut self,
+        addr: cranelift_codegen::ir::Value,
+        addr_ty: pasko_frontend::typesystem::TypeId,
+        value: cranelift_codegen::ir::Value,
+        value_ty: pasko_frontend::typesystem::TypeId,
+    ) {
+        // value_is_variable is set to true so we will always copy rather than move a handle.
+        self.store_value_into_address_impl(
+            addr, addr_ty, value, value_ty, true,
+        );
+    }
+
+    // This function does not walk expr_value!
+    fn store_expr_into_address(
+        &mut self,
+        addr: cranelift_codegen::ir::Value,
+        addr_ty: pasko_frontend::typesystem::TypeId,
+        expr_value: &span::SpannedBox<ast::Expr>,
+    ) {
+        let value = self.get_value(expr_value.id());
+        let value_ty = self
+            .codegen
+            .semantic_context
+            .get_ast_type(expr_value.id())
+            .unwrap();
+
+        let value_is_variable = {
+            match expr_value.get() {
+                ast::Expr::Variable(..) | ast::Expr::VariableReference(..) => true,
+                _ => false,
+            }
+        };
+
+        self.store_value_into_address_impl(addr, addr_ty, value, value_ty, value_is_variable);
+    }
+
+    fn load_value_from_address(
+        &mut self,
+        addr: cranelift_codegen::ir::Value,
+        addr_ty: pasko_frontend::typesystem::TypeId,
+    ) -> cranelift_codegen::ir::Value {
+        if self.codegen.semantic_context.type_system.is_simple_type(addr_ty) {
+            let cranelift_ty = self.codegen.type_to_cranelift_type(addr_ty);
+
+            let v = self.builder().ins().load(
+                cranelift_ty,
+                cranelift_codegen::ir::MemFlags::new(),
+                addr,
+                0,
+            );
+
+            v
+        } else if self.codegen.semantic_context.type_system.is_array_type(addr_ty)
+            || self.codegen.semantic_context.type_system.is_record_type(addr_ty)
+        {
+            // Structured types cannot have value semantics in the cranelift IR.
+            addr
+        } else if self.codegen.semantic_context.type_system.is_set_type(addr_ty)
+            || self.codegen.semantic_context.type_system.is_file_type(addr_ty)
+        {
+            // Set and file types types are opaque pointers so in some sense they're like simple types
+            // but with an opaque pointer type.
+            let pointer_type = self.codegen.pointer_type;
+            let v = self.builder().ins().load(
+                pointer_type,
+                cranelift_codegen::ir::MemFlags::new(),
+                addr,
+                0,
+            );
+
+            v
+        } else if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_pointer_type(addr_ty)
+        {
+            let pointer_type = self.codegen.pointer_type;
+            let v = self.builder().ins().load(
+                pointer_type,
+                cranelift_codegen::ir::MemFlags::new(),
+                addr,
+                0,
+            );
+            v
+        } else {
+            panic!(
+                "Unhandled type {} in variable reference",
+                self.codegen.semantic_context.type_system.get_type_name(addr_ty)
+            );
+        }
     }
 
     pub fn copy_in_function_parameter(
@@ -684,11 +880,20 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
     fn compute_first_argument(
         &mut self,
         args_tree: &Option<Vec<span::SpannedBox<ast::Expr>>>,
-    ) -> (Option<cranelift_codegen::ir::Value>, bool) {
+    ) -> (
+        Option<cranelift_codegen::ir::Value>,
+        bool,
+        pasko_frontend::typesystem::TypeId,
+    ) {
+        let textfile_ty = self
+            .codegen
+            .semantic_context
+            .type_system
+            .get_textfile_type();
         if let Some(args) = args_tree {
             if let Some(first_arg) = args.first() {
                 match first_arg.get() {
-                    ast::Expr::WriteParameter(_) => (None, true),
+                    ast::Expr::WriteParameter(_) => (None, true, textfile_ty),
                     _ => {
                         let first_arg_type = self
                             .codegen
@@ -709,17 +914,21 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .semantic_context
                                 .type_system
                                 .is_textfile_type(first_arg_type);
-                            (Some(self.get_value(first_arg.id())), is_textfile)
+                            (
+                                Some(self.get_value(first_arg.id())),
+                                is_textfile,
+                                first_arg_type,
+                            )
                         } else {
-                            (None, true)
+                            (None, true, textfile_ty)
                         }
                     }
                 }
             } else {
-                (None, true)
+                (None, true, textfile_ty)
             }
         } else {
-            (None, true)
+            (None, true, textfile_ty)
         }
     }
 }
@@ -751,7 +960,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 "write" | "writeln" => {
                     let is_writeln = procedure_name == "writeln";
                     // Compute first argument if any.
-                    let (file_argument, is_textfile) = self.compute_first_argument(&n.1);
+                    let (file_argument, is_textfile, file_type) = self.compute_first_argument(&n.1);
 
                     // is_writeln implies is_textfile
                     assert!(!is_writeln || is_textfile);
@@ -783,7 +992,33 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                             };
 
                             if !is_textfile {
-                                todo!("non-textfiles write");
+                                let component_ty = self
+                                    .codegen
+                                    .semantic_context
+                                    .type_system
+                                    .file_type_get_component_type(file_type);
+                                let component_size = self.emit_const_integer(
+                                    self.codegen.size_in_bytes(component_ty) as i64,
+                                );
+                                // file^ := expr;
+                                let func_id = self.codegen.rt.buffer_var_file.unwrap();
+                                let func_ref = self.get_function_reference(func_id);
+                                let call = self
+                                    .builder()
+                                    .ins()
+                                    .call(func_ref, &[file_argument.unwrap(), component_size]);
+                                let buffer_var = {
+                                    let results = self.builder().inst_results(call);
+                                    assert!(results.len() == 1, "Invalid number of results");
+                                    results[0]
+                                };
+                                self.store_expr_into_address(buffer_var, component_ty, arg);
+                                // put(file);
+                                let func_id = self.codegen.rt.put_file.unwrap();
+                                let func_ref = self.get_function_reference(func_id);
+                                self.builder()
+                                    .ins()
+                                    .call(func_ref, &[file_argument.unwrap(), component_size]);
                             } else if self
                                 .codegen
                                 .semantic_context
@@ -890,7 +1125,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 "read" | "readln" => {
                     let is_readln = procedure_name == "readln";
                     // Compute first argument if any.
-                    let (file_argument, is_textfile) = self.compute_first_argument(&n.1);
+                    let (file_argument, is_textfile, file_type) = self.compute_first_argument(&n.1);
 
                     // is_readln implies is_textfile
                     assert!(!is_readln || is_textfile);
@@ -911,7 +1146,49 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                         .unwrap();
 
                                     if !is_textfile {
-                                        todo!("non-textfiles read");
+                                        let component_ty = self
+                                            .codegen
+                                            .semantic_context
+                                            .type_system
+                                            .file_type_get_component_type(file_type);
+                                        let component_size = self.emit_const_integer(
+                                            self.codegen.size_in_bytes(component_ty) as i64,
+                                        );
+                                        // var := file^;
+                                        // Obtain address of file buffer.
+                                        let func_id = self.codegen.rt.buffer_var_file.unwrap();
+                                        let func_ref = self.get_function_reference(func_id);
+                                        let call = self.builder().ins().call(
+                                            func_ref,
+                                            &[file_argument.unwrap(), component_size],
+                                        );
+                                        let buffer_var = {
+                                            let results = self.builder().inst_results(call);
+                                            assert!(
+                                                results.len() == 1,
+                                                "Invalid number of results"
+                                            );
+                                            results[0]
+                                        };
+                                        // Now load it into a value.
+                                        // FIXME: We are not handling the
+                                        // special case when an implicit
+                                        // conversion (int to real) is allowed
+                                        // here.
+                                        let expr_value = self.load_value_from_address(buffer_var, component_ty);
+                                        self.store_value_into_address(
+                                            var_addr,
+                                            var_ty,
+                                            expr_value,
+                                            component_ty,
+                                        );
+                                        // get(file)
+                                        let func_id = self.codegen.rt.get_file.unwrap();
+                                        let func_ref = self.get_function_reference(func_id);
+                                        self.builder().ins().call(
+                                            func_ref,
+                                            &[file_argument.unwrap(), component_size],
+                                        );
                                     } else if self
                                         .codegen
                                         .semantic_context
@@ -1400,93 +1677,17 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         _id: span::SpanId,
     ) -> bool {
         n.1.get().walk_mut(self, n.1.loc(), n.1.id());
-        let value = self.get_value(n.1.id());
 
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
         let addr = self.get_value(n.0.id());
-        let ty = self
+        let addr_ty = self
             .codegen
             .semantic_context
             .get_ast_type(n.0.id())
             .unwrap();
 
-        if self.codegen.semantic_context.type_system.is_simple_type(ty) {
-            self.builder()
-                .ins()
-                .store(cranelift_codegen::ir::MemFlags::new(), value, addr, 0);
-        } else if self.codegen.semantic_context.type_system.is_array_type(ty)
-            || self.codegen.semantic_context.type_system.is_record_type(ty)
-        {
-            let rhs_ty = self
-                .codegen
-                .semantic_context
-                .get_ast_type(n.1.id())
-                .unwrap();
-            assert!(
-                self.codegen.size_in_bytes(ty) == self.codegen.size_in_bytes(rhs_ty),
-                "Type sizes must match"
-            );
-            let size = self.emit_const_integer(self.codegen.size_in_bytes(ty) as i64);
-            let target_config = {
-                let object_module = self.codegen.object_module.as_ref().unwrap();
-                object_module.target_config()
-            };
-            self.builder()
-                .call_memmove(target_config, addr, value, size);
-        } else if self.codegen.semantic_context.type_system.is_set_type(ty) {
-            // To assign we need first to free the lhs and then copy, if the right hand side is a temporary we can just move the value.
-            let pointer_type = self.codegen.pointer_type;
-            let pointer_value = self.builder().ins().load(
-                pointer_type,
-                cranelift_codegen::ir::MemFlags::new(),
-                addr,
-                0,
-            );
-            self.dispose_set_variable(pointer_value);
-
-            let src_value = {
-                match n.1.get() {
-                    ast::Expr::Variable(..) | ast::Expr::VariableReference(..) => {
-                        // We need to copy the pointer from this variable.
-                        let func_id = self.codegen.rt.set_copy.unwrap();
-                        let func_ref = self.get_function_reference(func_id);
-                        let call = self.builder().ins().call(func_ref, &[value]);
-
-                        let result = {
-                            let results = self.builder().inst_results(call);
-                            assert!(results.len() == 1, "Invalid number of results");
-                            results[0]
-                        };
-
-                        result
-                    }
-                    _ => {
-                        // This temporary does not have to disposed after this expression anymore.
-                        self.remove_temporary_to_dispose(value);
-                        value
-                    }
-                }
-            };
-
-            // Finally, store the address of the rhs set.
-            self.builder()
-                .ins()
-                .store(cranelift_codegen::ir::MemFlags::new(), src_value, addr, 0);
-        } else if self
-            .codegen
-            .semantic_context
-            .type_system
-            .is_pointer_type(ty)
-        {
-            self.builder()
-                .ins()
-                .store(cranelift_codegen::ir::MemFlags::new(), value, addr, 0);
-        } else {
-            panic!(
-                "Do not know how to assign a value of type {}",
-                self.codegen.semantic_context.type_system.get_type_name(ty)
-            );
-        }
+        // This function wals expr_value
+        self.store_expr_into_address(addr, addr_ty, &n.1);
 
         // Dispose the temporaries we may have created while evaluating the rhs.
         self.dispose_temporaries();
@@ -1509,56 +1710,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .get_ast_type(n.0.id())
             .unwrap();
 
-        if self.codegen.semantic_context.type_system.is_simple_type(ty) {
-            let cranelift_ty = self.codegen.type_to_cranelift_type(ty);
-
-            let v = self.builder().ins().load(
-                cranelift_ty,
-                cranelift_codegen::ir::MemFlags::new(),
-                addr,
-                0,
-            );
-
-            self.set_value(id, v);
-        } else if self.codegen.semantic_context.type_system.is_array_type(ty)
-            || self.codegen.semantic_context.type_system.is_record_type(ty)
-        {
-            // Structured types cannot have value semantics in the cranelift IR.
-            self.set_value(id, addr);
-        } else if self.codegen.semantic_context.type_system.is_set_type(ty)
-            || self.codegen.semantic_context.type_system.is_file_type(ty)
-        {
-            // Set and file types types are opaque pointers so in some sense they're like simple types
-            // but with an opaque pointer type.
-            let pointer_type = self.codegen.pointer_type;
-            let v = self.builder().ins().load(
-                pointer_type,
-                cranelift_codegen::ir::MemFlags::new(),
-                addr,
-                0,
-            );
-
-            self.set_value(id, v);
-        } else if self
-            .codegen
-            .semantic_context
-            .type_system
-            .is_pointer_type(ty)
-        {
-            let pointer_type = self.codegen.pointer_type;
-            let v = self.builder().ins().load(
-                pointer_type,
-                cranelift_codegen::ir::MemFlags::new(),
-                addr,
-                0,
-            );
-            self.set_value(id, v);
-        } else {
-            panic!(
-                "Unhandled type {} in variable reference",
-                self.codegen.semantic_context.type_system.get_type_name(ty)
-            );
-        }
+        let v = self.load_value_from_address(addr, ty);
+        self.set_value(id, v);
 
         false
     }

@@ -334,6 +334,7 @@ impl<'a> CodegenVisitor<'a> {
 
         let mut sig = Signature::new(CallConv::SystemV);
         sig.params.push(AbiParam::new(self.pointer_type));
+        sig.params.push(AbiParam::new(I64));
         sig.returns.push(AbiParam::new(self.pointer_type));
         self.rt.buffer_var_file = self.register_import("__pasko_buffer_var_file", sig);
 
