@@ -48,4 +48,13 @@ pub struct RuntimeFunctions {
 
     pub reset_file: Option<cranelift_module::FuncId>,
     pub reset_textfile: Option<cranelift_module::FuncId>,
+
+    pub put_file: Option<cranelift_module::FuncId>,
+    pub put_textfile: Option<cranelift_module::FuncId>,
+
+    pub get_file: Option<cranelift_module::FuncId>,
+    pub get_textfile: Option<cranelift_module::FuncId>,
+
+    pub buffer_var_file: Option<cranelift_module::FuncId>,
+    pub buffer_var_textfile: Option<cranelift_module::FuncId>,
 }

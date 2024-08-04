@@ -313,6 +313,34 @@ impl<'a> CodegenVisitor<'a> {
         let mut sig = Signature::new(CallConv::SystemV);
         sig.params.push(AbiParam::new(self.pointer_type));
         self.rt.reset_textfile = self.register_import("__pasko_reset_textfile", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        sig.params.push(AbiParam::new(I64)); // bytes
+        self.rt.put_file = self.register_import("__pasko_put_file", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        self.rt.put_textfile = self.register_import("__pasko_put_textfile", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        sig.params.push(AbiParam::new(I64)); // bytes
+        self.rt.get_file = self.register_import("__pasko_get_file", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        self.rt.get_textfile = self.register_import("__pasko_get_textfile", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        sig.returns.push(AbiParam::new(self.pointer_type));
+        self.rt.buffer_var_file = self.register_import("__pasko_buffer_var_file", sig);
+
+        let mut sig = Signature::new(CallConv::SystemV);
+        sig.params.push(AbiParam::new(self.pointer_type));
+        sig.returns.push(AbiParam::new(self.pointer_type));
+        self.rt.buffer_var_textfile = self.register_import("__pasko_buffer_var_textfile", sig);
     }
 
     pub fn type_to_cranelift_type(&self, ty: TypeId) -> cranelift_codegen::ir::Type {

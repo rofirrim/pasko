@@ -2828,7 +2828,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         if is_required_procedure(proc_name) {
             match proc_name {
                 "read" | "readln" | "write" | "writeln" | "new" | "dispose" | "rewrite"
-                | "reset" => return true,
+                | "reset" | "put" => return true,
                 _ => {
                     self.unimplemented(*span, &format!("required procedure '{}'", proc_name));
                     return false;
@@ -3148,7 +3148,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         );
                     }
                 }
-                "rewrite" | "reset" => {
+                "rewrite" | "reset" | "put" | "get" => {
                     if let Some(args) = &node.1 {
                         for (idx, arg) in args.iter().enumerate() {
                             if idx > 0 {
@@ -3178,7 +3178,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         self.diagnostics.add(
                             DiagnosticKind::Error,
                             *span,
-                            "a call to new requires exactly one argument".to_owned(),
+                            format!("a call to {} requires exactly one argument", procedure_name),
                         );
                     }
                 }

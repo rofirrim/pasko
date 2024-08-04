@@ -1114,7 +1114,83 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .file_type_get_component_type(ty);
                             let component_size = self.codegen.size_in_bytes(component_ty);
                             (
-                                self.codegen.rt.reset_textfile.unwrap(),
+                                self.codegen.rt.reset_file.unwrap(),
+                                vec![value, self.emit_const_integer(component_size as i64)],
+                            )
+                        };
+                        let func_ref = self.get_function_reference(func_id);
+                        self.builder().ins().call(func_ref, args.as_slice());
+                    }
+                }
+                "put" => {
+                    if let Some(args) = &n.1 {
+                        assert!(args.len() == 1);
+                        let arg = &args[0];
+                        arg.get().walk_mut(self, arg.loc(), arg.id());
+                        let ty = self
+                            .codegen
+                            .semantic_context
+                            .get_ast_type(arg.id())
+                            .unwrap();
+                        let (value, is_textfile) = {
+                            (
+                                self.get_value(arg.id()),
+                                self.codegen
+                                    .semantic_context
+                                    .type_system
+                                    .is_textfile_type(ty),
+                            )
+                        };
+
+                        let (func_id, args) = if is_textfile {
+                            (self.codegen.rt.put_textfile.unwrap(), vec![value])
+                        } else {
+                            let component_ty = self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .file_type_get_component_type(ty);
+                            let component_size = self.codegen.size_in_bytes(component_ty);
+                            (
+                                self.codegen.rt.put_file.unwrap(),
+                                vec![value, self.emit_const_integer(component_size as i64)],
+                            )
+                        };
+                        let func_ref = self.get_function_reference(func_id);
+                        self.builder().ins().call(func_ref, args.as_slice());
+                    }
+                }
+                "get" => {
+                    if let Some(args) = &n.1 {
+                        assert!(args.len() == 1);
+                        let arg = &args[0];
+                        arg.get().walk_mut(self, arg.loc(), arg.id());
+                        let ty = self
+                            .codegen
+                            .semantic_context
+                            .get_ast_type(arg.id())
+                            .unwrap();
+                        let (value, is_textfile) = {
+                            (
+                                self.get_value(arg.id()),
+                                self.codegen
+                                    .semantic_context
+                                    .type_system
+                                    .is_textfile_type(ty),
+                            )
+                        };
+
+                        let (func_id, args) = if is_textfile {
+                            (self.codegen.rt.get_textfile.unwrap(), vec![value])
+                        } else {
+                            let component_ty = self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .file_type_get_component_type(ty);
+                            let component_size = self.codegen.size_in_bytes(component_ty);
+                            (
+                                self.codegen.rt.get_file.unwrap(),
                                 vec![value, self.emit_const_integer(component_size as i64)],
                             )
                         };
@@ -1678,16 +1754,56 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         id: span::SpanId,
     ) -> bool {
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
-        let pointer_addr = self.get_value(n.0.id());
 
-        let pointer_ty = self.codegen.pointer_type;
-        let pointer_value = self.builder().ins().load(
-            pointer_ty,
-            cranelift_codegen::ir::MemFlags::new(),
-            pointer_addr,
-            0,
-        );
-        self.set_value(id, pointer_value);
+        let pointee_type = self
+            .codegen
+            .semantic_context
+            .get_ast_type(n.0.id())
+            .unwrap();
+
+        if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_file_type(pointee_type)
+        {
+            let is_textfile = self
+                .codegen
+                .semantic_context
+                .type_system
+                .is_textfile_type(pointee_type);
+            let file_value = self.get_value(n.0.id());
+            let component_ty = self
+                .codegen
+                .semantic_context
+                .type_system
+                .file_type_get_component_type(pointee_type);
+
+            let (func_ref, args) = if is_textfile {
+                let func_id = self.codegen.rt.buffer_var_textfile.unwrap();
+                let func_ref = self.get_function_reference(func_id);
+                (func_ref, vec![file_value])
+            } else {
+                let component_size = self.codegen.size_in_bytes(component_ty);
+                let func_id = self.codegen.rt.buffer_var_file.unwrap();
+                let func_ref = self.get_function_reference(func_id);
+                let size = self.emit_const_integer(component_size as i64);
+                (func_ref, vec![file_value, size])
+            };
+
+            self.builder().ins().call(func_ref, args.as_slice());
+        } else {
+            let pointer_addr = self.get_value(n.0.id());
+
+            let pointer_ty = self.codegen.pointer_type;
+            let pointer_value = self.builder().ins().load(
+                pointer_ty,
+                cranelift_codegen::ir::MemFlags::new(),
+                pointer_addr,
+                0,
+            );
+            self.set_value(id, pointer_value);
+        }
 
         false
     }

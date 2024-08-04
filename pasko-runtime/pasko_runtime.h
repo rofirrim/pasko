@@ -77,6 +77,9 @@ PASKO_RUNTIME_PUBLIC void __pasko_put_file(pasko_file_t *f, uint64_t bytes);
 PASKO_RUNTIME_PUBLIC void __pasko_get_textfile(pasko_file_t *f);
 PASKO_RUNTIME_PUBLIC void __pasko_put_textfile(pasko_file_t *f);
 
+PASKO_RUNTIME_PUBLIC void *__pasko_buffer_var_file(pasko_file_t *f, uint64_t bytes);
+PASKO_RUNTIME_PUBLIC uint32_t *__pasko_buffer_var_textfile(pasko_file_t *f);
+
 // Set type
 typedef struct pasko_set_t pasko_set_t;
 PASKO_RUNTIME_PUBLIC pasko_set_t *__pasko_set_new(uint64_t N, int64_t *values);

@@ -113,7 +113,7 @@ __pasko_buffer_char_new(pasko_buffer_textfile_t *src) {
 #define UTF8_EOF UINT32_MAX
 #define UNICODE_REPLACEMENT_CHAR 0xFFFD
 
-static int __pasko_buffer_char_peek(pasko_buffer_char_t *b) {
+static uint32_t __pasko_buffer_char_peek(pasko_buffer_char_t *b) {
   assert(b->end >= b->start);
 
   size_t num_queued_items = b->end - b->start;
@@ -228,6 +228,11 @@ static int __pasko_buffer_char_peek(pasko_buffer_char_t *b) {
   }
 
   return b->buffer[b->start];
+}
+
+static uint32_t *__pasko_buffer_char_peek_addr(pasko_buffer_char_t *b) {
+  (void)__pasko_buffer_char_peek(b);
+  return &b->buffer[b->start];
 }
 
 static void __pasko_buffer_char_skip(pasko_buffer_char_t *b) {
@@ -407,11 +412,9 @@ void __pasko_write_newline(void) {
   __pasko_write_textfile_newline(&__pasko_file_output);
 }
 
-static bool is_whitespace(uint32_t c) {
-  return c == ' ';
-}
+static bool is_whitespace(uint32_t c) { return c == ' '; }
 
-static void __pasko_skip_whitespace(pasko_file_t* f) {
+static void __pasko_skip_whitespace(pasko_file_t *f) {
   uint32_t v = __pasko_buffer_char_peek(f->read_buffer);
   while (is_whitespace(v)) {
     __pasko_buffer_char_skip(f->read_buffer);
@@ -619,12 +622,11 @@ void __pasko_reset_textfile(pasko_file_t *f) {
   f->is_textfile = true;
 }
 
-void __pasko_set_buffer_var_textfile(pasko_file_t *f, uint32_t c) {
-  __pasko_write_textfile_char(f, c);
-}
-
-uint32_t __pasko_get_buffer_var_textfile(pasko_file_t *f) {
-  return __pasko_buffer_char_peek(f->read_buffer);
+uint32_t *__pasko_buffer_var_textfile(pasko_file_t *f) {
+  if (f->mode == PASKO_FILE_MODE_INSPECT)
+    return __pasko_buffer_char_peek_addr(f->read_buffer);
+  else
+    return (uint32_t*)__pasko_buffer_var_file(f, sizeof(uint32_t));
 }
 
 void __pasko_rewrite_file(pasko_file_t *f) {
@@ -727,8 +729,7 @@ void __pasko_init_io(int argc, char *argv[], int num_program_params,
           __pasko_deallocate(program_param_str);
           continue;
         }
-        int fd =
-            open(argument_value, O_RDWR | O_CREAT, 0644);
+        int fd = open(argument_value, O_RDWR | O_CREAT, 0644);
         FILE *f = NULL;
         if (fd >= 0)
           f = fdopen(fd, "r+");
