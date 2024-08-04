@@ -1089,11 +1089,11 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         assert!(args.len() == 1);
                         let arg = &args[0];
                         arg.get().walk_mut(self, arg.loc(), arg.id());
-                            let ty = self
-                                .codegen
-                                .semantic_context
-                                .get_ast_type(arg.id())
-                                .unwrap();
+                        let ty = self
+                            .codegen
+                            .semantic_context
+                            .get_ast_type(arg.id())
+                            .unwrap();
                         let (value, is_textfile) = {
                             (
                                 self.get_value(arg.id()),
