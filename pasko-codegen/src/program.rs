@@ -871,13 +871,19 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             .unwrap();
         let mut func = Function::with_name_signature(UserFuncName::user(0, func_id.as_u32()), sig);
 
-        // Obtain early reference to __pasko_init.
+        // Obtain early reference to __pasko_init and __pasko_finish
         let pasko_init_id = self.rt.init.unwrap();
         let pasko_init_func_ref = self
             .object_module
             .as_mut()
             .unwrap()
             .declare_func_in_func(pasko_init_id, &mut func);
+        let pasko_finish_id = self.rt.finish.unwrap();
+        let pasko_finish_func_ref = self
+            .object_module
+            .as_mut()
+            .unwrap()
+            .declare_func_in_func(pasko_finish_id, &mut func);
 
         let mut func_builder_ctx = FunctionBuilderContext::new();
         let builder = FunctionBuilder::new(&mut func, &mut func_builder_ctx);
@@ -952,6 +958,15 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
 
         // Now free the global stuff that needs to be freed.
         function_codegen.dispose_symbols();
+
+        // And now finalize the runtime.
+        function_codegen.builder().ins().call(
+            pasko_finish_func_ref,
+            &[
+                num_global_files,
+                global_files_addr,
+            ],
+        );
 
         // So return 0 because this is a well behaved main.
         let zero = function_codegen.builder().ins().iconst(I32, 0);

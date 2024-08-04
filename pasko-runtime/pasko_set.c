@@ -1,12 +1,12 @@
-#include <pasko_internal.h>
-#include <pasko_runtime.h>
-
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+
+#include <pasko_internal.h>
+#include <pasko_runtime.h>
 
 enum set_mode {
   SM_BITMAP,

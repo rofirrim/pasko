@@ -1,9 +1,5 @@
-#include <pasko_internal.h>
-#include <pasko_runtime.h>
-
 #include <assert.h>
 #include <errno.h>
-#include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -13,6 +9,9 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#include <pasko_internal.h>
+#include <pasko_runtime.h>
 
 // Buffer of characters + EOF.
 typedef struct pasko_buffer_textfile_t {
@@ -36,13 +35,14 @@ static void __pasko_buffer_textfile_init(pasko_buffer_textfile_t *b, FILE *f) {
 }
 
 static pasko_buffer_textfile_t *__pasko_buffer_textfile_new(FILE *f) {
-  pasko_buffer_textfile_t *b = malloc(sizeof(*b));
+  pasko_buffer_textfile_t *b = __pasko_allocate(sizeof(*b));
   __pasko_buffer_textfile_init(b, f);
   return b;
 }
 
 static void __pasko_buffer_textfile_finish(pasko_buffer_textfile_t *b) {
-  free(b->buffer);
+  __pasko_deallocate(b->buffer);
+  __pasko_deallocate(b);
 }
 
 enum { INITIAL_TEXTFILE_BUFFER_SIZE = 16, INITIAL_UTF8_BUFFER_SIZE = 16 };
@@ -57,7 +57,7 @@ static int __pasko_buffer_textfile_peek(pasko_buffer_textfile_t *b) {
     // Check if there is enough room in the current buffer. If not reallocate.
     if (b->end + 1 > b->size) {
       size_t new_size = b->size ? b->size * 2 : INITIAL_TEXTFILE_BUFFER_SIZE;
-      void *r = realloc(b->buffer, new_size * sizeof(int));
+      void *r = __pasko_reallocate(b->buffer, new_size * sizeof(int));
       if (!r)
         __pasko_runtime_error("failed allocation of textfile buffer");
       b->buffer = r;
@@ -105,7 +105,7 @@ static void __pasko_buffer_char_init(pasko_buffer_char_t *b,
 
 static pasko_buffer_char_t *
 __pasko_buffer_char_new(pasko_buffer_textfile_t *src) {
-  pasko_buffer_char_t *b = malloc(sizeof(*b));
+  pasko_buffer_char_t *b = __pasko_allocate(sizeof(*b));
   __pasko_buffer_char_init(b, src);
   return b;
 }
@@ -123,7 +123,7 @@ static int __pasko_buffer_char_peek(pasko_buffer_char_t *b) {
     // Check if there is enough room in the current buffer. If not reallocate.
     if (b->end + 1 > b->size) {
       size_t new_size = b->size ? b->size * 2 : INITIAL_UTF8_BUFFER_SIZE;
-      void *r = realloc(b->buffer, new_size * sizeof(uint32_t));
+      void *r = __pasko_reallocate(b->buffer, new_size * sizeof(uint32_t));
       if (!r)
         __pasko_runtime_error("failed allocation of textfile buffer");
       b->buffer = r;
@@ -243,7 +243,8 @@ static void __pasko_buffer_char_skip(pasko_buffer_char_t *b) {
 
 static void __pasko_buffer_char_finish(pasko_buffer_char_t *b) {
   __pasko_buffer_textfile_finish(b->src);
-  free(b->buffer);
+  __pasko_deallocate(b->buffer);
+  __pasko_deallocate(b);
 }
 
 // File
@@ -569,7 +570,7 @@ void __pasko_read_newline(void) {
 
 void __pasko_buffer_var_allocate_if_neded(pasko_file_t *f, uint64_t bytes) {
   if (f->buffer_var == NULL) {
-    f->buffer_var = malloc(bytes);
+    f->buffer_var = __pasko_allocate(bytes);
   }
 }
 
@@ -698,7 +699,7 @@ void __pasko_init_io(int argc, char *argv[], int num_program_params,
     }
 
     ptrdiff_t colon_idx = equal - &argv[i][0];
-    char *argument = strdup(argv[i]);
+    char *argument = __pasko_strdup(argv[i]);
     argument[colon_idx] = '\0';
     char *argument_name = argument + 2;
     char *argument_value = argument + (colon_idx + 1);
@@ -751,7 +752,6 @@ void __pasko_init_io(int argc, char *argv[], int num_program_params,
 
         // So we know this file has already been bound.
         file_is_open[program_param_idx] = true;
-        break;
       }
 
       __pasko_deallocate(program_param_str);
@@ -762,11 +762,11 @@ void __pasko_init_io(int argc, char *argv[], int num_program_params,
                argument_name);
       msg[255] = '\0';
       __pasko_ignoring_argument(argv[i], msg);
-      free(argument);
+      __pasko_deallocate(argument);
       continue;
     }
 
-    free(argument);
+    __pasko_deallocate(argument);
   }
 
   // Now check all the files have been bound.
@@ -797,5 +797,6 @@ void __pasko_finish_io(int num_global_files, pasko_file_t **global_files[]) {
         __pasko_deallocate(f->buffer_var);
     }
     fclose(f->file);
+    __pasko_deallocate(f);
   }
 }
