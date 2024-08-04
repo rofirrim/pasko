@@ -1186,7 +1186,14 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     assert!(!is_readln || is_textfile);
 
                     if let Some(args) = &n.1 {
-                        for arg in &args[if file_argument.is_none() { 0 } else { 1 }..] {
+                        for current_arg in &args[if file_argument.is_none() { 0 } else { 1 }..] {
+                            // Handle conversions
+                            let (arg, is_implicit_conversion) = {
+                                match current_arg.get() {
+                                    ast::Expr::Conversion(arg) => (&arg.0, true),
+                                    _ => (current_arg, false),
+                                }
+                            };
                             match arg.get() {
                                 ast::Expr::Variable(expr_var) => {
                                     let var = &expr_var.0;
@@ -1225,13 +1232,21 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                             );
                                             results[0]
                                         };
-                                        // Now load it into a value.
-                                        // FIXME: We are not handling the
-                                        // special case when an implicit
-                                        // conversion (int to real) is allowed
-                                        // here.
                                         let expr_value =
                                             self.load_value_from_address(buffer_var, component_ty);
+                                        let (expr_value, component_ty) = if is_implicit_conversion {
+                                            (
+                                                self.emit_conversion(
+                                                    var_ty,
+                                                    component_ty,
+                                                    expr_value,
+                                                ),
+                                                var_ty,
+                                            )
+                                        } else {
+                                            assert!(self.codegen.semantic_context.type_system.same_type(var_ty, component_ty));
+                                            (expr_value, component_ty)
+                                        };
                                         self.store_value_into_address(
                                             var_addr,
                                             var_ty,

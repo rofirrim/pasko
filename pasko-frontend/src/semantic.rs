@@ -2979,10 +2979,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             match procedure_name {
                 "read" | "readln" => {
                     let is_readln = procedure_name == "readln";
-                    if let Some(args) = &node.1 {
+                    if let Some(args) = &mut node.1 {
                         let (first_arg, file_component, is_textfile) =
                             self.analyze_write_read_args("read", "input", is_readln, span, args);
-                        for arg in &args[first_arg..] {
+                        for arg in &mut args[first_arg..] {
                             match arg.get() {
                                 ast::Expr::Variable(_) => {
                                     let ty = self.ctx.get_ast_type(arg.id()).unwrap();
@@ -3015,7 +3015,21 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                     } else {
                                         if !self.ctx.type_system.is_error_type(file_component)
                                             && !self.ctx.type_system.is_error_type(ty)
-                                            && !self.is_assignment_compatible(ty, file_component)
+                                            && self.is_assignment_compatible(ty, file_component)
+                                        {
+                                            if !self.ctx.type_system.same_type(ty, file_component) {
+                                                let conversion =
+                                                    SemanticCheckerVisitor::create_conversion_expr(
+                                                        arg.take(),
+                                                    );
+                                                arg.reset(conversion);
+                                                self.ctx.set_ast_type(arg.id(), ty);
+                                            }
+                                        } else if !self
+                                            .ctx
+                                            .type_system
+                                            .is_error_type(file_component)
+                                            && !self.ctx.type_system.is_error_type(ty)
                                         {
                                             self.diagnostics.add(
                                                 DiagnosticKind::Error,
