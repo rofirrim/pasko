@@ -379,9 +379,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         value_ty: pasko_frontend::typesystem::TypeId,
     ) {
         // value_is_variable is set to true so we will always copy rather than move a handle.
-        self.store_value_into_address_impl(
-            addr, addr_ty, value, value_ty, true,
-        );
+        self.store_value_into_address_impl(addr, addr_ty, value, value_ty, true);
     }
 
     // This function does not walk expr_value!
@@ -413,7 +411,12 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         addr: cranelift_codegen::ir::Value,
         addr_ty: pasko_frontend::typesystem::TypeId,
     ) -> cranelift_codegen::ir::Value {
-        if self.codegen.semantic_context.type_system.is_simple_type(addr_ty) {
+        if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_simple_type(addr_ty)
+        {
             let cranelift_ty = self.codegen.type_to_cranelift_type(addr_ty);
 
             let v = self.builder().ins().load(
@@ -424,13 +427,29 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             );
 
             v
-        } else if self.codegen.semantic_context.type_system.is_array_type(addr_ty)
-            || self.codegen.semantic_context.type_system.is_record_type(addr_ty)
+        } else if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_array_type(addr_ty)
+            || self
+                .codegen
+                .semantic_context
+                .type_system
+                .is_record_type(addr_ty)
         {
             // Structured types cannot have value semantics in the cranelift IR.
             addr
-        } else if self.codegen.semantic_context.type_system.is_set_type(addr_ty)
-            || self.codegen.semantic_context.type_system.is_file_type(addr_ty)
+        } else if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_set_type(addr_ty)
+            || self
+                .codegen
+                .semantic_context
+                .type_system
+                .is_file_type(addr_ty)
         {
             // Set and file types types are opaque pointers so in some sense they're like simple types
             // but with an opaque pointer type.
@@ -460,7 +479,43 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         } else {
             panic!(
                 "Unhandled type {} in variable reference",
-                self.codegen.semantic_context.type_system.get_type_name(addr_ty)
+                self.codegen
+                    .semantic_context
+                    .type_system
+                    .get_type_name(addr_ty)
+            );
+        }
+    }
+
+    fn emit_conversion(
+        &mut self,
+        dest_ty: pasko_frontend::typesystem::TypeId,
+        src_ty: pasko_frontend::typesystem::TypeId,
+        src_value: cranelift_codegen::ir::Value,
+    ) -> cranelift_codegen::ir::Value {
+        if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_real_type(dest_ty)
+            && self
+                .codegen
+                .semantic_context
+                .type_system
+                .is_integer_type(src_ty)
+        {
+            self.builder().ins().fcvt_from_sint(F64, src_value)
+        } else {
+            panic!(
+                "Unexpected conversion from {} to {}",
+                self.codegen
+                    .semantic_context
+                    .type_system
+                    .get_type_name(src_ty),
+                self.codegen
+                    .semantic_context
+                    .type_system
+                    .get_type_name(dest_ty)
             );
         }
     }
@@ -1175,7 +1230,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                         // special case when an implicit
                                         // conversion (int to real) is allowed
                                         // here.
-                                        let expr_value = self.load_value_from_address(buffer_var, component_ty);
+                                        let expr_value =
+                                            self.load_value_from_address(buffer_var, component_ty);
                                         self.store_value_into_address(
                                             var_addr,
                                             var_ty,
@@ -2294,32 +2350,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         let src_value = self.get_value(n.0.id());
 
-        if self
-            .codegen
-            .semantic_context
-            .type_system
-            .is_real_type(dest_ty)
-            && self
-                .codegen
-                .semantic_context
-                .type_system
-                .is_integer_type(src_ty)
-        {
-            let value = self.builder().ins().fcvt_from_sint(F64, src_value);
-            self.set_value(id, value);
-        } else {
-            panic!(
-                "Unexpected conversion from {} to {}",
-                self.codegen
-                    .semantic_context
-                    .type_system
-                    .get_type_name(src_ty),
-                self.codegen
-                    .semantic_context
-                    .type_system
-                    .get_type_name(dest_ty)
-            );
-        }
+        let value = self.emit_conversion(dest_ty, src_ty, src_value);
+        self.set_value(id, value);
 
         false
     }
