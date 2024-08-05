@@ -656,6 +656,48 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         gv
     }
 
+    fn get_file_addr(
+        &mut self,
+        gv: cranelift_codegen::ir::GlobalValue,
+    ) -> cranelift_codegen::ir::Value {
+        let pointer_type = self.codegen.pointer_type;
+        self.builder().ins().global_value(pointer_type, gv)
+    }
+
+    fn get_file_val(
+        &mut self,
+        gv: cranelift_codegen::ir::GlobalValue,
+    ) -> cranelift_codegen::ir::Value {
+        let pointer_type = self.codegen.pointer_type;
+        let addr = self.get_file_addr(gv);
+        self.builder().ins().load(
+            pointer_type,
+            cranelift_codegen::ir::MemFlags::new(),
+            addr,
+            0,
+        )
+    }
+
+    pub fn get_input_file_val(&mut self) -> cranelift_codegen::ir::Value {
+        let gv = self.get_global_value(self.codegen.get_input_file_data_id());
+        self.get_file_val(gv)
+    }
+
+    pub fn get_output_file_val(&mut self) -> cranelift_codegen::ir::Value {
+        let gv = self.get_global_value(self.codegen.get_output_file_data_id());
+        self.get_file_val(gv)
+    }
+
+    pub fn get_input_file_addr(&mut self) -> cranelift_codegen::ir::Value {
+        let gv = self.get_global_value(self.codegen.get_input_file_data_id());
+        self.get_file_addr(gv)
+    }
+
+    pub fn get_output_file_addr(&mut self) -> cranelift_codegen::ir::Value {
+        let gv = self.get_global_value(self.codegen.get_output_file_data_id());
+        self.get_file_addr(gv)
+    }
+
     pub fn get_function_reference(
         &mut self,
         func_id: cranelift_module::FuncId,
@@ -860,26 +902,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         if sym.is_required() {
             match sym.get_name().as_str() {
                 "input" => {
-                    let func_id = self.codegen.rt.input_file.unwrap();
-                    let func_ref = self.get_function_reference(func_id);
-                    let call = self.builder().ins().call(func_ref, &[]);
-                    let result = {
-                        let results = self.builder().inst_results(call);
-                        assert!(results.len() == 1, "Invalid number of results");
-                        results[0]
-                    };
-                    return result;
+                    return self.get_input_file_addr();
                 }
                 "output" => {
-                    let func_id = self.codegen.rt.output_file.unwrap();
-                    let func_ref = self.get_function_reference(func_id);
-                    let call = self.builder().ins().call(func_ref, &[]);
-                    let result = {
-                        let results = self.builder().inst_results(call);
-                        assert!(results.len() == 1, "Invalid number of results");
-                        results[0]
-                    };
-                    return result;
+                    return self.get_output_file_addr();
                 }
                 _ => {
                     panic!("unexpected required variable '{}'", sym.get_name());
@@ -1244,7 +1270,11 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                                 var_ty,
                                             )
                                         } else {
-                                            assert!(self.codegen.semantic_context.type_system.same_type(var_ty, component_ty));
+                                            assert!(self
+                                                .codegen
+                                                .semantic_context
+                                                .type_system
+                                                .same_type(var_ty, component_ty));
                                             (expr_value, component_ty)
                                         };
                                         self.store_value_into_address(

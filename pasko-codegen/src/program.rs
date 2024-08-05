@@ -16,7 +16,7 @@ use cranelift_codegen::ir::{
 use cranelift_codegen::isa::{CallConv, TargetFrontendConfig};
 use cranelift_codegen::settings;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_module::{DataDescription, Module};
+use cranelift_module::{DataDescription, DataId, Module};
 
 use cranelift_codegen::verifier::verify_function;
 
@@ -57,6 +57,9 @@ pub struct CodegenVisitor<'a> {
     globals_to_dispose: Vec<SymbolId>,
     size_align_cache: RefCell<HashMap<TypeId, SizeAndAlignment>>,
     trivially_copiable_cache: RefCell<HashMap<TypeId, bool>>,
+
+    input_data_id: Option<cranelift_module::DataId>,
+    output_data_id: Option<cranelift_module::DataId>,
 }
 
 impl<'a> CodegenVisitor<'a> {
@@ -97,6 +100,8 @@ impl<'a> CodegenVisitor<'a> {
             globals_to_dispose: vec![],
             size_align_cache: RefCell::new(HashMap::new()),
             trivially_copiable_cache: RefCell::new(HashMap::new()),
+            input_data_id: None,
+            output_data_id: None,
         };
 
         visitor.initialize_module();
@@ -842,6 +847,42 @@ impl<'a> CodegenVisitor<'a> {
 
         r
     }
+
+    pub fn register_input_output(&mut self) {
+        let input_output: Vec<_> = (0..2)
+            .map(|_x| {
+                let data_id = self
+                    .object_module
+                    .as_mut()
+                    .unwrap()
+                    .declare_anonymous_data(true, false)
+                    .unwrap();
+
+                let mut data_desc = DataDescription::new();
+                let size_in_bytes = self.pointer_type.bytes();
+                data_desc.define_zeroinit(size_in_bytes as usize);
+                data_desc.set_align(size_in_bytes as u64);
+
+                self.object_module
+                    .as_mut()
+                    .unwrap()
+                    .define_data(data_id, &data_desc)
+                    .unwrap();
+                data_id
+            })
+            .collect();
+
+        self.input_data_id = Some(input_output[0]);
+        self.output_data_id = Some(input_output[1]);
+    }
+
+    pub fn get_input_file_data_id(&self) -> cranelift_module::DataId {
+        self.input_data_id.unwrap()
+    }
+
+    pub fn get_output_file_data_id(&self) -> cranelift_module::DataId {
+        self.output_data_id.unwrap()
+    }
 }
 
 impl<'a> VisitorMut for CodegenVisitor<'a> {
@@ -879,6 +920,10 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                 .walk_mut(self, variables.loc(), variables.id());
         }
 
+        // Create input and output as standard files.
+        // TODO: We only have to do this if input, output appear in program.
+        self.register_input_output();
+
         // Functions and procedures
         if let Some(procedures) = procedures {
             procedures
@@ -914,6 +959,24 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             .unwrap()
             .declare_func_in_func(pasko_finish_id, &mut func);
 
+        let get_input_func_id = self.rt.input_file.unwrap();
+        let get_input_func_ref = self
+            .object_module
+            .as_mut()
+            .unwrap()
+            .declare_func_in_func(get_input_func_id, &mut func);
+
+        let get_output_func_id = self.rt.output_file.unwrap();
+        let get_output_func_ref = self
+            .object_module
+            .as_mut()
+            .unwrap()
+            .declare_func_in_func(get_output_func_id, &mut func);
+
+        let input_data_id = self.input_data_id.unwrap();
+        let output_data_id = self.output_data_id.unwrap();
+        let pointer_type = self.pointer_type;
+
         let mut func_builder_ctx = FunctionBuilderContext::new();
         let builder = FunctionBuilder::new(&mut func, &mut func_builder_ctx);
 
@@ -940,7 +1003,6 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             .ins()
             .iconst(I32, num_program_params);
 
-        // Emit array of strings.
         let program_params_addr = {
             let str_addresses: Vec<_> = program_parameters
                 .iter()
@@ -977,6 +1039,48 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             ],
         );
 
+        // Store the values of input and output.
+        let call = function_codegen
+            .builder()
+            .ins()
+            .call(get_input_func_ref, &[]);
+        let result = {
+            let results = function_codegen.builder().inst_results(call);
+            assert!(results.len() == 1, "Invalid number of results");
+            results[0]
+        };
+        let input_addr_gv = function_codegen.get_global_value(input_data_id);
+        let input_addr = function_codegen
+            .builder()
+            .ins()
+            .global_value(pointer_type, input_addr_gv);
+        function_codegen.builder().ins().store(
+            cranelift_codegen::ir::MemFlags::new(),
+            result,
+            input_addr,
+            0,
+        );
+        let call = function_codegen
+            .builder()
+            .ins()
+            .call(get_output_func_ref, &[]);
+        let result = {
+            let results = function_codegen.builder().inst_results(call);
+            assert!(results.len() == 1, "Invalid number of results");
+            results[0]
+        };
+        let output_addr_gv = function_codegen.get_global_value(output_data_id);
+        let output_addr = function_codegen
+            .builder()
+            .ins()
+            .global_value(pointer_type, output_addr_gv);
+        function_codegen.builder().ins().store(
+            cranelift_codegen::ir::MemFlags::new(),
+            result,
+            output_addr,
+            0,
+        );
+
         // Create the IR for the statements.
         statements
             .get()
@@ -991,10 +1095,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         // And now finalize the runtime.
         function_codegen.builder().ins().call(
             pasko_finish_func_ref,
-            &[
-                num_global_files,
-                global_files_addr,
-            ],
+            &[num_global_files, global_files_addr],
         );
 
         // So return 0 because this is a well behaved main.
