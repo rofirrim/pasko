@@ -28,7 +28,7 @@ PASKO_RUNTIME_PUBLIC void __pasko_finish(int num_global_files,
                                          pasko_file_t **global_files[]);
 
 // I/O
-// file output
+// textfile output
 PASKO_RUNTIME_PUBLIC void
 __pasko_write_textfile_i64(pasko_file_t *file, int64_t num, int total_width);
 PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_f64(pasko_file_t *file,
@@ -44,27 +44,15 @@ PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_bool(pasko_file_t *file,
 
 PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_newline(pasko_file_t *file);
 
-// file input
+// textfile input
 PASKO_RUNTIME_PUBLIC int64_t __pasko_read_textfile_i64(pasko_file_t *);
 PASKO_RUNTIME_PUBLIC double __pasko_read_textfile_f64(pasko_file_t *);
 PASKO_RUNTIME_PUBLIC void __pasko_read_textfile_newline(pasko_file_t *);
 
 // input
-PASKO_RUNTIME_PUBLIC int64_t __pasko_read_i64(void);
-PASKO_RUNTIME_PUBLIC double __pasko_read_f64(void);
-PASKO_RUNTIME_PUBLIC void __pasko_read_newline(void);
-
 PASKO_RUNTIME_PUBLIC pasko_file_t *__pasko_get_input(void);
 
 // output
-PASKO_RUNTIME_PUBLIC void __pasko_write_i64(int64_t num, int total_width);
-PASKO_RUNTIME_PUBLIC void __pasko_write_f64(double num, int total_width,
-                                            int frac_digits);
-PASKO_RUNTIME_PUBLIC void __pasko_write_str(const uint32_t *);
-PASKO_RUNTIME_PUBLIC void __pasko_write_char(uint32_t);
-PASKO_RUNTIME_PUBLIC void __pasko_write_bool(uint8_t b);
-PASKO_RUNTIME_PUBLIC void __pasko_write_newline(void);
-
 PASKO_RUNTIME_PUBLIC pasko_file_t *__pasko_get_output(void);
 
 // files i/o

@@ -351,9 +351,6 @@ void __pasko_write_textfile_i64(pasko_file_t *f, int64_t num, int total_width) {
   }
   fprintf(f->file, "%ld", a);
 }
-void __pasko_write_i64(int64_t num, int total_width) {
-  __pasko_write_textfile_i64(&__pasko_file_output, num, total_width);
-}
 
 void __pasko_write_textfile_f64(pasko_file_t *f, double num, int total_width,
                                 int frac_digits) {
@@ -371,10 +368,6 @@ void __pasko_write_textfile_f64(pasko_file_t *f, double num, int total_width,
     fprintf(f->file, "%*.*f", total_width, frac_digits, num);
   }
 }
-void __pasko_write_f64(double num, int total_width, int frac_digits) {
-  __pasko_write_textfile_f64(&__pasko_file_output, num, total_width,
-                             frac_digits);
-}
 
 void __pasko_write_textfile_str(pasko_file_t *f, const uint32_t *str) {
   __pasko_check_write(f);
@@ -384,32 +377,20 @@ void __pasko_write_textfile_str(pasko_file_t *f, const uint32_t *str) {
   fprintf(f->file, "%s", (char *)c);
   __pasko_deallocate(c);
 }
-void __pasko_write_str(const uint32_t *str) {
-  __pasko_write_textfile_str(&__pasko_file_output, str);
-}
 
 void __pasko_write_textfile_char(pasko_file_t *f, uint32_t c) {
   uint32_t str[2] = {c, 0};
   __pasko_write_textfile_str(f, str);
-}
-void __pasko_write_char(uint32_t c) {
-  __pasko_write_textfile_char(&__pasko_file_output, c);
 }
 
 void __pasko_write_textfile_bool(pasko_file_t *f, uint8_t b) {
   __pasko_check_write(f);
   fprintf(f->file, "%s", b ? "True" : "False");
 }
-void __pasko_write_bool(uint8_t b) {
-  __pasko_write_textfile_bool(&__pasko_file_output, b);
-}
 
 void __pasko_write_textfile_newline(pasko_file_t *f) {
   __pasko_check_write(f);
   fprintf(f->file, "%s", "\n");
-}
-void __pasko_write_newline(void) {
-  __pasko_write_textfile_newline(&__pasko_file_output);
 }
 
 static bool is_whitespace(uint32_t c) { return c == ' '; }
@@ -452,9 +433,6 @@ int64_t __pasko_read_textfile_i64(pasko_file_t *f) {
   }
   __pasko_runtime_error("incorrectly formatted integer");
   return 0;
-}
-int64_t __pasko_read_i64(void) {
-  return __pasko_read_textfile_i64(&__pasko_file_input);
 }
 
 double __pasko_read_textfile_f64(pasko_file_t *f) {
@@ -552,9 +530,6 @@ double __pasko_read_textfile_f64(pasko_file_t *f) {
   __pasko_runtime_error("incorrectly formatted real");
   return 0;
 }
-double __pasko_read_f64(void) {
-  return __pasko_read_textfile_f64(&__pasko_file_input);
-}
 
 void __pasko_read_textfile_newline(pasko_file_t *f) {
   __pasko_check_read(f);
@@ -566,9 +541,6 @@ void __pasko_read_textfile_newline(pasko_file_t *f) {
   if (v == UTF8_EOF) {
     __pasko_runtime_error("end of file while advancing newline");
   }
-}
-void __pasko_read_newline(void) {
-  __pasko_read_textfile_newline(&__pasko_file_input);
 }
 
 void __pasko_buffer_var_allocate_if_needed(pasko_file_t *f, uint64_t bytes) {
