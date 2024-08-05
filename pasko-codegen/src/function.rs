@@ -1047,13 +1047,12 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     assert!(!is_writeln || is_textfile);
 
                     if let Some(args) = &n.1 {
-                        let zero = self.builder().ins().iconst(I32, 0);
                         for arg in &args[if file_argument.is_none() { 0 } else { 1 }..] {
                             let (v, type_id, total_width, fract_digits): (
                                 cranelift_codegen::ir::Value,
                                 TypeId,
-                                cranelift_codegen::ir::Value,
-                                cranelift_codegen::ir::Value,
+                                Option<cranelift_codegen::ir::Value>,
+                                Option<cranelift_codegen::ir::Value>,
                             ) = match arg.get() {
                                 ast::Expr::WriteParameter(_) => {
                                     panic!("Write parameter not implemented yet!");
@@ -1066,8 +1065,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                             .semantic_context
                                             .get_ast_type(arg.id())
                                             .unwrap(),
-                                        zero,
-                                        zero,
+                                        None,
+                                        None,
                                     )
                                 }
                             };
@@ -1109,10 +1108,14 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 if let Some(file) = file_argument {
                                     let func_id = self.codegen.rt.write_textfile_i64.unwrap();
                                     let func_ref = self.get_function_reference(func_id);
+                                    let total_width =
+                                        total_width.unwrap_or_else(|| self.emit_const_integer(0));
                                     self.builder().ins().call(func_ref, &[file, v, total_width]);
                                 } else {
                                     let func_id = self.codegen.rt.write_i64.unwrap();
                                     let func_ref = self.get_function_reference(func_id);
+                                    let total_width =
+                                        total_width.unwrap_or_else(|| self.emit_const_integer(0));
                                     self.builder().ins().call(func_ref, &[v, total_width]);
                                 }
                             } else if self
@@ -1124,12 +1127,20 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 if let Some(file) = file_argument {
                                     let func_id = self.codegen.rt.write_textfile_f64.unwrap();
                                     let func_ref = self.get_function_reference(func_id);
+                                    let total_width =
+                                        total_width.unwrap_or_else(|| self.emit_const_integer(0));
+                                    let fract_digits =
+                                        fract_digits.unwrap_or_else(|| self.emit_const_integer(0));
                                     self.builder()
                                         .ins()
                                         .call(func_ref, &[file, v, total_width, fract_digits]);
                                 } else {
                                     let func_id = self.codegen.rt.write_f64.unwrap();
                                     let func_ref = self.get_function_reference(func_id);
+                                    let total_width =
+                                        total_width.unwrap_or_else(|| self.emit_const_integer(0));
+                                    let fract_digits =
+                                        fract_digits.unwrap_or_else(|| self.emit_const_integer(0));
                                     self.builder()
                                         .ins()
                                         .call(func_ref, &[v, total_width, fract_digits]);
