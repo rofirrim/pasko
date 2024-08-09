@@ -324,7 +324,8 @@ static unsigned __pasko_i64_size(int64_t x) {
   return lower + 1;
 }
 
-void __pasko_write_textfile_i64(pasko_file_t *f, int64_t num, int total_width) {
+void __pasko_write_textfile_i64(pasko_file_t *f, int64_t num,
+                                int64_t total_width) {
   __pasko_check_write(f);
   if (total_width < 0)
     total_width = 0;
@@ -335,7 +336,7 @@ void __pasko_write_textfile_i64(pasko_file_t *f, int64_t num, int total_width) {
 
   int64_t a = num < 0 ? -num : num;
 
-  if ((unsigned)total_width >= int_digits + 1) {
+  if ((uint64_t)total_width >= int_digits + 1) {
     int num_spaces = total_width - int_digits - 1;
     for (int i = 0; i < num_spaces; i++) {
       fprintf(f->file, " ");
@@ -352,8 +353,8 @@ void __pasko_write_textfile_i64(pasko_file_t *f, int64_t num, int total_width) {
   fprintf(f->file, "%ld", a);
 }
 
-void __pasko_write_textfile_f64(pasko_file_t *f, double num, int total_width,
-                                int frac_digits) {
+void __pasko_write_textfile_f64(pasko_file_t *f, double num,
+                                int64_t total_width, int64_t frac_digits) {
   __pasko_check_write(f);
   if (total_width < 0)
     total_width = 0;
@@ -363,9 +364,9 @@ void __pasko_write_textfile_f64(pasko_file_t *f, double num, int total_width,
   if (total_width == 0) {
     fprintf(f->file, "%f", num);
   } else if (frac_digits == 0) {
-    fprintf(f->file, "%*f", total_width, num);
+    fprintf(f->file, "%*f", (int)total_width, num);
   } else {
-    fprintf(f->file, "%*.*f", total_width, frac_digits, num);
+    fprintf(f->file, "%*.*f", (int)total_width, (int)frac_digits, num);
   }
 }
 

@@ -30,11 +30,11 @@ PASKO_RUNTIME_PUBLIC void __pasko_finish(int num_global_files,
 // I/O
 // textfile output
 PASKO_RUNTIME_PUBLIC void
-__pasko_write_textfile_i64(pasko_file_t *file, int64_t num, int total_width);
+__pasko_write_textfile_i64(pasko_file_t *file, int64_t num, int64_t total_width);
 PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_f64(pasko_file_t *file,
                                                      double num,
-                                                     int total_width,
-                                                     int frac_digits);
+                                                     int64_t total_width,
+                                                     int64_t frac_digits);
 PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_str(pasko_file_t *file,
                                                      const uint32_t *);
 PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_char(pasko_file_t *file,

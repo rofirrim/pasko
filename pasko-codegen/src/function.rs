@@ -1057,8 +1057,25 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 Option<cranelift_codegen::ir::Value>,
                                 Option<cranelift_codegen::ir::Value>,
                             ) = match arg.get() {
-                                ast::Expr::WriteParameter(_) => {
-                                    panic!("Write parameter not implemented yet!");
+                                ast::Expr::WriteParameter(e) => {
+                                    let value = &e.0;
+                                    value.get().walk_mut(self, value.loc(), value.id());
+                                    let total_width = &e.1;
+                                    total_width.get().walk_mut(self, total_width.loc(), total_width.id());
+
+                                    let fract_digits = e.2.as_ref().map(|x| {
+                                        x.get().walk_mut(self, x.loc(), x.id());
+                                        self.get_value(x.id())
+                                    });
+                                    (
+                                        self.get_value(value.id()),
+                                        self.codegen
+                                            .semantic_context
+                                            .get_ast_type(value.id())
+                                            .unwrap(),
+                                        Some(self.get_value(total_width.id())),
+                                        fract_digits,
+                                    )
                                 }
                                 _ => {
                                     arg.get().walk_mut(self, arg.loc(), arg.id());
@@ -1184,7 +1201,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     assert!(!is_readln || is_textfile);
 
                     let first_argument = if file_argument.is_none() { 0 } else { 1 };
-                    let file_argument = file_argument.unwrap_or_else(|| self.get_output_file_val());
+                    let file_argument = file_argument.unwrap_or_else(|| self.get_input_file_val());
                     if let Some(args) = &n.1 {
                         for current_arg in &args[first_argument..] {
                             // Handle conversions
@@ -1328,9 +1345,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         }
                     }
                     if is_readln {
-                            let func_id = self.codegen.rt.read_textfile_newline.unwrap();
-                            let func_ref = self.get_function_reference(func_id);
-                            self.builder().ins().call(func_ref, &[file_argument]);
+                        let func_id = self.codegen.rt.read_textfile_newline.unwrap();
+                        let func_ref = self.get_function_reference(func_id);
+                        self.builder().ins().call(func_ref, &[file_argument]);
                     }
                 }
                 "new" => {

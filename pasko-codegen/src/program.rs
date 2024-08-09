@@ -137,14 +137,14 @@ impl<'a> CodegenVisitor<'a> {
         let mut sig = Signature::new(CallConv::SystemV);
         sig.params.push(AbiParam::new(self.pointer_type)); // file
         sig.params.push(AbiParam::new(I64)); // number
-        sig.params.push(AbiParam::new(I32)); // total_width
+        sig.params.push(AbiParam::new(I64)); // total_width
         self.rt.write_textfile_i64 = self.register_import("__pasko_write_textfile_i64", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
         sig.params.push(AbiParam::new(self.pointer_type)); // file
         sig.params.push(AbiParam::new(F64)); // number
-        sig.params.push(AbiParam::new(I32)); // total_width
-        sig.params.push(AbiParam::new(I32)); // frac_digits
+        sig.params.push(AbiParam::new(I64)); // total_width
+        sig.params.push(AbiParam::new(I64)); // frac_digits
         self.rt.write_textfile_f64 = self.register_import("__pasko_write_textfile_f64", sig);
 
         let mut sig = Signature::new(CallConv::SystemV);
