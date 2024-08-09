@@ -62,7 +62,7 @@ fn do_ast_dump(input: &str) -> String {
 fn string_literals_not_implemented() {
     semantic_check_diags(
         r#"
-program test;
+program test(input, output);
 var
   a : integer;
 begin
