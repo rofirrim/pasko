@@ -2,6 +2,7 @@ use crate::ast::{self, ExprVariableReference, UnaryOp};
 use crate::ast::{BinOperand, FormalParameter};
 use crate::constant::Constant;
 use crate::diagnostics::{Diagnostic, DiagnosticKind, Diagnostics};
+use crate::scope;
 use crate::span;
 use crate::symbol::{
     ParameterKind, Symbol, SymbolId, SymbolKind, SymbolMap, SymbolMapImpl, SymbolRef,
@@ -9,7 +10,6 @@ use crate::symbol::{
 use crate::typesystem::{Type, TypeId, TypeKind, TypeSystem};
 use crate::visitor::MutatingVisitable;
 use crate::visitor::MutatingVisitorMut;
-use crate::scope;
 
 use std::collections::HashMap;
 
@@ -152,11 +152,11 @@ enum FunctionProcedureDeclarationStatus {
     NotDeclared,
     /// The identifier has been forward declared as a compatible symbol kind and
     /// should be checked for compatibility against its definition.
-    ForwardDeclared,
+    ForwardDeclared(SymbolId),
     /// Already declared as something else. This is an error.
-    AlreadyDeclared,
+    AlreadyDeclared(SymbolId),
     /// Already defined. This is an error.
-    AlreadyDefined,
+    AlreadyDefined(SymbolId),
 }
 
 impl<'a> SemanticCheckerVisitor<'a> {
@@ -279,9 +279,9 @@ impl<'a> SemanticCheckerVisitor<'a> {
                             vec![],
                             extra,
                         );
-                        return FunctionProcedureDeclarationStatus::AlreadyDefined;
+                        return FunctionProcedureDeclarationStatus::AlreadyDefined(sym_id);
                     } else {
-                        return FunctionProcedureDeclarationStatus::ForwardDeclared;
+                        return FunctionProcedureDeclarationStatus::ForwardDeclared(sym_id);
                     }
                 }
                 SymbolKind::Procedure if is_procedure => {
@@ -294,9 +294,9 @@ impl<'a> SemanticCheckerVisitor<'a> {
                             vec![],
                             extra,
                         );
-                        return FunctionProcedureDeclarationStatus::AlreadyDefined;
+                        return FunctionProcedureDeclarationStatus::AlreadyDefined(sym_id);
                     } else {
-                        return FunctionProcedureDeclarationStatus::ForwardDeclared;
+                        return FunctionProcedureDeclarationStatus::ForwardDeclared(sym_id);
                     }
                 }
                 _ => {
@@ -312,14 +312,14 @@ impl<'a> SemanticCheckerVisitor<'a> {
                         vec![],
                         extra,
                     );
-                    return FunctionProcedureDeclarationStatus::AlreadyDeclared;
+                    return FunctionProcedureDeclarationStatus::AlreadyDeclared(sym_id);
                 }
             }
         }
         FunctionProcedureDeclarationStatus::NotDeclared
     }
 
-    fn diagnose_reintroduced_procedure(
+    fn diagnose_reintroduced_procedure_definition(
         &mut self,
         name: &String,
         span: &span::SpanLoc,
@@ -327,12 +327,212 @@ impl<'a> SemanticCheckerVisitor<'a> {
         self.diagnose_reintroduced_procedure_or_function(name, span, true)
     }
 
-    fn diagnose_reintroduced_function(
+    fn diagnose_reintroduced_procedure_declaration(
+        &mut self,
+        name: &String,
+        span: &span::SpanLoc,
+    ) -> FunctionProcedureDeclarationStatus {
+        self.diagnose_reintroduced_procedure_or_function(name, span, true)
+    }
+
+    fn diagnose_reintroduced_function_definition(
         &mut self,
         name: &String,
         span: &span::SpanLoc,
     ) -> FunctionProcedureDeclarationStatus {
         self.diagnose_reintroduced_procedure_or_function(name, span, false)
+    }
+
+    fn diagnose_reintroduced_function_declaration(
+        &mut self,
+        name: &String,
+        span: &span::SpanLoc,
+    ) -> FunctionProcedureDeclarationStatus {
+        self.diagnose_reintroduced_procedure_or_function(name, span, false)
+    }
+
+    fn gather_formal_parameters(
+        &mut self,
+        params: &mut Option<Vec<span::SpannedBox<ast::FormalParameter>>>,
+    ) -> Option<Vec<SymbolId>> {
+        let mut formal_parameters = vec![];
+        if let Some(parameters) = params {
+            parameters.iter_mut().for_each(|param| {
+                let loc = *param.loc();
+                let id = param.id();
+                param.get_mut().mutating_walk_mut(self, &loc, id);
+
+                let mut register_parameter = |name: &span::Spanned<String>| {
+                    formal_parameters.push(self.ctx.get_ast_symbol(name.id()).unwrap());
+                };
+
+                match param.get() {
+                    FormalParameter::Value(n) => {
+                        n.0.iter().for_each(|name| register_parameter(name));
+                    }
+                    FormalParameter::Variable(n) => {
+                        n.0.iter().for_each(|name| register_parameter(name));
+                    }
+                    _ => {
+                        panic!("Not implemented yet");
+                    }
+                };
+            });
+            Some(formal_parameters)
+        } else {
+            None
+        }
+    }
+
+    fn gather_return_type(
+        &mut self,
+        return_type: &mut span::SpannedBox<ast::TypeIdentifier>,
+    ) -> TypeId {
+        let loc = *return_type.loc();
+        let id = return_type.id();
+        return_type.get_mut().mutating_walk_mut(self, &loc, id);
+        self.ctx.get_ast_type(return_type.id()).unwrap()
+    }
+
+    fn compare_parameter_declarations(
+        &self,
+        params_a: &Vec<SymbolId>,
+        params_b: &Vec<SymbolId>,
+    ) -> bool {
+        if params_a.len() != params_b.len() {
+            return false;
+        }
+
+        for p in params_a.iter().zip(params_b) {
+            let sym_a = self.ctx.get_symbol(*p.0);
+            let sym_a = sym_a.borrow();
+
+            let sym_b = self.ctx.get_symbol(*p.1);
+            let sym_b = sym_b.borrow();
+
+            let param_kind_a = sym_a.get_parameter().unwrap();
+            let param_kind_b = sym_b.get_parameter().unwrap();
+            match (param_kind_a, param_kind_b) {
+                (ParameterKind::Value, ParameterKind::Value)
+                | (ParameterKind::Variable, ParameterKind::Variable) => {}
+                _ => {
+                    return false;
+                }
+            }
+
+            let type_a = sym_a.get_type().unwrap();
+            let type_b = sym_b.get_type().unwrap();
+
+            if !self.ctx.type_system.same_type(type_a, type_b) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn equivalent_function_declarations(
+        &self,
+        prev_sym_id: SymbolId,
+        formal_parameters: &Vec<SymbolId>,
+        result_type: TypeId,
+    ) -> bool {
+        let prev_sym = self.ctx.get_symbol(prev_sym_id);
+        let prev_sym = prev_sym.borrow();
+
+        let prev_params = prev_sym.get_formal_parameters().unwrap();
+
+        let prev_result_sym_id = prev_sym.get_return_symbol().unwrap();
+        let prev_result_sym = self.ctx.get_symbol(prev_result_sym_id);
+        let prev_result_sym = prev_result_sym.borrow();
+        let prev_result_type = prev_result_sym.get_type().unwrap();
+
+        self.compare_parameter_declarations(&prev_params, formal_parameters)
+            && self
+                .ctx
+                .type_system
+                .same_type(result_type, prev_result_type)
+    }
+
+    fn create_new_function_symbol(
+        &mut self,
+        scope_id: scope::ScopeId,
+        function_name: &str,
+        formal_parameters: Vec<SymbolId>,
+        result_type: TypeId,
+        is_definition: bool,
+        defining_loc: span::SpanLoc,
+    ) -> SymbolId {
+        let mut function_sym = Symbol::new();
+        function_sym.set_name(function_name);
+        function_sym.set_kind(SymbolKind::Function);
+        function_sym.set_defining_point(defining_loc);
+        function_sym.set_defined(is_definition);
+
+        let function_sym_id = self.ctx.new_symbol(function_sym);
+        // self.ctx.set_ast_symbol(n.0.id(), function_sym_id);
+        self.scope
+            .add_entry_to_scope(scope_id, function_name, function_sym_id);
+
+        self.ctx
+            .get_symbol_mut(function_sym_id)
+            .borrow_mut()
+            .set_formal_parameters(formal_parameters);
+
+        let mut return_symbol = Symbol::new();
+        return_symbol.set_name(function_name);
+        return_symbol.set_kind(SymbolKind::Variable);
+        return_symbol.set_defining_point(defining_loc);
+        return_symbol.set_type(result_type);
+
+        let return_symbol_id = self.ctx.new_symbol(return_symbol);
+
+        self.ctx
+            .get_symbol_mut(function_sym_id)
+            .borrow_mut()
+            .set_return_symbol(return_symbol_id);
+
+        function_sym_id
+    }
+
+    fn equivalent_procedure_declarations(
+        &self,
+        prev_sym_id: SymbolId,
+        formal_parameters: &Vec<SymbolId>,
+    ) -> bool {
+        let prev_sym = self.ctx.get_symbol(prev_sym_id);
+        let prev_sym = prev_sym.borrow();
+
+        let prev_params = prev_sym.get_formal_parameters().unwrap();
+
+        self.compare_parameter_declarations(&prev_params, formal_parameters)
+    }
+
+    fn create_new_procedure_symbol(
+        &mut self,
+        scope_id: scope::ScopeId,
+        proc_name: &str,
+        formal_parameters: Vec<SymbolId>,
+        is_definition: bool,
+        defining_loc: span::SpanLoc,
+    ) -> SymbolId {
+        let mut proc_sym = Symbol::new();
+        proc_sym.set_name(proc_name);
+        proc_sym.set_kind(SymbolKind::Procedure);
+        proc_sym.set_defining_point(defining_loc);
+        proc_sym.set_defined(is_definition);
+
+        let proc_sym_id = self.ctx.new_symbol(proc_sym);
+        // self.ctx.set_ast_symbol(n.0.id(), proc_sym_id);
+        self.scope
+            .add_entry_to_scope(scope_id, proc_name, proc_sym_id);
+
+        self.ctx
+            .get_symbol_mut(proc_sym_id)
+            .borrow_mut()
+            .set_formal_parameters(formal_parameters);
+
+        proc_sym_id
     }
 
     fn is_pointer_and_generic_pointer(&self, a: TypeId, b: TypeId) -> bool {
@@ -1484,31 +1684,275 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
     fn visit_pre_procedure_forward(
         &mut self,
-        _n: &mut ast::ProcedureForward,
-        span: &span::SpanLoc,
+        n: &mut ast::ProcedureForward,
+        _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
-        self.unimplemented(*span, "forward-declaration of procedures");
+        let proc_name = n.0.get();
+
+        let redeclaration_status =
+            self.diagnose_reintroduced_procedure_declaration(proc_name, n.0.loc());
+        match redeclaration_status {
+            FunctionProcedureDeclarationStatus::AlreadyDefined(_sym)
+            | FunctionProcedureDeclarationStatus::AlreadyDeclared(_sym) => {
+                // This is an error.
+                return false;
+            }
+            FunctionProcedureDeclarationStatus::ForwardDeclared(_) => {
+                // This is fine but requires checking equivalence.
+            }
+            FunctionProcedureDeclarationStatus::NotDeclared => {
+                // Fine, this is a new declaration.
+            }
+        }
+
+        if is_required_procedure_or_function(&proc_name) {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *n.0.loc(),
+                format!(
+                    "cannot declare required {} '{}'",
+                    if is_required_function(&proc_name) {
+                        "function"
+                    } else {
+                        "procedure"
+                    },
+                    n.0.get()
+                ),
+            );
+            return false;
+        }
+
+        let proc_decl_scope_id = self.scope.get_current_scope_id();
+
+        self.scope.push_scope(None);
+
+        let formal_parameters = self.gather_formal_parameters(&mut n.1);
+        // No parameters here means zero parameters in a forward declaration.
+        let formal_parameters = formal_parameters.unwrap_or_else(|| vec![]);
+
+        match redeclaration_status {
+            FunctionProcedureDeclarationStatus::ForwardDeclared(prev_sym_id)
+            | FunctionProcedureDeclarationStatus::AlreadyDefined(prev_sym_id) => {
+                if !self.equivalent_procedure_declarations(prev_sym_id, &formal_parameters) {
+                    let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                    let prev_sym = prev_sym.borrow();
+                    self.diagnostics.add_with_extra(DiagnosticKind::Error, *n.0.loc(),
+                    format!("procedure declaration is incompatible with a previous procedure declaration"),
+                     vec![],
+                     vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), format!("previous declaration"))]);
+                }
+                self.scope.pop_scope();
+                // Nothing else to do at this point.
+                return false;
+            }
+            FunctionProcedureDeclarationStatus::NotDeclared => {
+                // Register symbol as usual. Happens later.
+            }
+            _ => {
+                panic!("Unexpected case");
+            }
+        }
+
+        let proc_sym_id = self.create_new_procedure_symbol(
+            proc_decl_scope_id,
+            proc_name,
+            formal_parameters,
+            /* is_definition */ false,
+            *n.0.loc(),
+        );
+        self.scope.set_scope_symbol(Some(proc_sym_id));
+        self.ctx.set_ast_symbol(n.0.id(), proc_sym_id);
+
+        self.scope.pop_scope();
         false
     }
 
     fn visit_pre_function_forward(
         &mut self,
-        _n: &mut ast::FunctionForward,
-        span: &span::SpanLoc,
+        n: &mut ast::FunctionForward,
+        _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
-        self.unimplemented(*span, "forward-declaration of functions");
+        let function_name = n.0.get();
+
+        let redeclaration_status =
+            self.diagnose_reintroduced_function_declaration(function_name, n.0.loc());
+        match redeclaration_status {
+            FunctionProcedureDeclarationStatus::AlreadyDefined(_)
+            | FunctionProcedureDeclarationStatus::AlreadyDeclared(_) => {
+                // This is an error.
+                return false;
+            }
+            FunctionProcedureDeclarationStatus::ForwardDeclared(_) => {
+                // This is fine but requires checking equivalence.
+            }
+            FunctionProcedureDeclarationStatus::NotDeclared => {
+                // Fine, this is a new declaration.
+            }
+        }
+
+        if is_required_procedure_or_function(&function_name) {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *n.0.loc(),
+                format!(
+                    "cannot declare required {} '{}'",
+                    if is_required_function(&function_name) {
+                        "function"
+                    } else {
+                        "procedure"
+                    },
+                    n.0.get()
+                ),
+            );
+            return false;
+        }
+
+        let function_decl_scope_id = self.scope.get_current_scope_id();
+
+        self.scope.push_scope(None);
+
+        let formal_parameters = self.gather_formal_parameters(&mut n.1);
+        // In a forward declaration, no parameters means 0 parameters.
+        let formal_parameters = formal_parameters.unwrap_or_else(|| vec![]);
+        let result_type = self.gather_return_type(&mut n.2);
+
+        match redeclaration_status {
+            FunctionProcedureDeclarationStatus::ForwardDeclared(prev_sym_id)
+            | FunctionProcedureDeclarationStatus::AlreadyDefined(prev_sym_id) => {
+                if !self.equivalent_function_declarations(
+                    prev_sym_id,
+                    &formal_parameters,
+                    result_type,
+                ) {
+                    let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                    let prev_sym = prev_sym.borrow();
+                    self.diagnostics.add_with_extra(DiagnosticKind::Error, *n.0.loc(),
+                    format!("function declaration is incompatible with a previous function declaration"),
+                     vec![],
+                     vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), format!("previous declaration"))]);
+                }
+                self.scope.pop_scope();
+                // Nothing else to do at this point.
+                return false;
+            }
+            FunctionProcedureDeclarationStatus::NotDeclared => {
+                // Register symbol as usual. Happens later.
+            }
+            _ => {
+                panic!("Unexpected case");
+            }
+        }
+
+        let function_sym_id = self.create_new_function_symbol(
+            function_decl_scope_id,
+            function_name,
+            formal_parameters,
+            result_type,
+            /* is_definition */ false,
+            *n.0.loc(),
+        );
+        self.scope.set_scope_symbol(Some(function_sym_id));
+        self.ctx.set_ast_symbol(n.0.id(), function_sym_id);
+
+        self.scope.pop_scope();
         false
     }
 
     fn visit_pre_function_late_definition(
         &mut self,
-        _n: &mut ast::FunctionLateDefinition,
-        span: &span::SpanLoc,
+        n: &mut ast::FunctionLateDefinition,
+        _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
-        self.unimplemented(*span, "definition of forward-declared functions");
+        let function_name = n.0.get();
+
+        let redeclaration_status =
+            self.diagnose_reintroduced_function_definition(function_name, n.0.loc());
+        match redeclaration_status {
+            FunctionProcedureDeclarationStatus::AlreadyDeclared(_)
+            | FunctionProcedureDeclarationStatus::AlreadyDefined(_) => {
+                // This is an error.
+                return false;
+            }
+            FunctionProcedureDeclarationStatus::ForwardDeclared(_) => {
+                // Fine. Just assume the parameters and the return type.
+            }
+            FunctionProcedureDeclarationStatus::NotDeclared => {
+                // This requires a previous declaration.
+                self.diagnostics.add(
+                    DiagnosticKind::Error,
+                    *n.0.loc(),
+                    format!("this form of function definition requires an earlier forward function declaration"),
+                );
+                return false;
+            }
+        }
+
+        if is_required_procedure_or_function(&function_name) {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *n.0.loc(),
+                format!(
+                    "cannot define required {} '{}'",
+                    if is_required_function(&function_name) {
+                        "function"
+                    } else {
+                        "procedure"
+                    },
+                    n.0.get()
+                ),
+            );
+            return false;
+        }
+
+        let function_decl_scope_id = self.scope.get_current_scope_id();
+        self.scope.push_scope(None);
+
+        let (formal_parameters, result_type) = match redeclaration_status {
+            FunctionProcedureDeclarationStatus::ForwardDeclared(prev_sym_id) => {
+                let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                let prev_sym = prev_sym.borrow();
+                let return_sym_id = prev_sym.get_return_symbol().unwrap();
+                let return_sym = self.ctx.get_symbol(return_sym_id);
+                let return_sym = return_sym.borrow();
+
+                let prev_formal_parameters = prev_sym.get_formal_parameters().unwrap();
+
+                // We also need to insert the formal parameters in the scope, so name resolution works.
+                for prev_formal_param_sym_id in &prev_formal_parameters {
+                    let prev_formal_param = self.ctx.get_symbol(*prev_formal_param_sym_id);
+                    let prev_formal_param = prev_formal_param.borrow();
+                    self.scope
+                        .add_entry(&prev_formal_param.get_name(), *prev_formal_param_sym_id);
+                }
+
+                (prev_formal_parameters, return_sym.get_type().unwrap())
+            }
+            _ => {
+                unreachable!();
+            }
+        };
+
+        let function_sym_id = self.create_new_function_symbol(
+            function_decl_scope_id,
+            function_name,
+            formal_parameters,
+            result_type,
+            /* is_definition */ true,
+            *n.0.loc(),
+        );
+        self.scope.set_scope_symbol(Some(function_sym_id));
+        self.ctx.set_ast_symbol(n.0.id(), function_sym_id);
+
+        let function_block = &mut n.1;
+        let loc = *function_block.loc();
+        let id = function_block.id();
+        function_block.get_mut().mutating_walk_mut(self, &loc, id);
+
+        self.scope.pop_scope();
+
         false
     }
 
@@ -3360,16 +3804,16 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     ) -> bool {
         let function_name = n.0.get();
 
-        match self.diagnose_reintroduced_function(function_name, n.0.loc()) {
-            FunctionProcedureDeclarationStatus::AlreadyDeclared
-            | FunctionProcedureDeclarationStatus::AlreadyDefined => {
+        let redeclaration_status =
+            self.diagnose_reintroduced_function_definition(function_name, n.0.loc());
+        match redeclaration_status {
+            FunctionProcedureDeclarationStatus::AlreadyDeclared(_)
+            | FunctionProcedureDeclarationStatus::AlreadyDefined(_) => {
                 // This is an error.
                 return false;
             }
-            FunctionProcedureDeclarationStatus::ForwardDeclared => {
-                // FIXME: Check for compatibility
-                self.unimplemented(*n.0.loc(), "forward declared functions");
-                return false;
+            FunctionProcedureDeclarationStatus::ForwardDeclared(_) => {
+                // Fine but check for equivalence.
             }
             FunctionProcedureDeclarationStatus::NotDeclared => {
                 // Fine
@@ -3393,69 +3837,50 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             return false;
         }
 
-        let mut function_sym = Symbol::new();
-        function_sym.set_name(function_name);
-        function_sym.set_kind(SymbolKind::Function);
-        function_sym.set_defining_point(*n.0.loc());
+        let function_decl_scope_id = self.scope.get_current_scope_id();
+        self.scope.push_scope(None);
 
-        let function_sym_id = self.ctx.new_symbol(function_sym);
-        self.ctx.set_ast_symbol(n.0.id(), function_sym_id);
-        self.scope
-            .add_entry(&function_name.clone(), function_sym_id);
+        let formal_parameters = self.gather_formal_parameters(&mut n.1);
+        // Function definitions always must have parameters. Late ones may not, but these are handled elsewhere.
+        let formal_parameters = formal_parameters.unwrap_or_else(|| vec![]);
+        let result_type = self.gather_return_type(&mut n.2);
 
-        self.scope.push_scope(Some(function_sym_id));
-
-        // Formal parameters
-        let mut formal_parameters = vec![];
-        if let Some(parameters) = &mut n.1 {
-            parameters.iter_mut().for_each(|param| {
-                let loc = *param.loc();
-                let id = param.id();
-                param.get_mut().mutating_walk_mut(self, &loc, id);
-
-                let mut register_parameter = |name: &span::Spanned<String>| {
-                    formal_parameters.push(self.ctx.get_ast_symbol(name.id()).unwrap());
-                };
-
-                match param.get() {
-                    FormalParameter::Value(n) => {
-                        n.0.iter().for_each(|name| register_parameter(name));
-                    }
-                    FormalParameter::Variable(n) => {
-                        n.0.iter().for_each(|name| register_parameter(name));
-                    }
-                    _ => {
-                        panic!("Not implemented yet");
-                    }
-                };
-            });
+        match redeclaration_status {
+            FunctionProcedureDeclarationStatus::ForwardDeclared(prev_sym_id) => {
+                if !self.equivalent_function_declarations(
+                    prev_sym_id,
+                    &formal_parameters,
+                    result_type,
+                ) {
+                    let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                    let prev_sym = prev_sym.borrow();
+                    self.diagnostics.add_with_extra(DiagnosticKind::Error, *n.0.loc(),
+                    format!("function definition is incompatible with a previous function declaration"),
+                     vec![],
+                     vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), format!("previous declaration"))]);
+                    // Nothing else to do here.
+                    self.scope.pop_scope();
+                    return false;
+                }
+            }
+            FunctionProcedureDeclarationStatus::NotDeclared => {
+                // Fine
+            }
+            _ => {
+                unreachable!();
+            }
         }
 
-        self.ctx
-            .get_symbol_mut(function_sym_id)
-            .borrow_mut()
-            .set_formal_parameters(formal_parameters);
-
-        // TypeId of return
-        let result_type = {
-            let loc = *n.2.loc();
-            let id = n.2.id();
-            n.2.get_mut().mutating_walk_mut(self, &loc, id);
-            self.ctx.get_ast_type(n.2.id()).unwrap()
-        };
-
-        let mut return_symbol = Symbol::new();
-        return_symbol.set_name(function_name);
-        return_symbol.set_kind(SymbolKind::Variable);
-        return_symbol.set_defining_point(*n.0.loc());
-        return_symbol.set_type(result_type);
-
-        let return_symbol_id = self.ctx.new_symbol(return_symbol);
-
-        self.ctx
-            .get_symbol_mut(function_sym_id)
-            .borrow_mut()
-            .set_return_symbol(return_symbol_id);
+        let function_sym_id = self.create_new_function_symbol(
+            function_decl_scope_id,
+            function_name,
+            formal_parameters,
+            result_type,
+            /* is_definition */ true,
+            *n.0.loc(),
+        );
+        self.scope.set_scope_symbol(Some(function_sym_id));
+        self.ctx.set_ast_symbol(n.0.id(), function_sym_id);
 
         let function_block = &mut n.3;
         let loc = *function_block.loc();
@@ -3475,15 +3900,15 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     ) -> bool {
         let proc_name = n.0.get();
 
-        match self.diagnose_reintroduced_procedure(proc_name, n.0.loc()) {
-            FunctionProcedureDeclarationStatus::AlreadyDeclared
-            | FunctionProcedureDeclarationStatus::AlreadyDefined => {
+        let redeclaration_status =
+            self.diagnose_reintroduced_procedure_definition(proc_name, n.0.loc());
+        match redeclaration_status {
+            FunctionProcedureDeclarationStatus::AlreadyDeclared(_)
+            | FunctionProcedureDeclarationStatus::AlreadyDefined(_) => {
                 return false;
             }
-            FunctionProcedureDeclarationStatus::ForwardDeclared => {
-                // FIXME: Check for compatibility
-                self.unimplemented(*n.0.loc(), "forward declared functions");
-                return false;
+            FunctionProcedureDeclarationStatus::ForwardDeclared(_) => {
+                // Fine but check for equivalence.
             }
             FunctionProcedureDeclarationStatus::NotDeclared => {
                 // Fine
@@ -3507,47 +3932,66 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             return false;
         }
 
-        let mut proc_sym = Symbol::new();
-        proc_sym.set_name(proc_name);
-        proc_sym.set_kind(SymbolKind::Procedure);
-        proc_sym.set_defining_point(*n.0.loc());
+        let proc_decl_scope_id = self.scope.get_current_scope_id();
 
-        let proc_sym_id = self.ctx.new_symbol(proc_sym);
-        self.ctx.set_ast_symbol(n.0.id(), proc_sym_id);
-        self.scope.add_entry(&proc_name.clone(), proc_sym_id);
+        self.scope.push_scope(None);
 
-        self.scope.push_scope(Some(proc_sym_id));
+        let mut formal_parameters = self.gather_formal_parameters(&mut n.1);
 
-        // Formal parameters
-        let mut formal_parameters = vec![];
-        if let Some(parameters) = &mut n.1 {
-            parameters.iter_mut().for_each(|param| {
-                let loc = *param.loc();
-                let id = param.id();
-                param.get_mut().mutating_walk_mut(self, &loc, id);
+        match redeclaration_status {
+            FunctionProcedureDeclarationStatus::ForwardDeclared(prev_sym_id) => {
+                // If there are no formal parameters at all we will use those of the prev_sym.
+                if formal_parameters.is_some()
+                    && !self
+                        .equivalent_procedure_declarations(prev_sym_id, &formal_parameters.unwrap())
+                {
+                    let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                    let prev_sym = prev_sym.borrow();
+                    self.diagnostics.add_with_extra(DiagnosticKind::Error, *n.0.loc(),
+                    format!("procedure definition is incompatible with a previous procedure declaration"),
+                     vec![],
+                     vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), format!("previous declaration"))]);
 
-                let mut register_parameter = |name: &span::Spanned<String>| {
-                    formal_parameters.push(self.ctx.get_ast_symbol(name.id()).unwrap());
-                };
+                    self.scope.pop_scope();
+                    return false;
+                } else {
+                    let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                    let prev_sym = prev_sym.borrow();
 
-                match param.get() {
-                    FormalParameter::Value(n) => {
-                        n.0.iter().for_each(|name| register_parameter(name));
+                    let prev_formal_parameters = prev_sym.get_formal_parameters();
+                    formal_parameters = prev_formal_parameters;
+                    // We also need to insert the formal parameters in the scope, so name resolution works.
+                    if let Some(prev_formal_parameters) = &formal_parameters {
+                        for prev_formal_param_sym_id in prev_formal_parameters {
+                            let prev_formal_param = self.ctx.get_symbol(*prev_formal_param_sym_id);
+                            let prev_formal_param = prev_formal_param.borrow();
+                            self.scope.add_entry(
+                                &prev_formal_param.get_name(),
+                                *prev_formal_param_sym_id,
+                            );
+                        }
                     }
-                    FormalParameter::Variable(n) => {
-                        n.0.iter().for_each(|name| register_parameter(name));
-                    }
-                    _ => {
-                        panic!("Not implemented yet");
-                    }
-                };
-            });
+                }
+            }
+            FunctionProcedureDeclarationStatus::NotDeclared => {
+                // Register symbol as usual. Happens later.
+            }
+            _ => {
+                panic!("Unexpected case");
+            }
         }
 
-        self.ctx
-            .get_symbol_mut(proc_sym_id)
-            .borrow_mut()
-            .set_formal_parameters(formal_parameters);
+        let formal_parameters = formal_parameters.unwrap_or_else(|| vec![]);
+
+        let proc_sym_id = self.create_new_procedure_symbol(
+            proc_decl_scope_id,
+            proc_name,
+            formal_parameters,
+            /* is_definition */ true,
+            *n.0.loc(),
+        );
+        self.scope.set_scope_symbol(Some(proc_sym_id));
+        self.ctx.set_ast_symbol(n.0.id(), proc_sym_id);
 
         let proc_block = &mut n.2;
         let loc = *proc_block.loc();

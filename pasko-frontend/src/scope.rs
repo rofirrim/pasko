@@ -13,6 +13,9 @@ pub struct Scope {
 
 const GLOBAL_SCOPE_IDX: usize = 1;
 
+#[derive(Copy, Clone, Debug)]
+pub struct ScopeId(usize);
+
 impl Scope {
     pub fn new() -> Scope {
         Scope {
@@ -75,12 +78,22 @@ impl Scope {
         None
     }
 
+    pub fn get_current_scope_id(&self) -> ScopeId {
+        assert!(self.stack.len() > 0);
+        ScopeId(self.stack.len() - 1)
+    }
+
     pub fn add_entry(&mut self, name: &str, symbol: SymbolId) {
         self.stack
             .last_mut()
             .unwrap()
             .map
             .insert(name.to_string(), symbol);
+    }
+
+    pub fn add_entry_to_scope(&mut self, scope_id: ScopeId, name: &str, symbol: SymbolId) {
+        assert!(scope_id.0 < self.stack.len());
+        self.stack[scope_id.0].map.insert(name.to_string(), symbol);
     }
 
     pub fn add_entry_global_scope(&mut self, name: &str, symbol: SymbolId) {
