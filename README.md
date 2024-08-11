@@ -82,7 +82,6 @@ From inside the build-directory
 | ------------------------------------------------------ | ----- | ----------------------------------------------------------- |
 | Forward declarations of procedures and functions       | ❌     |                                                             |
 | Required procedures/functions: Math                    | ❌     |                                                             |
-| Total digits and fraction width in `write` / `writeln` | ❌     | Runtime is ready. Crashes in codegen.                       |
 | Record types containing sets inside                    | ❌     | Non trivially copiable types not implemented yet.           |
 | Variadic types                                         | ❌     | Not even supported in the parser yet.                       |
 | Conformable arrays in functions and procedures         | ❌     |                                                             |
