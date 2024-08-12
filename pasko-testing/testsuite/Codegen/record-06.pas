@@ -25,9 +25,9 @@ end.
 {
 
 CHECK: *** IR for procedure 'foo'
-CHECK-NEXT: function u0:38() system_v {
+CHECK-NEXT: function u0:0() system_v {
 CHECK-NEXT:     ss0 = explicit_slot 160
-CHECK-EMPTY:
+CHECK-EMPTY: 
 CHECK-NEXT: block0:
 CHECK-NEXT:     v0 = iconst.i64 42
 CHECK-NEXT:     v1 = stack_addr.i64 ss0

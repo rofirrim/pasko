@@ -17,7 +17,7 @@ end.
 {
 
 CHECK: *** IR for procedure 'p'
-CHECK-NEXT: function u0:38() system_v {
+CHECK-NEXT: function u0:0() system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-EMPTY: 
 CHECK-NEXT: block0:

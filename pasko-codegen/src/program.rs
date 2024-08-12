@@ -33,7 +33,7 @@ use std::cell::RefCell;
 
 use crate::datalocation::DataLocation;
 use crate::function::FunctionCodegenVisitor;
-use crate::runtime::RuntimeFunctions;
+use crate::runtime::RuntimeFunctionId;
 
 #[derive(Debug, Clone)]
 struct SizeAndAlignment {
@@ -46,7 +46,6 @@ pub struct CodegenVisitor<'a> {
     pub ctx: cranelift_codegen::Context,
     pub semantic_context: &'a SemanticContext,
     pub pointer_type: cranelift_codegen::ir::Type,
-    pub rt: RuntimeFunctions,
     pub string_table: HashMap<String, cranelift_module::DataId>,
 
     pub data_location: HashMap<SymbolId, DataLocation>,
@@ -60,6 +59,8 @@ pub struct CodegenVisitor<'a> {
 
     input_data_id: Option<cranelift_module::DataId>,
     output_data_id: Option<cranelift_module::DataId>,
+
+    rt_functions_cache: HashMap<RuntimeFunctionId, cranelift_module::FuncId>,
 }
 
 impl<'a> CodegenVisitor<'a> {
@@ -85,12 +86,11 @@ impl<'a> CodegenVisitor<'a> {
 
         // Initialize environment
 
-        let mut visitor = CodegenVisitor {
+        let visitor = CodegenVisitor {
             object_module: Some(Box::new(object_module)),
             ctx,
             semantic_context,
             pointer_type,
-            rt: RuntimeFunctions::default(),
             string_table: HashMap::new(),
             data_location: HashMap::new(),
             function_identifiers: HashMap::new(),
@@ -102,9 +102,8 @@ impl<'a> CodegenVisitor<'a> {
             trivially_copiable_cache: RefCell::new(HashMap::new()),
             input_data_id: None,
             output_data_id: None,
+            rt_functions_cache: HashMap::new(),
         };
-
-        visitor.initialize_module();
 
         visitor
     }
@@ -128,203 +127,279 @@ impl<'a> CodegenVisitor<'a> {
         Some(func_id)
     }
 
-    fn initialize_module(&mut self) {
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // file
-        sig.params.push(AbiParam::new(self.pointer_type)); // string
-        self.rt.write_textfile_str = self.register_import("__pasko_write_textfile_str", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // file
-        sig.params.push(AbiParam::new(I64)); // number
-        sig.params.push(AbiParam::new(I64)); // total_width
-        self.rt.write_textfile_i64 = self.register_import("__pasko_write_textfile_i64", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // file
-        sig.params.push(AbiParam::new(F64)); // number
-        sig.params.push(AbiParam::new(I64)); // total_width
-        sig.params.push(AbiParam::new(I64)); // frac_digits
-        self.rt.write_textfile_f64 = self.register_import("__pasko_write_textfile_f64", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // file
-        sig.params.push(AbiParam::new(I8)); // boolean
-        self.rt.write_textfile_bool = self.register_import("__pasko_write_textfile_bool", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // file
-        sig.params.push(AbiParam::new(I32)); // number
-        self.rt.write_textfile_char = self.register_import("__pasko_write_textfile_char", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // file
-        self.rt.write_textfile_newline =
-            self.register_import("__pasko_write_textfile_newline", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // file
-        sig.returns.push(AbiParam::new(I64));
-        self.rt.read_textfile_i64 = self.register_import("__pasko_read_textfile_i64", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // file
-        sig.returns.push(AbiParam::new(F64));
-        self.rt.read_textfile_f64 = self.register_import("__pasko_read_textfile_f64", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // file
-        self.rt.read_textfile_newline = self.register_import("__pasko_read_textfile_newline", sig);
-
-        // Set operations.
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I64)); // N
-        sig.params.push(AbiParam::new(self.pointer_type)); // values
-        sig.returns.push(AbiParam::new(self.pointer_type)); // address to new set
-        self.rt.set_new = self.register_import("__pasko_set_new", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // address to set
-        self.rt.set_dispose = self.register_import("__pasko_set_dispose", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // address to src set
-        sig.returns.push(AbiParam::new(self.pointer_type)); // address to new set
-        self.rt.set_copy = self.register_import("__pasko_set_copy", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // x
-        sig.params.push(AbiParam::new(self.pointer_type)); // y
-        sig.returns.push(AbiParam::new(self.pointer_type)); // result
-        self.rt.set_union = self.register_import("__pasko_set_union", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // x
-        sig.params.push(AbiParam::new(self.pointer_type)); // y
-        sig.returns.push(AbiParam::new(self.pointer_type)); // result
-        self.rt.set_intersection = self.register_import("__pasko_set_intersection", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // x
-        sig.params.push(AbiParam::new(self.pointer_type)); // y
-        sig.returns.push(AbiParam::new(self.pointer_type)); // result
-        self.rt.set_difference = self.register_import("__pasko_set_difference", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // set
-        sig.params.push(AbiParam::new(self.pointer_type)); // x
-        sig.returns.push(AbiParam::new(I8)); // result
-        self.rt.set_contains = self.register_import("__pasko_set_contains", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // x
-        sig.params.push(AbiParam::new(self.pointer_type)); // y
-        sig.returns.push(AbiParam::new(I8)); // result
-        self.rt.set_equal = self.register_import("__pasko_set_equal", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // x
-        sig.params.push(AbiParam::new(self.pointer_type)); // y
-        sig.returns.push(AbiParam::new(I8)); // result
-        self.rt.set_not_equal = self.register_import("__pasko_set_not_equal", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // x
-        sig.params.push(AbiParam::new(self.pointer_type)); // y
-        sig.returns.push(AbiParam::new(I8)); // result
-        self.rt.set_is_subset = self.register_import("__pasko_set_is_subset", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // addr to pointer
-        sig.params.push(AbiParam::new(I64)); // size in bytes
-        self.rt.pointer_new = self.register_import("__pasko_pointer_new", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type)); // addr to pointer
-        self.rt.pointer_dispose = self.register_import("__pasko_pointer_dispose", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I32)); // argc
-        sig.params.push(AbiParam::new(self.pointer_type)); // argv
-        sig.params.push(AbiParam::new(I32)); // num_program_parameters
-        sig.params.push(AbiParam::new(self.pointer_type)); // program_parameters
-        sig.params.push(AbiParam::new(I32)); // num_global_files
-        sig.params.push(AbiParam::new(self.pointer_type)); // global_files
-        self.rt.init = self.register_import("__pasko_init", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(I32)); // num_global_files
-        sig.params.push(AbiParam::new(self.pointer_type)); // global_files
-        self.rt.finish = self.register_import("__pasko_finish", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.returns.push(AbiParam::new(self.pointer_type));
-        self.rt.input_file = self.register_import("__pasko_get_input", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.returns.push(AbiParam::new(self.pointer_type));
-        self.rt.output_file = self.register_import("__pasko_get_output", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type));
-        self.rt.rewrite_file = self.register_import("__pasko_rewrite_file", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type));
-        self.rt.rewrite_textfile = self.register_import("__pasko_rewrite_textfile", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type));
-        sig.params.push(AbiParam::new(I64)); // bytes
-        self.rt.reset_file = self.register_import("__pasko_reset_file", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type));
-        self.rt.reset_textfile = self.register_import("__pasko_reset_textfile", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type));
-        sig.params.push(AbiParam::new(I64)); // bytes
-        self.rt.put_file = self.register_import("__pasko_put_file", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type));
-        self.rt.put_textfile = self.register_import("__pasko_put_textfile", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type));
-        sig.params.push(AbiParam::new(I64)); // bytes
-        self.rt.get_file = self.register_import("__pasko_get_file", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type));
-        self.rt.get_textfile = self.register_import("__pasko_get_textfile", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type));
-        sig.params.push(AbiParam::new(I64));
-        sig.returns.push(AbiParam::new(self.pointer_type));
-        self.rt.buffer_var_file = self.register_import("__pasko_buffer_var_file", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type));
-        sig.returns.push(AbiParam::new(self.pointer_type));
-        self.rt.buffer_var_textfile = self.register_import("__pasko_buffer_var_textfile", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type));
-        sig.returns.push(AbiParam::new(I8));
-        self.rt.eof_file = self.register_import("__pasko_eof_file", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type));
-        sig.returns.push(AbiParam::new(I8));
-        self.rt.eof_textfile = self.register_import("__pasko_eof_textfile", sig);
-
-        let mut sig = Signature::new(CallConv::SystemV);
-        sig.params.push(AbiParam::new(self.pointer_type));
-        sig.returns.push(AbiParam::new(I8));
-        self.rt.eoln_textfile = self.register_import("__pasko_eoln_textfile", sig);
+    pub fn get_runtime_function(&mut self, rtid: RuntimeFunctionId) -> cranelift_module::FuncId {
+        if let Some(func_id) = self.rt_functions_cache.get(&rtid) {
+            return *func_id;
+        }
+        // FIXME: Convert this into a table instead.
+        let import_id: Option<cranelift_module::FuncId> = match rtid {
+            RuntimeFunctionId::WriteTextfileStr => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // file
+                sig.params.push(AbiParam::new(self.pointer_type)); // string
+                self.register_import("__pasko_write_textfile_str", sig)
+            }
+            RuntimeFunctionId::WriteTextfileI64 => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // file
+                sig.params.push(AbiParam::new(I64)); // number
+                sig.params.push(AbiParam::new(I64)); // total_width
+                self.register_import("__pasko_write_textfile_i64", sig)
+            }
+            RuntimeFunctionId::WriteTextfileF64 => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // file
+                sig.params.push(AbiParam::new(F64)); // number
+                sig.params.push(AbiParam::new(I64)); // total_width
+                sig.params.push(AbiParam::new(I64)); // frac_digits
+                self.register_import("__pasko_write_textfile_f64", sig)
+            }
+            RuntimeFunctionId::WriteTextfileBool => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // file
+                sig.params.push(AbiParam::new(I8)); // boolean
+                self.register_import("__pasko_write_textfile_bool", sig)
+            }
+            RuntimeFunctionId::WriteTextfileChar => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // file
+                sig.params.push(AbiParam::new(I32)); // number
+                self.register_import("__pasko_write_textfile_char", sig)
+            }
+            RuntimeFunctionId::WriteTextfileNewline => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // file
+                self.register_import("__pasko_write_textfile_newline", sig)
+            }
+            RuntimeFunctionId::ReadTextfileI64 => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // file
+                sig.returns.push(AbiParam::new(I64));
+                self.register_import("__pasko_read_textfile_i64", sig)
+            }
+            RuntimeFunctionId::ReadTextfileF64 => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // file
+                sig.returns.push(AbiParam::new(F64));
+                self.register_import("__pasko_read_textfile_f64", sig)
+            }
+            RuntimeFunctionId::ReadTextfileNewline => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // file
+                self.register_import("__pasko_read_textfile_newline", sig)
+            }
+            RuntimeFunctionId::SetNew => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(I64)); // N
+                sig.params.push(AbiParam::new(self.pointer_type)); // values
+                sig.returns.push(AbiParam::new(self.pointer_type)); // address to new set
+                self.register_import("__pasko_set_new", sig)
+            }
+            RuntimeFunctionId::SetDispose => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // address to set
+                self.register_import("__pasko_set_dispose", sig)
+            }
+            RuntimeFunctionId::SetCopy => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // address to src set
+                sig.returns.push(AbiParam::new(self.pointer_type)); // address to new set
+                self.register_import("__pasko_set_copy", sig)
+            }
+            RuntimeFunctionId::SetUnion => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // x
+                sig.params.push(AbiParam::new(self.pointer_type)); // y
+                sig.returns.push(AbiParam::new(self.pointer_type)); // result
+                self.register_import("__pasko_set_union", sig)
+            }
+            RuntimeFunctionId::SetIntersection => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // x
+                sig.params.push(AbiParam::new(self.pointer_type)); // y
+                sig.returns.push(AbiParam::new(self.pointer_type)); // result
+                self.register_import("__pasko_set_intersection", sig)
+            }
+            RuntimeFunctionId::SetDifference => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // x
+                sig.params.push(AbiParam::new(self.pointer_type)); // y
+                sig.returns.push(AbiParam::new(self.pointer_type)); // result
+                self.register_import("__pasko_set_difference", sig)
+            }
+            RuntimeFunctionId::SetContains => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // set
+                sig.params.push(AbiParam::new(self.pointer_type)); // x
+                sig.returns.push(AbiParam::new(I8)); // result
+                self.register_import("__pasko_set_contains", sig)
+            }
+            RuntimeFunctionId::SetEqual => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // x
+                sig.params.push(AbiParam::new(self.pointer_type)); // y
+                sig.returns.push(AbiParam::new(I8)); // result
+                self.register_import("__pasko_set_equal", sig)
+            }
+            RuntimeFunctionId::SetNotEqual => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // x
+                sig.params.push(AbiParam::new(self.pointer_type)); // y
+                sig.returns.push(AbiParam::new(I8)); // result
+                self.register_import("__pasko_set_not_equal", sig)
+            }
+            RuntimeFunctionId::SetIsSubset => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // x
+                sig.params.push(AbiParam::new(self.pointer_type)); // y
+                sig.returns.push(AbiParam::new(I8)); // result
+                self.register_import("__pasko_set_is_subset", sig)
+            }
+            RuntimeFunctionId::PointerNew => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // addr to pointer
+                sig.params.push(AbiParam::new(I64)); // size in bytes
+                self.register_import("__pasko_pointer_new", sig)
+            }
+            RuntimeFunctionId::PointerDispose => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type)); // addr to pointer
+                self.register_import("__pasko_pointer_dispose", sig)
+            }
+            RuntimeFunctionId::Init => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(I32)); // argc
+                sig.params.push(AbiParam::new(self.pointer_type)); // argv
+                sig.params.push(AbiParam::new(I32)); // num_program_parameters
+                sig.params.push(AbiParam::new(self.pointer_type)); // program_parameters
+                sig.params.push(AbiParam::new(I32)); // num_global_files
+                sig.params.push(AbiParam::new(self.pointer_type)); // global_files
+                self.register_import("__pasko_init", sig)
+            }
+            RuntimeFunctionId::Finish => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(I32)); // num_global_files
+                sig.params.push(AbiParam::new(self.pointer_type)); // global_files
+                self.register_import("__pasko_finish", sig)
+            }
+            RuntimeFunctionId::OutputFile => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.returns.push(AbiParam::new(self.pointer_type));
+                self.register_import("__pasko_get_output", sig)
+            }
+            RuntimeFunctionId::InputFile => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.returns.push(AbiParam::new(self.pointer_type));
+                self.register_import("__pasko_get_input", sig)
+            }
+            RuntimeFunctionId::RewriteFile => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type));
+                self.register_import("__pasko_rewrite_file", sig)
+            }
+            RuntimeFunctionId::RewriteTextfile => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type));
+                self.register_import("__pasko_rewrite_textfile", sig)
+            }
+            RuntimeFunctionId::ResetFile => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type));
+                sig.params.push(AbiParam::new(I64)); // bytes
+                self.register_import("__pasko_reset_file", sig)
+            }
+            RuntimeFunctionId::ResetTextfile => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type));
+                self.register_import("__pasko_reset_textfile", sig)
+            }
+            RuntimeFunctionId::PutFile => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type));
+                sig.params.push(AbiParam::new(I64)); // bytes
+                self.register_import("__pasko_put_file", sig)
+            }
+            RuntimeFunctionId::PutTextfile => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type));
+                self.register_import("__pasko_put_textfile", sig)
+            }
+            RuntimeFunctionId::GetFile => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type));
+                sig.params.push(AbiParam::new(I64)); // bytes
+                self.register_import("__pasko_get_file", sig)
+            }
+            RuntimeFunctionId::GetTextfile => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type));
+                self.register_import("__pasko_get_textfile", sig)
+            }
+            RuntimeFunctionId::BufferVarFile => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type));
+                sig.params.push(AbiParam::new(I64));
+                sig.returns.push(AbiParam::new(self.pointer_type));
+                self.register_import("__pasko_buffer_var_file", sig)
+            }
+            RuntimeFunctionId::BufferVarTextfile => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type));
+                sig.returns.push(AbiParam::new(self.pointer_type));
+                self.register_import("__pasko_buffer_var_textfile", sig)
+            }
+            RuntimeFunctionId::EofFile => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type));
+                sig.returns.push(AbiParam::new(I8));
+                self.register_import("__pasko_eof_file", sig)
+            }
+            RuntimeFunctionId::EofTextfile => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type));
+                sig.returns.push(AbiParam::new(I8));
+                self.register_import("__pasko_eof_textfile", sig)
+            }
+            RuntimeFunctionId::EolnTextfile => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(self.pointer_type));
+                sig.returns.push(AbiParam::new(I8));
+                self.register_import("__pasko_eoln_textfile", sig)
+            }
+            RuntimeFunctionId::SinF64 => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(F64));
+                sig.returns.push(AbiParam::new(F64));
+                self.register_import("__pasko_sin_f64", sig)
+            }
+            RuntimeFunctionId::CosF64 => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(F64));
+                sig.returns.push(AbiParam::new(F64));
+                self.register_import("__pasko_cos_f64", sig)
+            }
+            RuntimeFunctionId::ExpF64 => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(F64));
+                sig.returns.push(AbiParam::new(F64));
+                self.register_import("__pasko_exp_f64", sig)
+            }
+            RuntimeFunctionId::LnF64 => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(F64));
+                sig.returns.push(AbiParam::new(F64));
+                self.register_import("__pasko_ln_f64", sig)
+            }
+            RuntimeFunctionId::ArctanF64 => {
+                let mut sig = Signature::new(CallConv::SystemV);
+                sig.params.push(AbiParam::new(F64));
+                sig.returns.push(AbiParam::new(F64));
+                self.register_import("__pasko_arctan_f64", sig)
+            }
+        };
+        let import_id = import_id.unwrap();
+        self.rt_functions_cache.insert(rtid, import_id);
+        import_id
     }
 
     pub fn type_to_cranelift_type(&self, ty: TypeId) -> cranelift_codegen::ir::Type {
@@ -924,27 +999,27 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         let mut func = Function::with_name_signature(UserFuncName::user(0, func_id.as_u32()), sig);
 
         // Obtain early reference to __pasko_init and __pasko_finish
-        let pasko_init_id = self.rt.init.unwrap();
+        let pasko_init_id = self.get_runtime_function(RuntimeFunctionId::Init);
         let pasko_init_func_ref = self
             .object_module
             .as_mut()
             .unwrap()
             .declare_func_in_func(pasko_init_id, &mut func);
-        let pasko_finish_id = self.rt.finish.unwrap();
+        let pasko_finish_id = self.get_runtime_function(RuntimeFunctionId::Finish);
         let pasko_finish_func_ref = self
             .object_module
             .as_mut()
             .unwrap()
             .declare_func_in_func(pasko_finish_id, &mut func);
 
-        let get_input_func_id = self.rt.input_file.unwrap();
+        let get_input_func_id = self.get_runtime_function(RuntimeFunctionId::InputFile);
         let get_input_func_ref = self
             .object_module
             .as_mut()
             .unwrap()
             .declare_func_in_func(get_input_func_id, &mut func);
 
-        let get_output_func_id = self.rt.output_file.unwrap();
+        let get_output_func_id = self.get_runtime_function(RuntimeFunctionId::OutputFile);
         let get_output_func_ref = self
             .object_module
             .as_mut()

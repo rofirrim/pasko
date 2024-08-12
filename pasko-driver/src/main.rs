@@ -222,7 +222,8 @@ fn main() -> ExitCode {
             .arg("-L")
             .arg(pasko_runtime.clone())
             .arg(format!("-Wl,-rpath,{}", pasko_runtime.to_string_lossy()))
-            .arg("-lpasko_runtime");
+            .arg("-lpasko_runtime")
+            .arg("-lm");
     }
 
     if cli.verbose {

@@ -1097,7 +1097,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
     }
 
     fn ensure_output(&mut self, span: &span::SpanLoc) {
-        self._ensure_global_file("input", span);
+        self._ensure_global_file("output", span);
     }
 
     fn analyze_write_read_args(
@@ -2981,7 +2981,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         });
 
         if is_required_function(callee.get()) {
-            match callee.get().as_str() {
+            let function_name = callee.get();
+            match function_name.as_str() {
                 "eof" => {
                     match args.len() {
                         0 => {
@@ -3046,6 +3047,189 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     self.ctx
                         .set_ast_type(id, self.ctx.type_system.get_bool_type());
                 }
+                "abs" | "sqr" | "sin" | "cos" | "exp" | "ln" | "sqrt" | "arctan" => {
+                    match args.len() {
+                        1 => {
+                            let ty = self.ctx.get_ast_type(args[0].id()).unwrap();
+                            if !self.ctx.type_system.is_integer_type(ty)
+                                && !self.ctx.type_system.is_real_type(ty)
+                            {
+                                self.diagnostics.add(
+                                    DiagnosticKind::Error,
+                                    *args[0].loc(),
+                                    format!(
+                                        "argument of {} must have integer or real type",
+                                        function_name
+                                    ),
+                                );
+                                self.ctx
+                                    .set_ast_type(id, self.ctx.type_system.get_error_type());
+                                return false;
+                            }
+                            if function_name == "abs" || function_name == "sqr" {
+                                self.ctx.set_ast_type(id, ty);
+                            } else {
+                                if self.ctx.type_system.is_integer_type(ty) {
+                                    // Make a conversion here.
+                                    let conversion = SemanticCheckerVisitor::create_conversion_expr(
+                                        args[0].take(),
+                                    );
+                                    args[0].reset(conversion);
+                                    self.ctx.set_ast_type(
+                                        args[0].id(),
+                                        self.ctx.type_system.get_real_type(),
+                                    );
+                                }
+                                self.ctx
+                                    .set_ast_type(id, self.ctx.type_system.get_real_type());
+                            }
+                        }
+                        _ => {
+                            self.diagnostics.add(
+                                DiagnosticKind::Error,
+                                *span,
+                                format!("function {} requires one argument", function_name),
+                            );
+                            self.ctx
+                                .set_ast_type(id, self.ctx.type_system.get_error_type());
+                            return false;
+                        }
+                    }
+                }
+                "trunc" | "round" => match args.len() {
+                    1 => {
+                        let ty = self.ctx.get_ast_type(args[0].id()).unwrap();
+                        if !self.ctx.type_system.is_real_type(ty) {
+                            self.diagnostics.add(
+                                DiagnosticKind::Error,
+                                *args[0].loc(),
+                                format!("argument of {} must have real type", function_name),
+                            );
+                            self.ctx
+                                .set_ast_type(id, self.ctx.type_system.get_error_type());
+                            return false;
+                        }
+                        self.ctx
+                            .set_ast_type(id, self.ctx.type_system.get_integer_type());
+                    }
+                    _ => {
+                        self.diagnostics.add(
+                            DiagnosticKind::Error,
+                            *span,
+                            format!("function {} requires one argument", function_name),
+                        );
+                        self.ctx
+                            .set_ast_type(id, self.ctx.type_system.get_error_type());
+                        return false;
+                    }
+                },
+                "ord" => match args.len() {
+                    1 => {
+                        let ty = self.ctx.get_ast_type(args[0].id()).unwrap();
+                        if !self.ctx.type_system.is_ordinal_type(ty) {
+                            self.diagnostics.add(
+                                DiagnosticKind::Error,
+                                *args[0].loc(),
+                                format!("argument of {} must have ordinal type", function_name),
+                            );
+                            self.ctx
+                                .set_ast_type(id, self.ctx.type_system.get_error_type());
+                            return false;
+                        }
+                        self.ctx
+                            .set_ast_type(id, self.ctx.type_system.get_integer_type());
+                    }
+                    _ => {
+                        self.diagnostics.add(
+                            DiagnosticKind::Error,
+                            *span,
+                            format!("function {} requires one argument", function_name),
+                        );
+                        self.ctx
+                            .set_ast_type(id, self.ctx.type_system.get_error_type());
+                        return false;
+                    }
+                },
+                "chr" => match args.len() {
+                    1 => {
+                        let ty = self.ctx.get_ast_type(args[0].id()).unwrap();
+                        if !self.ctx.type_system.is_integer_type(ty) {
+                            self.diagnostics.add(
+                                DiagnosticKind::Error,
+                                *args[0].loc(),
+                                format!("argument of {} must have integer type", function_name),
+                            );
+                            self.ctx
+                                .set_ast_type(id, self.ctx.type_system.get_error_type());
+                            return false;
+                        }
+                        self.ctx
+                            .set_ast_type(id, self.ctx.type_system.get_char_type());
+                    }
+                    _ => {
+                        self.diagnostics.add(
+                            DiagnosticKind::Error,
+                            *span,
+                            format!("function {} requires one argument", function_name),
+                        );
+                        self.ctx
+                            .set_ast_type(id, self.ctx.type_system.get_error_type());
+                        return false;
+                    }
+                },
+                "succ" | "pred" => match args.len() {
+                    1 => {
+                        let ty = self.ctx.get_ast_type(args[0].id()).unwrap();
+                        if !self.ctx.type_system.is_ordinal_type(ty) {
+                            self.diagnostics.add(
+                                DiagnosticKind::Error,
+                                *args[0].loc(),
+                                format!("argument of {} must have ordinal type", function_name),
+                            );
+                            self.ctx
+                                .set_ast_type(id, self.ctx.type_system.get_error_type());
+                            return false;
+                        }
+                        self.ctx.set_ast_type(id, ty);
+                    }
+                    _ => {
+                        self.diagnostics.add(
+                            DiagnosticKind::Error,
+                            *span,
+                            format!("function {} requires one argument", function_name),
+                        );
+                        self.ctx
+                            .set_ast_type(id, self.ctx.type_system.get_error_type());
+                        return false;
+                    }
+                },
+                "odd" => match args.len() {
+                    1 => {
+                        let ty = self.ctx.get_ast_type(args[0].id()).unwrap();
+                        if !self.ctx.type_system.is_integer_type(ty) {
+                            self.diagnostics.add(
+                                DiagnosticKind::Error,
+                                *args[0].loc(),
+                                format!("argument of {} must have integer type", function_name),
+                            );
+                            self.ctx
+                                .set_ast_type(id, self.ctx.type_system.get_error_type());
+                            return false;
+                        }
+                        self.ctx
+                            .set_ast_type(id, self.ctx.type_system.get_bool_type());
+                    }
+                    _ => {
+                        self.diagnostics.add(
+                            DiagnosticKind::Error,
+                            *span,
+                            format!("function {} requires one argument", function_name),
+                        );
+                        self.ctx
+                            .set_ast_type(id, self.ctx.type_system.get_bool_type());
+                        return false;
+                    }
+                },
                 _ => {
                     self.unimplemented(
                         *span,

@@ -16,14 +16,14 @@ end.
 {
 
 CHECK: *** IR for procedure 'foo'
-CHECK-NEXT: function u0:38(i64) system_v {
+CHECK-NEXT: function u0:0(i64) system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     gv0 = symbol colocated userextname0
 CHECK-NEXT:     sig0 = (i64, i64) system_v
 CHECK-NEXT:     sig1 = (i64) system_v
-CHECK-NEXT:     fn0 = u0:0 sig0
-CHECK-NEXT:     fn1 = u0:5 sig1
-CHECK-EMPTY:
+CHECK-NEXT:     fn0 = u0:1 sig0
+CHECK-NEXT:     fn1 = u0:2 sig1
+CHECK-EMPTY: 
 CHECK-NEXT: block0(v0: i64):
 CHECK-NEXT:     v1 = stack_addr.i64 ss0
 CHECK-NEXT:     store v0, v1
@@ -38,7 +38,7 @@ CHECK-NEXT: }
 CHECK-NEXT: *** IR for procedure 'foo' seems OK
 
 CHECK: *** IR for main
-CHECK-NEXT: function u0:39(i32, i64) -> i32 system_v {
+CHECK-NEXT: function u0:3(i32, i64) -> i32 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
 CHECK-NEXT:     gv0 = symbol colocated userextname4
@@ -48,12 +48,12 @@ CHECK-NEXT:     sig1 = (i32, i64) system_v
 CHECK-NEXT:     sig2 = () -> i64 system_v
 CHECK-NEXT:     sig3 = () -> i64 system_v
 CHECK-NEXT:     sig4 = (i64) system_v
-CHECK-NEXT:     fn0 = u0:21 sig0
-CHECK-NEXT:     fn1 = u0:22 sig1
-CHECK-NEXT:     fn2 = u0:23 sig2
-CHECK-NEXT:     fn3 = u0:24 sig3
-CHECK-NEXT:     fn4 = colocated u0:38 sig4
-CHECK-EMPTY:
+CHECK-NEXT:     fn0 = u0:4 sig0
+CHECK-NEXT:     fn1 = u0:5 sig1
+CHECK-NEXT:     fn2 = u0:6 sig2
+CHECK-NEXT:     fn3 = u0:7 sig3
+CHECK-NEXT:     fn4 = colocated u0:0 sig4
+CHECK-EMPTY: 
 CHECK-NEXT: block0(v0: i32, v1: i64):
 CHECK-NEXT:     v2 = iconst.i32 0
 CHECK-NEXT:     v3 = iconst.i64 0

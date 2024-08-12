@@ -13,16 +13,21 @@ pasko_sources = [
   'pasko_string.c',
   'pasko_set.c',
   'pasko_init.c',
+  'pasko_math.c',
   # Headers
   'pasko_runtime.h',
   'pasko_internal.h',
 ]
+
+cc = meson.get_compiler('c')
+m_dep = cc.find_library('m', required : false)
 
 shlib = shared_library('pasko_runtime', 
   pasko_sources,
   install : true,
   c_args : lib_args,
   gnu_symbol_visibility : 'hidden',
+  dependencies: [m_dep]
 )
 
 # Make this library usable as a Meson subproject.

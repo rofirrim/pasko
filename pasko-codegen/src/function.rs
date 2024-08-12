@@ -3,6 +3,7 @@
 use cranelift_codegen::ir::StackSlot;
 use cranelift_codegen::ir::Value;
 use cranelift_codegen::settings::Configurable;
+use cranelift_object::object::pe::IMAGE_SYM_TYPE_INT;
 use cranelift_object::object::read::elf::ElfSectionIterator32;
 use cranelift_object::object::SymbolKind;
 use pasko_frontend::ast;
@@ -43,6 +44,8 @@ use std::thread::current;
 
 use crate::datalocation::DataLocation;
 use crate::program::CodegenVisitor;
+
+use crate::runtime::RuntimeFunctionId;
 
 #[derive(Clone)]
 struct Temporary {
@@ -331,7 +334,9 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
             let src_value = if value_is_variable {
                 // We need to copy the pointer from this variable.
-                let func_id = self.codegen.rt.set_copy.unwrap();
+                let func_id = self
+                    .codegen
+                    .get_runtime_function(RuntimeFunctionId::SetCopy);
                 let func_ref = self.get_function_reference(func_id);
                 let call = self.builder().ins().call(func_ref, &[value]);
 
@@ -788,7 +793,9 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     match arg.get() {
                         ast::Expr::Variable(..) | ast::Expr::VariableReference(..) => {
                             // We need to copy the pointer from this variable.
-                            let func_id = self.codegen.rt.set_copy.unwrap();
+                            let func_id = self
+                                .codegen
+                                .get_runtime_function(RuntimeFunctionId::SetCopy);
                             let func_ref = self.get_function_reference(func_id);
                             let call = self.builder().ins().call(func_ref, &[arg_value]);
 
@@ -834,7 +841,9 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
     }
 
     fn dispose_set_variable(&mut self, addr: cranelift_codegen::ir::Value) {
-        let func_id = self.codegen.rt.set_dispose.unwrap();
+        let func_id = self
+            .codegen
+            .get_runtime_function(RuntimeFunctionId::SetDispose);
         let func_ref = self.get_function_reference(func_id);
         self.builder().ins().call(func_ref, &[addr]);
     }
@@ -1105,7 +1114,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                     self.codegen.size_in_bytes(component_ty) as i64,
                                 );
                                 // file^ := expr;
-                                let func_id = self.codegen.rt.buffer_var_file.unwrap();
+                                let func_id = self
+                                    .codegen
+                                    .get_runtime_function(RuntimeFunctionId::BufferVarFile);
                                 let func_ref = self.get_function_reference(func_id);
                                 let call = self
                                     .builder()
@@ -1118,7 +1129,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 };
                                 self.store_expr_into_address(buffer_var, component_ty, arg);
                                 // put(file);
-                                let func_id = self.codegen.rt.put_file.unwrap();
+                                let func_id = self
+                                    .codegen
+                                    .get_runtime_function(RuntimeFunctionId::PutFile);
                                 let func_ref = self.get_function_reference(func_id);
                                 self.builder()
                                     .ins()
@@ -1129,7 +1142,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .type_system
                                 .is_integer_type(type_id)
                             {
-                                let func_id = self.codegen.rt.write_textfile_i64.unwrap();
+                                let func_id = self
+                                    .codegen
+                                    .get_runtime_function(RuntimeFunctionId::WriteTextfileI64);
                                 let func_ref = self.get_function_reference(func_id);
                                 let total_width =
                                     total_width.unwrap_or_else(|| self.emit_const_integer(0));
@@ -1142,7 +1157,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .type_system
                                 .is_real_type(type_id)
                             {
-                                let func_id = self.codegen.rt.write_textfile_f64.unwrap();
+                                let func_id = self
+                                    .codegen
+                                    .get_runtime_function(RuntimeFunctionId::WriteTextfileF64);
                                 let func_ref = self.get_function_reference(func_id);
                                 let total_width =
                                     total_width.unwrap_or_else(|| self.emit_const_integer(0));
@@ -1157,7 +1174,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .type_system
                                 .is_string_type(type_id)
                             {
-                                let func_id = self.codegen.rt.write_textfile_str.unwrap();
+                                let func_id = self
+                                    .codegen
+                                    .get_runtime_function(RuntimeFunctionId::WriteTextfileStr);
                                 let func_ref = self.get_function_reference(func_id);
                                 self.builder().ins().call(func_ref, &[file_argument, v]);
                             } else if self
@@ -1166,7 +1185,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .type_system
                                 .is_bool_type(type_id)
                             {
-                                let func_id = self.codegen.rt.write_textfile_bool.unwrap();
+                                let func_id = self
+                                    .codegen
+                                    .get_runtime_function(RuntimeFunctionId::WriteTextfileBool);
                                 let func_ref = self.get_function_reference(func_id);
                                 self.builder().ins().call(func_ref, &[file_argument, v]);
                             } else if self
@@ -1175,7 +1196,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .type_system
                                 .is_char_type(type_id)
                             {
-                                let func_id = self.codegen.rt.write_textfile_char.unwrap();
+                                let func_id = self
+                                    .codegen
+                                    .get_runtime_function(RuntimeFunctionId::WriteTextfileChar);
                                 let func_ref = self.get_function_reference(func_id);
                                 self.builder().ins().call(func_ref, &[file_argument, v]);
                             } else {
@@ -1191,7 +1214,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     }
 
                     if is_writeln {
-                        let func_id = self.codegen.rt.write_textfile_newline.unwrap();
+                        let func_id = self
+                            .codegen
+                            .get_runtime_function(RuntimeFunctionId::WriteTextfileNewline);
                         let func_ref = self.get_function_reference(func_id);
                         self.builder().ins().call(func_ref, &[file_argument]);
                     }
@@ -1239,7 +1264,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                         );
                                         // var := file^;
                                         // Obtain address of file buffer.
-                                        let func_id = self.codegen.rt.buffer_var_file.unwrap();
+                                        let func_id = self
+                                            .codegen
+                                            .get_runtime_function(RuntimeFunctionId::BufferVarFile);
                                         let func_ref = self.get_function_reference(func_id);
                                         let call = self
                                             .builder()
@@ -1279,7 +1306,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                             component_ty,
                                         );
                                         // get(file)
-                                        let func_id = self.codegen.rt.get_file.unwrap();
+                                        let func_id = self
+                                            .codegen
+                                            .get_runtime_function(RuntimeFunctionId::GetFile);
                                         let func_ref = self.get_function_reference(func_id);
                                         self.builder()
                                             .ins()
@@ -1302,12 +1331,16 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                             .is_integer_type(var_ty)
                                         {
                                             (
-                                                self.codegen.rt.read_textfile_i64.unwrap(),
+                                                self.codegen.get_runtime_function(
+                                                    RuntimeFunctionId::ReadTextfileI64,
+                                                ),
                                                 vec![file_argument],
                                             )
                                         } else {
                                             (
-                                                self.codegen.rt.read_textfile_f64.unwrap(),
+                                                self.codegen.get_runtime_function(
+                                                    RuntimeFunctionId::ReadTextfileF64,
+                                                ),
                                                 vec![file_argument],
                                             )
                                         };
@@ -1349,7 +1382,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         }
                     }
                     if is_readln {
-                        let func_id = self.codegen.rt.read_textfile_newline.unwrap();
+                        let func_id = self
+                            .codegen
+                            .get_runtime_function(RuntimeFunctionId::ReadTextfileNewline);
                         let func_ref = self.get_function_reference(func_id);
                         self.builder().ins().call(func_ref, &[file_argument]);
                     }
@@ -1385,7 +1420,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         let size_bytes = self.codegen.size_in_bytes(var_ty) as i64;
                         let size_bytes = self.emit_const_integer(size_bytes);
 
-                        let func_id = self.codegen.rt.pointer_new.unwrap();
+                        let func_id = self
+                            .codegen
+                            .get_runtime_function(RuntimeFunctionId::PointerNew);
                         let func_ref = self.get_function_reference(func_id);
                         self.builder().ins().call(func_ref, &[var_addr, size_bytes]);
                     }
@@ -1406,7 +1443,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                             }
                         };
 
-                        let func_id = self.codegen.rt.pointer_dispose.unwrap();
+                        let func_id = self
+                            .codegen
+                            .get_runtime_function(RuntimeFunctionId::PointerDispose);
                         let func_ref = self.get_function_reference(func_id);
                         self.builder().ins().call(func_ref, &[var_addr]);
                     }
@@ -1433,11 +1472,12 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         };
 
                         let func_id = if is_textfile {
-                            self.codegen.rt.rewrite_textfile
+                            self.codegen
+                                .get_runtime_function(RuntimeFunctionId::RewriteTextfile)
                         } else {
-                            self.codegen.rt.rewrite_file
-                        }
-                        .unwrap();
+                            self.codegen
+                                .get_runtime_function(RuntimeFunctionId::RewriteFile)
+                        };
                         let func_ref = self.get_function_reference(func_id);
                         self.builder().ins().call(func_ref, &[value]);
                     }
@@ -1463,7 +1503,11 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         };
 
                         let (func_id, args) = if is_textfile {
-                            (self.codegen.rt.reset_textfile.unwrap(), vec![value])
+                            (
+                                self.codegen
+                                    .get_runtime_function(RuntimeFunctionId::ResetTextfile),
+                                vec![value],
+                            )
                         } else {
                             let component_ty = self
                                 .codegen
@@ -1472,7 +1516,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .file_type_get_component_type(ty);
                             let component_size = self.codegen.size_in_bytes(component_ty);
                             (
-                                self.codegen.rt.reset_file.unwrap(),
+                                self.codegen
+                                    .get_runtime_function(RuntimeFunctionId::ResetFile),
                                 vec![value, self.emit_const_integer(component_size as i64)],
                             )
                         };
@@ -1501,7 +1546,11 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         };
 
                         let (func_id, args) = if is_textfile {
-                            (self.codegen.rt.put_textfile.unwrap(), vec![value])
+                            (
+                                self.codegen
+                                    .get_runtime_function(RuntimeFunctionId::PutTextfile),
+                                vec![value],
+                            )
                         } else {
                             let component_ty = self
                                 .codegen
@@ -1510,7 +1559,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .file_type_get_component_type(ty);
                             let component_size = self.codegen.size_in_bytes(component_ty);
                             (
-                                self.codegen.rt.put_file.unwrap(),
+                                self.codegen
+                                    .get_runtime_function(RuntimeFunctionId::PutFile),
                                 vec![value, self.emit_const_integer(component_size as i64)],
                             )
                         };
@@ -1539,7 +1589,11 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         };
 
                         let (func_id, args) = if is_textfile {
-                            (self.codegen.rt.get_textfile.unwrap(), vec![value])
+                            (
+                                self.codegen
+                                    .get_runtime_function(RuntimeFunctionId::GetTextfile),
+                                vec![value],
+                            )
                         } else {
                             let component_ty = self
                                 .codegen
@@ -1548,7 +1602,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .file_type_get_component_type(ty);
                             let component_size = self.codegen.size_in_bytes(component_ty);
                             (
-                                self.codegen.rt.get_file.unwrap(),
+                                self.codegen
+                                    .get_runtime_function(RuntimeFunctionId::GetFile),
                                 vec![value, self.emit_const_integer(component_size as i64)],
                             )
                         };
@@ -1722,14 +1777,14 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
             let number_of_elements_value = self.emit_const_integer(number_of_elements as i64);
 
-            let func_id = self.codegen.rt.set_new.unwrap();
+            let func_id = self.codegen.get_runtime_function(RuntimeFunctionId::SetNew);
             let func_ref = self.get_function_reference(func_id);
             self.builder()
                 .ins()
                 .call(func_ref, &[number_of_elements_value, stack_addr])
         } else {
             let zero = self.emit_const_integer(0 as i64);
-            let func_id = self.codegen.rt.set_new.unwrap();
+            let func_id = self.codegen.get_runtime_function(RuntimeFunctionId::SetNew);
             let func_ref = self.get_function_reference(func_id);
             self.builder().ins().call(func_ref, &[zero, zero])
         };
@@ -2021,12 +2076,16 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 .file_type_get_component_type(pointee_type);
 
             let (func_ref, args) = if is_textfile {
-                let func_id = self.codegen.rt.buffer_var_textfile.unwrap();
+                let func_id = self
+                    .codegen
+                    .get_runtime_function(RuntimeFunctionId::BufferVarTextfile);
                 let func_ref = self.get_function_reference(func_id);
                 (func_ref, vec![file_value])
             } else {
                 let component_size = self.codegen.size_in_bytes(component_ty);
-                let func_id = self.codegen.rt.buffer_var_file.unwrap();
+                let func_id = self
+                    .codegen
+                    .get_runtime_function(RuntimeFunctionId::BufferVarFile);
                 let func_ref = self.get_function_reference(func_id);
                 let size = self.emit_const_integer(component_size as i64);
                 (func_ref, vec![file_value, size])
@@ -2085,7 +2144,17 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 self.set_value(id, result);
             }
             UnaryOp::Negation => {
-                let result = self.builder().ins().ineg(op_value);
+                let is_integer = self.codegen.semantic_context.type_system.is_integer_type(
+                    self.codegen
+                        .semantic_context
+                        .get_ast_type(n.1.id())
+                        .unwrap(),
+                );
+                let result = if is_integer {
+                    self.builder().ins().ineg(op_value)
+                } else {
+                    self.builder().ins().fneg(op_value)
+                };
                 self.set_value(id, result);
             }
             UnaryOp::Plus => {
@@ -2267,15 +2336,20 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     {
                         let (mut op1_value, mut op2_value) = (lhs_value, rhs_value);
                         let func_id = match operator {
-                            ast::BinOperand::Equal => self.codegen.rt.set_equal.unwrap(),
-                            ast::BinOperand::Different => self.codegen.rt.set_not_equal.unwrap(),
-                            ast::BinOperand::LowerOrEqualThan => {
-                                self.codegen.rt.set_is_subset.unwrap()
-                            }
+                            ast::BinOperand::Equal => self
+                                .codegen
+                                .get_runtime_function(RuntimeFunctionId::SetEqual),
+                            ast::BinOperand::Different => self
+                                .codegen
+                                .get_runtime_function(RuntimeFunctionId::SetNotEqual),
+                            ast::BinOperand::LowerOrEqualThan => self
+                                .codegen
+                                .get_runtime_function(RuntimeFunctionId::SetIsSubset),
                             ast::BinOperand::GreaterOrEqualThan => {
                                 // Swap operands
                                 std::mem::swap(&mut op1_value, &mut op2_value);
-                                self.codegen.rt.set_is_subset.unwrap()
+                                self.codegen
+                                    .get_runtime_function(RuntimeFunctionId::SetIsSubset)
                             }
                             // ast::BinOperand::GreaterOrEqualThan => FloatCC::GreaterThanOrEqual,
                             _ => panic!("Unexpected operator"),
@@ -2304,7 +2378,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     self.set_value(id, result);
                 }
                 ast::BinOperand::InSet => {
-                    let func_id = self.codegen.rt.set_contains.unwrap();
+                    let func_id = self
+                        .codegen
+                        .get_runtime_function(RuntimeFunctionId::SetContains);
                     let func_ref = self.get_function_reference(func_id);
                     let call = self.builder().ins().call(func_ref, &[rhs_value, lhs_value]);
                     let result = {
@@ -2327,9 +2403,15 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             }
         } else if is_set {
             let func_id = match operator {
-                ast::BinOperand::Addition => self.codegen.rt.set_union.unwrap(),
-                ast::BinOperand::Subtraction => self.codegen.rt.set_difference.unwrap(),
-                ast::BinOperand::Multiplication => self.codegen.rt.set_intersection.unwrap(),
+                ast::BinOperand::Addition => self
+                    .codegen
+                    .get_runtime_function(RuntimeFunctionId::SetUnion),
+                ast::BinOperand::Subtraction => self
+                    .codegen
+                    .get_runtime_function(RuntimeFunctionId::SetDifference),
+                ast::BinOperand::Multiplication => self
+                    .codegen
+                    .get_runtime_function(RuntimeFunctionId::SetIntersection),
                 _ => {
                     panic!(
                         "Unexpected operator {} for type {}",
@@ -2823,7 +2905,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         let callee = &n.0;
         if pasko_frontend::semantic::is_required_function(callee.get()) {
-            match callee.get().as_str() {
+            let function_name = callee.get().as_str();
+            match function_name {
                 "eof" => {
                     let (file_arg, is_textfile) = match args.len() {
                         0 => (self.get_input_file_val(), true),
@@ -2840,9 +2923,11 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     };
 
                     let func_id = if is_textfile {
-                        self.codegen.rt.eof_textfile.unwrap()
+                        self.codegen
+                            .get_runtime_function(RuntimeFunctionId::EofTextfile)
                     } else {
-                        self.codegen.rt.eof_file.unwrap()
+                        self.codegen
+                            .get_runtime_function(RuntimeFunctionId::EofFile)
                     };
                     let func_ref = self.get_function_reference(func_id);
                     let call = self.builder().ins().call(func_ref, &[file_arg]);
@@ -2861,7 +2946,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         _ => unreachable!(),
                     };
 
-                    let func_id = self.codegen.rt.eoln_textfile.unwrap();
+                    let func_id = self
+                        .codegen
+                        .get_runtime_function(RuntimeFunctionId::EolnTextfile);
                     let func_ref = self.get_function_reference(func_id);
                     let call = self.builder().ins().call(func_ref, &[file_arg]);
 
@@ -2871,6 +2958,121 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         results[0]
                     };
                     self.value_map.insert(id, result);
+                }
+                "abs" | "sqr" | "sin" | "cos" | "exp" | "ln" | "sqrt" | "arctan" | "trunc"
+                | "round" => {
+                    let is_integer_arg = self.codegen.semantic_context.type_system.is_integer_type(
+                        self.codegen
+                            .semantic_context
+                            .get_ast_type(args[0].id())
+                            .unwrap(),
+                    );
+
+                    let arg = self.get_value(args[0].id());
+                    let result = match function_name {
+                        "abs" if is_integer_arg => self.builder().ins().iabs(arg),
+                        "sqr" if is_integer_arg => self.builder().ins().imul(arg, arg),
+                        "abs" if !is_integer_arg => self.builder().ins().fabs(arg),
+                        "sqr" if !is_integer_arg => self.builder().ins().fmul(arg, arg),
+                        "sqrt" => self.builder().ins().sqrt(arg),
+                        "trunc" => {
+                            let t = self.builder().ins().trunc(arg);
+                            self.builder().ins().fcvt_to_sint(I64, t)
+                        }
+                        "round" => {
+                            let t = self.builder().ins().nearest(arg);
+                            self.builder().ins().fcvt_to_sint(I64, t)
+                        }
+                        _ => {
+                            let rt_function_id = match function_name {
+                                "sin" => RuntimeFunctionId::SinF64,
+                                "cos" => RuntimeFunctionId::CosF64,
+                                "exp" => RuntimeFunctionId::ExpF64,
+                                "ln" => RuntimeFunctionId::LnF64,
+                                "arctan" => RuntimeFunctionId::ArctanF64,
+                                _ => {
+                                    unreachable!();
+                                }
+                            };
+                            let func_id = self.codegen.get_runtime_function(rt_function_id);
+                            let func_ref = self.get_function_reference(func_id);
+                            let call = self.builder().ins().call(func_ref, &[arg]);
+
+                            let result = {
+                                let results = self.builder().inst_results(call);
+                                assert!(results.len() == 1, "Invalid number of results");
+                                results[0]
+                            };
+                            result
+                        }
+                    };
+                    self.value_map.insert(id, result);
+                }
+                "ord" => {
+                    let arg_ty = self
+                        .codegen
+                        .semantic_context
+                        .get_ast_type(args[0].id())
+                        .unwrap();
+
+                    let arg = self.get_value(args[0].id());
+                    if self
+                        .codegen
+                        .semantic_context
+                        .type_system
+                        .is_integer_type(arg_ty)
+                        || self
+                            .codegen
+                            .semantic_context
+                            .type_system
+                            .is_enum_type(arg_ty)
+                        || self
+                            .codegen
+                            .semantic_context
+                            .type_system
+                            .is_subrange_type(arg_ty)
+                    {
+                        // No-op
+                        self.value_map.insert(id, arg);
+                    } else if self
+                        .codegen
+                        .semantic_context
+                        .type_system
+                        .is_bool_type(arg_ty)
+                        || self
+                            .codegen
+                            .semantic_context
+                            .type_system
+                            .is_char_type(arg_ty)
+                    {
+                        let x = self.builder().ins().uextend(I64, arg);
+                        self.value_map.insert(id, x);
+                    } else {
+                        unreachable!();
+                    }
+                }
+                "chr" => {
+                    let arg = self.get_value(args[0].id());
+                    let x = self.builder().ins().ireduce(I32, arg);
+                    self.value_map.insert(id, x);
+                }
+                "succ" => {
+                    let arg = self.get_value(args[0].id());
+                    let x = self.builder().ins().iadd_imm(arg, 1);
+                    self.value_map.insert(id, x);
+                }
+                "pred" => {
+                    let arg = self.get_value(args[0].id());
+                    let x = self.builder().ins().iadd_imm(arg, -1);
+                    self.value_map.insert(id, x);
+                }
+                "odd" => {
+                    let arg = self.get_value(args[0].id());
+                    // ~x & 1 -> 1 & ~x
+                    let one = self.emit_const_integer(1);
+                    let x = self.builder().ins().band_not(one, arg);
+                    let x = self.builder().ins().ireduce(I8, x);
+                    self.value_map.insert(id, x);
                 }
                 _ => panic!("unimplemented required function {}", callee.get()),
             }

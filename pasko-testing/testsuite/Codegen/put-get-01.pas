@@ -22,7 +22,7 @@ end.
 {
 
 CHECK: *** IR for main
-CHECK-NEXT: function u0:38(i32, i64) -> i32 system_v {
+CHECK-NEXT: function u0:0(i32, i64) -> i32 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 16
 CHECK-NEXT:     ss1 = explicit_slot 16
 CHECK-NEXT:     gv0 = symbol colocated userextname4
@@ -39,16 +39,16 @@ CHECK-NEXT:     sig5 = (i64, i64) -> i64 system_v
 CHECK-NEXT:     sig6 = (i64, i64) system_v
 CHECK-NEXT:     sig7 = (i64, i64) system_v
 CHECK-NEXT:     sig8 = (i64, i64) system_v
-CHECK-NEXT:     fn0 = u0:21 sig0
-CHECK-NEXT:     fn1 = u0:22 sig1
-CHECK-NEXT:     fn2 = u0:23 sig2
-CHECK-NEXT:     fn3 = u0:24 sig3
-CHECK-NEXT:     fn4 = u0:25 sig4
-CHECK-NEXT:     fn5 = u0:33 sig5
-CHECK-NEXT:     fn6 = u0:29 sig6
-CHECK-NEXT:     fn7 = u0:27 sig7
-CHECK-NEXT:     fn8 = u0:31 sig8
-CHECK-EMPTY:
+CHECK-NEXT:     fn0 = u0:1 sig0
+CHECK-NEXT:     fn1 = u0:2 sig1
+CHECK-NEXT:     fn2 = u0:3 sig2
+CHECK-NEXT:     fn3 = u0:4 sig3
+CHECK-NEXT:     fn4 = u0:5 sig4
+CHECK-NEXT:     fn5 = u0:6 sig5
+CHECK-NEXT:     fn6 = u0:7 sig6
+CHECK-NEXT:     fn7 = u0:8 sig7
+CHECK-NEXT:     fn8 = u0:9 sig8
+CHECK-EMPTY: 
 CHECK-NEXT: block0(v0: i32, v1: i64):
 CHECK-NEXT:     v2 = iconst.i32 1
 CHECK-NEXT:     v3 = global_value.i64 gv0

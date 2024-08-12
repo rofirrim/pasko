@@ -374,7 +374,12 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
-        self.emit_line_payload("ExprFunctionCall", span, id, &format!("{}", n.0.get()));
+        self.emit_line_payload(
+            "ExprFunctionCall",
+            span,
+            id,
+            &format!("{} {}", n.0.get(), self.type_to_string(id)),
+        );
 
         self.walk_vec_child(&n.1);
 
