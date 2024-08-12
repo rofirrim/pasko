@@ -86,6 +86,12 @@ From inside the build-directory
 | Nested procedures and functions                        | ❌     |                                                             |
 | pack/unpack required procedures                        | ❌     |                                                             |
 
+### Areas of improvement
+
+- The required functions could be represented using a table.
+- We could be using a more idiomatic representation for types.
+- Forward declarations may create unneeded symbols and scopes. The scope mechanism could be made more sophisticated.
+
 ##### I found a bug / I want to contribute
 
 Please send me an email.
