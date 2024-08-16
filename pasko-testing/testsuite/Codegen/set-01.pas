@@ -22,7 +22,7 @@ end.
 
 {
 
-CHECK: *** IR for procedure 'foo_val'
+CHECK: *** IR for 'foo_val'
 CHECK-NEXT: function u0:0(i64) system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -48,9 +48,9 @@ CHECK-NEXT:     v9 = load.i64 v8
 CHECK-NEXT:     call fn1(v9)
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for procedure 'foo_val' seems OK
+CHECK-NEXT: *** IR for 'foo_val' seems OK
 
-CHECK: *** IR for procedure 'foo_ref'
+CHECK: *** IR for 'foo_ref'
 CHECK-NEXT: function u0:3(i64) system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -74,9 +74,9 @@ CHECK-NEXT:     call fn1(v8)
 CHECK-NEXT:     store v5, v7
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for procedure 'foo_ref' seems OK
+CHECK-NEXT: *** IR for 'foo_ref' seems OK
 
-CHECK: *** IR for main
+CHECK: *** IR for 'main'
 CHECK-NEXT: function u0:4(i32, i64) -> i32 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -111,6 +111,6 @@ CHECK-NEXT:     call fn1(v7, v6)  ; v7 = 0
 CHECK-NEXT:     v12 = iconst.i32 0
 CHECK-NEXT:     return v12  ; v12 = 0
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for main seems OK
+CHECK-NEXT: *** IR for 'main' seems OK
 
 }

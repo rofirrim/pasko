@@ -25,29 +25,27 @@ end.
 
 {
 
-CHECK: *** IR for procedure 'foo_2'
+CHECK: *** IR for 'foo_2'
 CHECK-NEXT: function u0:0() system_v {
 CHECK-NEXT:     ss0 = explicit_slot 88
 CHECK-EMPTY:
 CHECK-NEXT: block0:
 CHECK-NEXT:     v0 = iconst.i8 1
 CHECK-NEXT:     v1 = stack_addr.i64 ss0
-CHECK-NEXT:     v2 = iconst.i64 0
-CHECK-NEXT:     v3 = iadd v1, v2  ; v2 = 0
-CHECK-NEXT:     store v0, v3  ; v0 = 1
-CHECK-NEXT:     v4 = iconst.i64 3
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     v6 = iconst.i64 8
-CHECK-NEXT:     v7 = iadd v5, v6  ; v6 = 8
-CHECK-NEXT:     v8 = iconst.i64 1
-CHECK-NEXT:     v9 = iconst.i64 1
-CHECK-NEXT:     v10 = isub v8, v9  ; v8 = 1, v9 = 1
-CHECK-NEXT:     v11 = iconst.i64 8
-CHECK-NEXT:     v12 = imul v10, v11  ; v11 = 8
-CHECK-NEXT:     v13 = iadd v7, v12
-CHECK-NEXT:     store v4, v13  ; v4 = 3
+CHECK-NEXT:     store v0, v1  ; v0 = 1
+CHECK-NEXT:     v2 = iconst.i64 3
+CHECK-NEXT:     v3 = stack_addr.i64 ss0
+CHECK-NEXT:     v4 = iconst.i64 8
+CHECK-NEXT:     v5 = iadd v3, v4  ; v4 = 8
+CHECK-NEXT:     v6 = iconst.i64 1
+CHECK-NEXT:     v7 = iconst.i64 1
+CHECK-NEXT:     v8 = isub v6, v7  ; v6 = 1, v7 = 1
+CHECK-NEXT:     v9 = iconst.i64 8
+CHECK-NEXT:     v10 = imul v8, v9  ; v9 = 8
+CHECK-NEXT:     v11 = iadd v5, v10
+CHECK-NEXT:     store v2, v11  ; v2 = 3
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for procedure 'foo_2' seems OK
+CHECK-NEXT: *** IR for 'foo_2' seems OK
 
 }

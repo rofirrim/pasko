@@ -112,7 +112,7 @@ end.
 
 {
 
-CHECK: *** IR for function 'my_abs_int'
+CHECK: *** IR for 'my_abs_int'
 CHECK-NEXT: function u0:0(i64) -> i64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -129,9 +129,9 @@ CHECK-NEXT:     v6 = stack_addr.i64 ss0
 CHECK-NEXT:     v7 = load.i64 v6
 CHECK-NEXT:     return v7
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_abs_int' seems OK
+CHECK-NEXT: *** IR for 'my_abs_int' seems OK
 
-CHECK: *** IR for function 'my_sqr_int'
+CHECK: *** IR for 'my_sqr_int'
 CHECK-NEXT: function u0:1(i64) -> i64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -148,9 +148,9 @@ CHECK-NEXT:     v6 = stack_addr.i64 ss0
 CHECK-NEXT:     v7 = load.i64 v6
 CHECK-NEXT:     return v7
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_sqr_int' seems OK
+CHECK-NEXT: *** IR for 'my_sqr_int' seems OK
 
-CHECK: *** IR for function 'my_abs_real'
+CHECK: *** IR for 'my_abs_real'
 CHECK-NEXT: function u0:2(f64) -> f64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -167,9 +167,9 @@ CHECK-NEXT:     v6 = stack_addr.i64 ss0
 CHECK-NEXT:     v7 = load.f64 v6
 CHECK-NEXT:     return v7
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_abs_real' seems OK
+CHECK-NEXT: *** IR for 'my_abs_real' seems OK
 
-CHECK: *** IR for function 'my_sqr_real'
+CHECK: *** IR for 'my_sqr_real'
 CHECK-NEXT: function u0:3(f64) -> f64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -186,9 +186,9 @@ CHECK-NEXT:     v6 = stack_addr.i64 ss0
 CHECK-NEXT:     v7 = load.f64 v6
 CHECK-NEXT:     return v7
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_sqr_real' seems OK
+CHECK-NEXT: *** IR for 'my_sqr_real' seems OK
 
-CHECK: *** IR for function 'my_sin'
+CHECK: *** IR for 'my_sin'
 CHECK-NEXT: function u0:4(f64) -> f64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -207,9 +207,9 @@ CHECK-NEXT:     v6 = stack_addr.i64 ss0
 CHECK-NEXT:     v7 = load.f64 v6
 CHECK-NEXT:     return v7
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_sin' seems OK
+CHECK-NEXT: *** IR for 'my_sin' seems OK
 
-CHECK: *** IR for function 'my_cos'
+CHECK: *** IR for 'my_cos'
 CHECK-NEXT: function u0:6(f64) -> f64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -228,9 +228,9 @@ CHECK-NEXT:     v6 = stack_addr.i64 ss0
 CHECK-NEXT:     v7 = load.f64 v6
 CHECK-NEXT:     return v7
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_cos' seems OK
+CHECK-NEXT: *** IR for 'my_cos' seems OK
 
-CHECK: *** IR for function 'my_exp'
+CHECK: *** IR for 'my_exp'
 CHECK-NEXT: function u0:8(f64) -> f64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -249,9 +249,9 @@ CHECK-NEXT:     v6 = stack_addr.i64 ss0
 CHECK-NEXT:     v7 = load.f64 v6
 CHECK-NEXT:     return v7
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_exp' seems OK
+CHECK-NEXT: *** IR for 'my_exp' seems OK
 
-CHECK: *** IR for function 'my_ln'
+CHECK: *** IR for 'my_ln'
 CHECK-NEXT: function u0:10(f64) -> f64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -270,9 +270,9 @@ CHECK-NEXT:     v6 = stack_addr.i64 ss0
 CHECK-NEXT:     v7 = load.f64 v6
 CHECK-NEXT:     return v7
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_ln' seems OK
+CHECK-NEXT: *** IR for 'my_ln' seems OK
 
-CHECK: *** IR for function 'my_sqrt'
+CHECK: *** IR for 'my_sqrt'
 CHECK-NEXT: function u0:12(f64) -> f64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -289,9 +289,9 @@ CHECK-NEXT:     v6 = stack_addr.i64 ss0
 CHECK-NEXT:     v7 = load.f64 v6
 CHECK-NEXT:     return v7
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_sqrt' seems OK
+CHECK-NEXT: *** IR for 'my_sqrt' seems OK
 
-CHECK: *** IR for function 'my_arctan'
+CHECK: *** IR for 'my_arctan'
 CHECK-NEXT: function u0:13(f64) -> f64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -310,9 +310,9 @@ CHECK-NEXT:     v6 = stack_addr.i64 ss0
 CHECK-NEXT:     v7 = load.f64 v6
 CHECK-NEXT:     return v7
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_arctan' seems OK
+CHECK-NEXT: *** IR for 'my_arctan' seems OK
 
-CHECK: *** IR for function 'my_trunc'
+CHECK: *** IR for 'my_trunc'
 CHECK-NEXT: function u0:15(f64) -> i64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -330,9 +330,9 @@ CHECK-NEXT:     v7 = stack_addr.i64 ss0
 CHECK-NEXT:     v8 = load.i64 v7
 CHECK-NEXT:     return v8
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_trunc' seems OK
+CHECK-NEXT: *** IR for 'my_trunc' seems OK
 
-CHECK: *** IR for function 'my_round'
+CHECK: *** IR for 'my_round'
 CHECK-NEXT: function u0:16(f64) -> i64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -350,9 +350,9 @@ CHECK-NEXT:     v7 = stack_addr.i64 ss0
 CHECK-NEXT:     v8 = load.i64 v7
 CHECK-NEXT:     return v8
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_round' seems OK
+CHECK-NEXT: *** IR for 'my_round' seems OK
 
-CHECK: *** IR for function 'my_ord_i'
+CHECK: *** IR for 'my_ord_i'
 CHECK-NEXT: function u0:17(i64) -> i64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -368,9 +368,9 @@ CHECK-NEXT:     v5 = stack_addr.i64 ss0
 CHECK-NEXT:     v6 = load.i64 v5
 CHECK-NEXT:     return v6
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_ord_i' seems OK
+CHECK-NEXT: *** IR for 'my_ord_i' seems OK
 
-CHECK: *** IR for function 'my_ord_b'
+CHECK: *** IR for 'my_ord_b'
 CHECK-NEXT: function u0:18(i8) -> i64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 1
@@ -387,9 +387,9 @@ CHECK-NEXT:     v6 = stack_addr.i64 ss0
 CHECK-NEXT:     v7 = load.i64 v6
 CHECK-NEXT:     return v7
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_ord_b' seems OK
+CHECK-NEXT: *** IR for 'my_ord_b' seems OK
 
-CHECK: *** IR for function 'my_ord_c'
+CHECK: *** IR for 'my_ord_c'
 CHECK-NEXT: function u0:19(i32) -> i64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 4
@@ -406,9 +406,9 @@ CHECK-NEXT:     v6 = stack_addr.i64 ss0
 CHECK-NEXT:     v7 = load.i64 v6
 CHECK-NEXT:     return v7
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_ord_c' seems OK
+CHECK-NEXT: *** IR for 'my_ord_c' seems OK
 
-CHECK: *** IR for function 'my_ord_sub'
+CHECK: *** IR for 'my_ord_sub'
 CHECK-NEXT: function u0:20(i64) -> i64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -424,9 +424,9 @@ CHECK-NEXT:     v5 = stack_addr.i64 ss0
 CHECK-NEXT:     v6 = load.i64 v5
 CHECK-NEXT:     return v6
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_ord_sub' seems OK
+CHECK-NEXT: *** IR for 'my_ord_sub' seems OK
 
-CHECK: *** IR for function 'my_ord_enum'
+CHECK: *** IR for 'my_ord_enum'
 CHECK-NEXT: function u0:21(i64) -> i64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -442,9 +442,9 @@ CHECK-NEXT:     v5 = stack_addr.i64 ss0
 CHECK-NEXT:     v6 = load.i64 v5
 CHECK-NEXT:     return v6
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_ord_enum' seems OK
+CHECK-NEXT: *** IR for 'my_ord_enum' seems OK
 
-CHECK: *** IR for function 'my_chr'
+CHECK: *** IR for 'my_chr'
 CHECK-NEXT: function u0:22(i64) -> i32 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 4
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -461,9 +461,9 @@ CHECK-NEXT:     v6 = stack_addr.i64 ss0
 CHECK-NEXT:     v7 = load.i32 v6
 CHECK-NEXT:     return v7
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_chr' seems OK
+CHECK-NEXT: *** IR for 'my_chr' seems OK
 
-CHECK: *** IR for function 'my_succ'
+CHECK: *** IR for 'my_succ'
 CHECK-NEXT: function u0:23(i64) -> i64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -480,9 +480,9 @@ CHECK-NEXT:     v6 = stack_addr.i64 ss0
 CHECK-NEXT:     v7 = load.i64 v6
 CHECK-NEXT:     return v7
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_succ' seems OK
+CHECK-NEXT: *** IR for 'my_succ' seems OK
 
-CHECK: *** IR for function 'my_pred'
+CHECK: *** IR for 'my_pred'
 CHECK-NEXT: function u0:24(i64) -> i64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -499,6 +499,6 @@ CHECK-NEXT:     v6 = stack_addr.i64 ss0
 CHECK-NEXT:     v7 = load.i64 v6
 CHECK-NEXT:     return v7
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'my_pred' seems OK
+CHECK-NEXT: *** IR for 'my_pred' seems OK
 
 }

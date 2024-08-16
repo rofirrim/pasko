@@ -3,8 +3,10 @@
 use cranelift_codegen::ir::StackSlot;
 use cranelift_codegen::ir::Value;
 use cranelift_codegen::settings::Configurable;
+use cranelift_object::object::elf::NT_SOLARIS_PAGESIZE_HINT;
 use cranelift_object::object::pe::IMAGE_SYM_TYPE_INT;
 use cranelift_object::object::read::elf::ElfSectionIterator32;
+use cranelift_object::object::xcoff::SIZEOF_SYMBOL;
 use cranelift_object::object::SymbolKind;
 use pasko_frontend::ast;
 use pasko_frontend::ast::ExprVariable;
@@ -147,10 +149,15 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
     pub fn emit_stack_ptr_array_null_ended(
         &mut self,
         values: &[cranelift_codegen::ir::Value],
+        name: &str,
     ) -> cranelift_codegen::ir::Value {
         let stack_slot = self.allocate_storage_in_stack(
             self.codegen.pointer_type.bytes() * (values.len() + 1) as u32,
         );
+
+        self.codegen
+            .annotations
+            .new_stack_slot(stack_slot, &format!("[null-ended-array: {}]", name));
 
         let pointer_type = self.codegen.pointer_type;
         for (idx, v) in values.iter().enumerate() {
@@ -184,6 +191,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     .declare_anonymous_data(false, false)
                     .unwrap();
                 entry.insert(data_id);
+
+                self.codegen
+                    .global_names
+                    .insert(data_id, format!("[string: '{}']", s));
 
                 let mut data_desc = cranelift_module::DataDescription::new();
                 let mut unicode_points = s.chars().map(|x| u32::from(x)).collect::<Vec<_>>();
@@ -263,26 +274,154 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         let stack_slot = self.allocate_storage_for_type_in_stack(symbol_type);
 
         self.codegen
+            .annotations
+            .new_stack_slot(stack_slot, symbol.get_name());
+
+        self.codegen
             .data_location
             .insert(sym_id, DataLocation::StackVarValue(stack_slot));
     }
 
     pub fn allocate_address_in_stack(&mut self, sym_id: pasko_frontend::symbol::SymbolId) {
+        let symbol = self.codegen.semantic_context.get_symbol(sym_id);
+        let symbol = symbol.borrow();
+
         let size = self.codegen.pointer_type.bytes();
 
         let stack_slot = self.allocate_storage_in_stack(size);
+
+        self.codegen
+            .annotations
+            .new_stack_slot(stack_slot, &format!("[indirect] {}", symbol.get_name()));
 
         self.codegen
             .data_location
             .insert(sym_id, DataLocation::StackVarAddress(stack_slot));
     }
 
-    fn store_value_into_address_impl(
+    pub fn add_offset_to_address(
+        &mut self,
+        addr: cranelift_codegen::ir::Value,
+        offset: i64,
+    ) -> cranelift_codegen::ir::Value {
+        if offset == 0 {
+            addr
+        } else {
+            let offset = self.emit_const_integer(offset);
+            self.builder().ins().iadd(addr, offset)
+        }
+    }
+
+    // Assumes start_val <= end_val
+    // FIXME: Adapted from visit_pre_stmt_for
+    // Maybe we can generalise this one and use it there.
+    fn emit_counted_loop<F>(
+        &mut self,
+        start_val: cranelift_codegen::ir::Value,
+        end_val: cranelift_codegen::ir::Value,
+        body: F,
+    ) where
+        F: Fn(&mut Self, cranelift_codegen::ir::Value),
+    {
+        let pointer_type = self.codegen.pointer_type;
+        let addr_ind_var = self.allocate_storage_in_stack(I64.bytes());
+        self.codegen
+            .annotations
+            .new_stack_slot(addr_ind_var, "<loop-induction-variable>");
+        let addr_ind_var = self
+            .builder()
+            .ins()
+            .stack_addr(pointer_type, addr_ind_var, 0);
+
+        let range_is_empty = self.builder().ins().icmp(
+            IntCC::SignedGreaterThan, // start > end
+            start_val,
+            end_val,
+        );
+
+        let for_init_block = self.builder().create_block();
+        let after_for_block = self.builder().create_block();
+
+        // If the range is empty we are done, otherwise go to the initialization block.
+        self.builder()
+            .ins()
+            .brif(range_is_empty, after_for_block, &[], for_init_block, &[]);
+        self.block_stack.pop(); // whatever block was before we entered this loop.
+
+        // Initialization
+        self.block_stack.push(for_init_block);
+        self.builder().switch_to_block(for_init_block);
+
+        // Initialize induction var with the value of start
+        self.builder().ins().store(
+            cranelift_codegen::ir::MemFlags::new(),
+            start_val,
+            addr_ind_var,
+            0,
+        );
+
+        let for_block = self.builder().create_block();
+        self.builder().ins().jump(for_block, &[]);
+        self.block_stack.pop(); // for_init_block
+
+        // Main for block
+        self.block_stack.push(for_block);
+        self.builder().switch_to_block(for_block);
+
+        let idx_val =
+            self.builder()
+                .ins()
+                .load(I64, cranelift_codegen::ir::MemFlags::new(), addr_ind_var, 0);
+        let idx_val = self.builder().ins().isub(idx_val, start_val);
+
+        body(self, idx_val);
+
+        let ind_var_value =
+            self.builder()
+                .ins()
+                .load(I64, cranelift_codegen::ir::MemFlags::new(), addr_ind_var, 0);
+
+        let we_are_done = self
+            .builder()
+            .ins()
+            .icmp(IntCC::Equal, ind_var_value, end_val);
+
+        let for_increment_block = self.builder().create_block();
+        self.builder()
+            .ins()
+            .brif(we_are_done, after_for_block, &[], for_increment_block, &[]);
+        self.block_stack.pop(); // main_for_block
+
+        // Compute the value of the induction variable for the next iteration.
+        self.block_stack.push(for_increment_block);
+        self.builder().switch_to_block(for_increment_block);
+
+        let next_ind_var_value = self.builder().ins().iadd_imm(ind_var_value, 1);
+
+        // Update the induction variable.
+        self.builder().ins().store(
+            cranelift_codegen::ir::MemFlags::new(),
+            next_ind_var_value,
+            addr_ind_var,
+            0,
+        );
+
+        // Jump back.
+        self.builder().ins().jump(for_block, &[]);
+        self.block_stack.pop(); // for_increment_block
+
+        // After the loop.
+        self.block_stack.push(after_for_block);
+        self.builder().switch_to_block(after_for_block);
+    }
+
+    fn store_value_into_address_traversal(
         &mut self,
         addr: cranelift_codegen::ir::Value,
         addr_ty: pasko_frontend::typesystem::TypeId,
         value: cranelift_codegen::ir::Value,
         value_ty: pasko_frontend::typesystem::TypeId,
+        is_initialization: bool,
         value_is_variable: bool,
     ) {
         if self
@@ -299,38 +438,137 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .semantic_context
             .type_system
             .is_array_type(addr_ty)
-            || self
-                .codegen
-                .semantic_context
-                .type_system
-                .is_record_type(addr_ty)
         {
-            let size = self.emit_const_integer(self.codegen.size_in_bytes(addr_ty) as i64);
-            let target_config = {
-                let object_module = self.codegen.object_module.as_ref().unwrap();
-                object_module.target_config()
-            };
-            assert!(
-                self.codegen.size_in_bytes(addr_ty) == self.codegen.size_in_bytes(value_ty),
-                "Type sizes must match"
-            );
-            self.builder()
-                .call_memmove(target_config, addr, value, size);
+            if !self.codegen.type_contains_set_types(addr_ty) {
+                let size = self.emit_const_integer(self.codegen.size_in_bytes(addr_ty) as i64);
+                let target_config = {
+                    let object_module = self.codegen.object_module.as_ref().unwrap();
+                    object_module.target_config()
+                };
+                assert!(
+                    self.codegen.size_in_bytes(addr_ty) == self.codegen.size_in_bytes(value_ty),
+                    "Type sizes must match"
+                );
+                self.builder().call_memcpy(target_config, addr, value, size);
+            } else {
+                // In this case, use a loop to emit one store for each element.
+                let index_ty = self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .array_type_get_index_type(addr_ty);
+
+                let lower_bound = self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .ordinal_type_lower_bound(index_ty);
+                let upper_bound = self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .ordinal_type_upper_bound(index_ty);
+
+                let element_ty = self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .array_type_get_component_type(addr_ty);
+
+                let lower_bound = self.emit_const_integer(lower_bound);
+                let upper_bound = self.emit_const_integer(upper_bound);
+
+                let size_in_bytes = self.codegen.size_in_bytes(element_ty) as i64;
+                let size_in_bytes = self.emit_const_integer(size_in_bytes);
+
+                // Emit a loop to avoid code bloat when the extent of the array is big.
+                self.emit_counted_loop(lower_bound, upper_bound, |self_, idx| {
+                    let offset = self_.builder().ins().imul(idx, size_in_bytes);
+
+                    let element_addr = self_.builder().ins().iadd(addr, offset);
+
+                    // This works because the value of an array in cranelift is its address.
+                    let element_value = self_.builder().ins().iadd(value, offset);
+                    let element_value = self_.load_value_from_address(element_value, element_ty);
+
+                    self_.store_value_into_address_traversal(
+                        element_addr,
+                        element_ty,
+                        element_value,
+                        element_ty,
+                        is_initialization,
+                        value_is_variable,
+                    );
+                });
+            }
+        } else if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_record_type(addr_ty)
+        {
+            if !self.codegen.type_contains_set_types(addr_ty) {
+                let size = self.emit_const_integer(self.codegen.size_in_bytes(addr_ty) as i64);
+                let target_config = {
+                    let object_module = self.codegen.object_module.as_ref().unwrap();
+                    object_module.target_config()
+                };
+                assert!(
+                    self.codegen.size_in_bytes(addr_ty) == self.codegen.size_in_bytes(value_ty),
+                    "Type sizes must match"
+                );
+                self.builder().call_memcpy(target_config, addr, value, size);
+            } else {
+                // In this case, fall back to element wise store which is always
+                // correct (even if not as efficient as a single bulk memcpy).
+                let fields = self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .record_type_get_fields(addr_ty);
+                fields.iter().for_each(|field_id| {
+                    let offset = {
+                        let cache = self.codegen.offset_cache.borrow();
+                        *cache.get(&field_id).unwrap()
+                    } as i64;
+
+                    let field_sym = self.codegen.semantic_context.get_symbol(*field_id);
+                    let field_sym = field_sym.borrow();
+                    let field_ty = field_sym.get_type().unwrap();
+
+                    let field_addr = self.add_offset_to_address(addr, offset);
+
+                    // This works because for records, the cranelift value should already be an address.
+                    let field_value = self.add_offset_to_address(value, offset);
+                    let field_value = self.load_value_from_address(field_value, field_ty);
+
+                    self.store_value_into_address_traversal(
+                        field_addr,
+                        field_ty,
+                        field_value,
+                        field_ty,
+                        is_initialization,
+                        value_is_variable,
+                    );
+                });
+            }
         } else if self
             .codegen
             .semantic_context
             .type_system
             .is_set_type(addr_ty)
         {
-            // To assign we need first to free the lhs and then copy, if the right hand side is a temporary we can just move the value.
-            let pointer_type = self.codegen.pointer_type;
-            let pointer_value = self.builder().ins().load(
-                pointer_type,
-                cranelift_codegen::ir::MemFlags::new(),
-                addr,
-                0,
-            );
-            self.dispose_set_variable(pointer_value);
+            if !is_initialization {
+                // To assign we need first to free the lhs and then copy, if the right hand side is a temporary we can just move the value.
+                let pointer_type = self.codegen.pointer_type;
+                let pointer_value = self.builder().ins().load(
+                    pointer_type,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    addr,
+                    0,
+                );
+                self.dispose_set_variable(pointer_value);
+            }
 
             let src_value = if value_is_variable {
                 // We need to copy the pointer from this variable.
@@ -348,7 +586,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
                 result
             } else {
-                self.remove_temporary_to_dispose(value);
                 value
             };
 
@@ -376,7 +613,32 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         }
     }
 
-    fn store_value_into_address(
+    fn store_value_into_address_impl(
+        &mut self,
+        addr: cranelift_codegen::ir::Value,
+        addr_ty: pasko_frontend::typesystem::TypeId,
+        value: cranelift_codegen::ir::Value,
+        value_ty: pasko_frontend::typesystem::TypeId,
+        is_initialization: bool,
+        value_is_variable: bool,
+    ) {
+        self.store_value_into_address_traversal(
+            addr,
+            addr_ty,
+            value,
+            value_ty,
+            is_initialization,
+            value_is_variable,
+        );
+
+        // Only top-level values are proper temporaries.
+        if self.codegen.type_contains_set_types(value_ty) && !value_is_variable {
+            assert!(self.codegen.type_contains_set_types(addr_ty));
+            self.remove_temporary_to_dispose(value);
+        }
+    }
+
+    fn store_value_into_address_for_assignment(
         &mut self,
         addr: cranelift_codegen::ir::Value,
         addr_ty: pasko_frontend::typesystem::TypeId,
@@ -384,16 +646,25 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         value_ty: pasko_frontend::typesystem::TypeId,
     ) {
         // value_is_variable is set to true so we will always copy rather than move a handle.
-        self.store_value_into_address_impl(addr, addr_ty, value, value_ty, true);
+        self.store_value_into_address_impl(addr, addr_ty, value, value_ty, false, true);
+    }
+
+    fn expr_is_variable(&self, expr_value: &span::SpannedBox<ast::Expr>) -> bool {
+        match expr_value.get() {
+            ast::Expr::Variable(..) | ast::Expr::VariableReference(..) => true,
+            _ => false,
+        }
     }
 
     // This function does not walk expr_value!
-    fn store_expr_into_address(
+    fn store_expr_into_address_for_assignment(
         &mut self,
         addr: cranelift_codegen::ir::Value,
         addr_ty: pasko_frontend::typesystem::TypeId,
         expr_value: &span::SpannedBox<ast::Expr>,
     ) {
+        let value_is_variable = self.expr_is_variable(expr_value);
+
         let value = self.get_value(expr_value.id());
         let value_ty = self
             .codegen
@@ -401,14 +672,32 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .get_ast_type(expr_value.id())
             .unwrap();
 
-        let value_is_variable = {
-            match expr_value.get() {
-                ast::Expr::Variable(..) | ast::Expr::VariableReference(..) => true,
-                _ => false,
-            }
-        };
+        self.store_value_into_address_impl(
+            addr,
+            addr_ty,
+            value,
+            value_ty,
+            false,
+            value_is_variable,
+        );
+    }
 
-        self.store_value_into_address_impl(addr, addr_ty, value, value_ty, value_is_variable);
+    fn store_expr_into_address_for_initialization(
+        &mut self,
+        addr: cranelift_codegen::ir::Value,
+        addr_ty: pasko_frontend::typesystem::TypeId,
+        expr_value: &span::SpannedBox<ast::Expr>,
+    ) {
+        let value_is_variable = self.expr_is_variable(expr_value);
+
+        let value = self.get_value(expr_value.id());
+        let value_ty = self
+            .codegen
+            .semantic_context
+            .get_ast_type(expr_value.id())
+            .unwrap();
+
+        self.store_value_into_address_impl(addr, addr_ty, value, value_ty, true, value_is_variable);
     }
 
     fn load_value_from_address(
@@ -653,6 +942,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 let func = &mut self.builder_obj.as_mut().unwrap().func;
                 let gv = object_module.declare_data_in_func(data_id, *func);
 
+                if let Some(global_name) = self.codegen.global_names.get(&data_id) {
+                    self.codegen.annotations.new_global_value(gv, global_name);
+                }
+
                 entry.insert(gv);
                 gv
             }
@@ -718,6 +1011,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     .unwrap()
                     .declare_func_in_func(func_id, *func);
 
+                if let Some(name) = self.codegen.function_names.get(&func_id) {
+                    self.codegen.annotations.new_function_ref(func_ref, name);
+                }
+
                 entry.insert(func_ref);
                 func_ref
             }
@@ -762,59 +1059,23 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                         .semantic_context
                         .type_system
                         .is_record_type(arg_ty)
+                    || self
+                        .codegen
+                        .semantic_context
+                        .type_system
+                        .is_set_type(arg_ty)
                 {
-                    if !self.codegen.is_trivially_copyable(arg_ty) {
-                        unimplemented!("Non-trivially copyable types");
-                    }
                     // We need to do a copy in.
                     let arg_type_size = self.codegen.size_in_bytes(arg_ty);
                     let stack_slot = self.allocate_storage_in_stack(arg_type_size as u32);
+                    self.codegen
+                        .annotations
+                        .new_stack_slot(stack_slot, "[copy-in]");
                     let pointer = self.codegen.pointer_type;
                     let stack_addr = self.builder().ins().stack_addr(pointer, stack_slot, 0);
-                    // Now copy
-                    let target_config = {
-                        let object_module = self.codegen.object_module.as_ref().unwrap();
-                        object_module.target_config()
-                    };
-                    let arg_type_size_value = self.emit_const_integer(arg_type_size as i64);
-                    self.builder().call_memcpy(
-                        target_config,
-                        stack_addr,
-                        arg_value,
-                        arg_type_size_value,
-                    );
+
+                    self.store_expr_into_address_for_initialization(stack_addr, arg_ty, arg);
                     stack_addr
-                } else if self
-                    .codegen
-                    .semantic_context
-                    .type_system
-                    .is_set_type(arg_ty)
-                {
-                    match arg.get() {
-                        ast::Expr::Variable(..) | ast::Expr::VariableReference(..) => {
-                            // We need to copy the pointer from this variable.
-                            let func_id = self
-                                .codegen
-                                .get_runtime_function(RuntimeFunctionId::SetCopy);
-                            let func_ref = self.get_function_reference(func_id);
-                            let call = self.builder().ins().call(func_ref, &[arg_value]);
-
-                            let result = {
-                                let results = self.builder().inst_results(call);
-                                assert!(results.len() == 1, "Invalid number of results");
-                                results[0]
-                            };
-
-                            // This temporary is disposed by the callee.
-                            result
-                        }
-                        _ => {
-                            // We don't have to copy, just pass the temporary.
-                            // This temporary will be disposed by the callee.
-                            self.remove_temporary_to_dispose(arg_value);
-                            arg_value
-                        }
-                    }
                 } else {
                     panic!(
                         "Unexpected type in argument pass {}",
@@ -852,14 +1113,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         let temporaries = std::mem::take(&mut self.temporaries_to_dispose);
 
         for Temporary { addr, ty } in temporaries {
-            if self.codegen.semantic_context.type_system.is_set_type(ty) {
-                self.dispose_set_variable(addr);
-            } else {
-                panic!(
-                    "Unexpected temporary of type {} to dispose",
-                    self.codegen.semantic_context.type_system.get_type_name(ty)
-                );
-            }
+            self.dispose_var_of_type(addr, ty)
         }
     }
 
@@ -933,6 +1187,188 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         self.symbols_to_dispose.push(sym);
     }
 
+    fn dispose_var_of_type(
+        &mut self,
+        addr: cranelift_codegen::ir::Value,
+        addr_ty: pasko_frontend::typesystem::TypeId,
+    ) {
+        assert!(self.codegen.type_contains_set_types(addr_ty));
+        if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_set_type(addr_ty)
+        {
+            let pointer_type = self.codegen.pointer_type;
+            // addr is the location in the stack of the variable, so we still need to do a load.
+            let pointer_value = self.builder().ins().load(
+                pointer_type,
+                cranelift_codegen::ir::MemFlags::new(),
+                addr,
+                0,
+            );
+            self.dispose_set_variable(pointer_value);
+        } else if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_array_type(addr_ty)
+        {
+            let index_ty = self
+                .codegen
+                .semantic_context
+                .type_system
+                .array_type_get_index_type(addr_ty);
+
+            let lower_bound = self
+                .codegen
+                .semantic_context
+                .type_system
+                .ordinal_type_lower_bound(index_ty);
+            let upper_bound = self
+                .codegen
+                .semantic_context
+                .type_system
+                .ordinal_type_upper_bound(index_ty);
+
+            let element_ty = self
+                .codegen
+                .semantic_context
+                .type_system
+                .array_type_get_component_type(addr_ty);
+
+            let lower_bound = self.emit_const_integer(lower_bound);
+            let upper_bound = self.emit_const_integer(upper_bound);
+
+            let size_in_bytes = self.codegen.size_in_bytes(element_ty) as i64;
+            let size_in_bytes = self.emit_const_integer(size_in_bytes);
+
+            // Emit a loop to avoid code bloat when the extent of the array is big.
+            self.emit_counted_loop(lower_bound, upper_bound, |self_, idx| {
+                let offset = self_.builder().ins().imul(idx, size_in_bytes);
+
+                let element_addr = self_.builder().ins().iadd(addr, offset);
+                self_.dispose_var_of_type(element_addr, element_ty);
+            });
+        } else if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_record_type(addr_ty)
+        {
+            let fields = self
+                .codegen
+                .semantic_context
+                .type_system
+                .record_type_get_fields(addr_ty);
+            fields.iter().for_each(|field_id| {
+                let field_sym = self.codegen.semantic_context.get_symbol(*field_id);
+                let field_sym = field_sym.borrow();
+                let field_ty = field_sym.get_type().unwrap();
+
+                if self.codegen.type_contains_set_types(field_ty) {
+                    let offset = {
+                        let cache = self.codegen.offset_cache.borrow();
+                        *cache.get(&field_id).unwrap()
+                    } as i64;
+                    let field_addr = self.add_offset_to_address(addr, offset);
+                    self.dispose_var_of_type(field_addr, field_ty);
+                }
+            });
+        } else {
+            unreachable!("no type can't contain a set and not be either a set/array/struct");
+        }
+    }
+
+    // Initializes objects and subobjects of set type to zero.
+    fn initialize_set_data(
+        &mut self,
+        addr: cranelift_codegen::ir::Value,
+        addr_ty: pasko_frontend::typesystem::TypeId,
+    ) {
+        assert!(self.codegen.type_contains_set_types(addr_ty));
+        if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_set_type(addr_ty)
+        {
+            let null_ptr = self.emit_const_integer(0);
+            self.builder()
+                .ins()
+                .store(cranelift_codegen::ir::MemFlags::new(), null_ptr, addr, 0);
+        } else if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_array_type(addr_ty)
+        {
+            let index_ty = self
+                .codegen
+                .semantic_context
+                .type_system
+                .array_type_get_index_type(addr_ty);
+
+            let lower_bound = self
+                .codegen
+                .semantic_context
+                .type_system
+                .ordinal_type_lower_bound(index_ty);
+            let upper_bound = self
+                .codegen
+                .semantic_context
+                .type_system
+                .ordinal_type_upper_bound(index_ty);
+
+            let element_ty = self
+                .codegen
+                .semantic_context
+                .type_system
+                .array_type_get_component_type(addr_ty);
+
+            let lower_bound = self.emit_const_integer(lower_bound);
+            let upper_bound = self.emit_const_integer(upper_bound);
+
+            let size_in_bytes = self.codegen.size_in_bytes(element_ty) as i64;
+            let size_in_bytes = self.emit_const_integer(size_in_bytes);
+
+            // Emit a loop to avoid code bloat when the extent of the array is big.
+            self.emit_counted_loop(lower_bound, upper_bound, |self_, idx| {
+                let offset = self_.builder().ins().imul(idx, size_in_bytes);
+
+                let element_addr = self_.builder().ins().iadd(addr, offset);
+                self_.initialize_set_data(element_addr, element_ty);
+            });
+        } else if self
+            .codegen
+            .semantic_context
+            .type_system
+            .is_record_type(addr_ty)
+        {
+            let fields = self
+                .codegen
+                .semantic_context
+                .type_system
+                .record_type_get_fields(addr_ty);
+            fields.iter().for_each(|field_id| {
+                let field_sym = self.codegen.semantic_context.get_symbol(*field_id);
+                let field_sym = field_sym.borrow();
+                let field_ty = field_sym.get_type().unwrap();
+
+                if self.codegen.type_contains_set_types(field_ty) {
+                    let offset = {
+                        let cache = self.codegen.offset_cache.borrow();
+                        *cache.get(&field_id).unwrap()
+                    } as i64;
+                    let field_addr = self.add_offset_to_address(addr, offset);
+                    self.initialize_set_data(field_addr, field_ty);
+                }
+            });
+        } else {
+            unreachable!("no type can't contain a set and not be either a set/array/struct");
+        }
+    }
+
     pub fn dispose_symbols(&mut self) {
         let symbols_to_dispose = std::mem::take(&mut self.symbols_to_dispose);
 
@@ -940,30 +1376,11 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             let sym = self.codegen.semantic_context.get_symbol(sym_id);
             let sym = sym.borrow();
             let ty = sym.get_type().unwrap();
+            let data_loc = self.codegen.data_location.get(&sym_id).unwrap().clone();
 
-            if self.codegen.semantic_context.type_system.is_set_type(ty) {
-                let data_loc = self.codegen.data_location.get(&sym_id).unwrap().clone();
-                let addr = match data_loc {
-                    DataLocation::GlobalVar(..) | DataLocation::StackVarValue(..) => {
-                        self.get_address_of_data_location(data_loc)
-                    }
-                    _ => panic!("Unexpected location"),
-                };
-                let pointer_type = self.codegen.pointer_type;
-                let pointer_value = self.builder().ins().load(
-                    pointer_type,
-                    cranelift_codegen::ir::MemFlags::new(),
-                    addr,
-                    0,
-                );
-                self.dispose_set_variable(pointer_value);
-            } else {
-                panic!(
-                    "Symbol {} has unexpected type {} to dispose",
-                    sym.get_name(),
-                    self.codegen.semantic_context.type_system.get_type_name(ty)
-                );
-            }
+            let addr = self.get_address_of_data_location(data_loc);
+
+            self.dispose_var_of_type(addr, ty);
         }
     }
 
@@ -1127,7 +1544,11 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                     assert!(results.len() == 1, "Invalid number of results");
                                     results[0]
                                 };
-                                self.store_expr_into_address(buffer_var, component_ty, arg);
+                                self.store_expr_into_address_for_assignment(
+                                    buffer_var,
+                                    component_ty,
+                                    arg,
+                                );
                                 // put(file);
                                 let func_id = self
                                     .codegen
@@ -1299,7 +1720,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                                 .same_type(var_ty, component_ty));
                                             (expr_value, component_ty)
                                         };
-                                        self.store_value_into_address(
+                                        self.store_value_into_address_for_assignment(
                                             var_addr,
                                             var_ty,
                                             expr_value,
@@ -1763,6 +2184,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             let element_size = self.codegen.size_in_bytes(element_type);
             let stack_slot =
                 self.allocate_storage_in_stack((element_size * number_of_elements) as u32);
+            self.codegen
+                .annotations
+                .new_stack_slot(stack_slot, "[set-constructor]");
             let pointer = self.codegen.pointer_type;
             let stack_addr = self.builder().ins().stack_addr(pointer, stack_slot, 0);
             for (index, value) in n.0.iter().enumerate() {
@@ -1822,8 +2246,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .get_ast_type(n.0.id())
             .unwrap();
 
-        // This function wals expr_value
-        self.store_expr_into_address(addr, addr_ty, &n.1);
+        self.store_expr_into_address_for_assignment(addr, addr_ty, &n.1);
 
         // Dispose the temporaries we may have created while evaluating the rhs.
         self.dispose_temporaries();
@@ -2027,10 +2450,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         let offset = {
             let cache = self.codegen.offset_cache.borrow();
             *cache.get(&field_sym).unwrap()
-        };
-        let offset = self.emit_const_integer(offset as i64);
+        } as i64;
 
-        let addr = self.builder().ins().iadd(record_addr, offset);
+        let addr = self.add_offset_to_address(record_addr, offset);
         self.set_value(id, addr);
 
         false
@@ -2859,20 +3281,22 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 self.allocate_value_in_stack(sym_id);
             } else if self.codegen.semantic_context.type_system.is_set_type(ty) {
                 self.allocate_value_in_stack(sym_id);
+            } else {
+                panic!(
+                    "Unexpected type '{}' in variable declaration",
+                    self.codegen.semantic_context.type_system.get_type_name(ty)
+                );
+            }
+
+            if self.codegen.type_contains_set_types(ty) {
+                // Initialize set_types
                 let location = self.codegen.data_location.get(&sym_id).unwrap().clone();
-                // Initialize
                 match location {
                     DataLocation::StackVarValue(stack_slot) => {
                         let pointer_type = self.codegen.pointer_type;
                         let stack_addr =
                             self.builder().ins().stack_addr(pointer_type, stack_slot, 0);
-                        let null_ptr = self.emit_const_integer(0);
-                        self.builder().ins().store(
-                            cranelift_codegen::ir::MemFlags::new(),
-                            null_ptr,
-                            stack_addr,
-                            0,
-                        );
+                        self.initialize_set_data(stack_addr, ty);
 
                         self.add_symbol_to_dispose(sym_id);
                     }
@@ -2880,11 +3304,6 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         panic!("Unexpected location");
                     }
                 }
-            } else {
-                panic!(
-                    "Unexpected type '{}' in variable declaration",
-                    self.codegen.semantic_context.type_system.get_type_name(ty)
-                );
             }
         }
 
@@ -3076,6 +3495,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 }
                 _ => panic!("unimplemented required function {}", callee.get()),
             }
+
+            // Temporaries of arguments cannot be disposed until we have returned from the function.
+            self.dispose_temporaries();
         } else {
             let callee_sym_id = self
                 .codegen
@@ -3125,8 +3547,14 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 // Special treatment for the return when it is not simple.
                 let return_type_size = self.codegen.size_in_bytes(callee_return_type);
                 let stack_slot = self.allocate_storage_in_stack(return_type_size as u32);
+                self.codegen
+                    .annotations
+                    .new_stack_slot(stack_slot, "[return-parameter]");
                 let pointer = self.codegen.pointer_type;
                 let stack_addr = self.builder().ins().stack_addr(pointer, stack_slot, 0);
+                if self.codegen.type_contains_set_types(callee_return_type) {
+                    self.initialize_set_data(stack_addr, callee_return_type);
+                }
                 (vec![stack_addr], Some(stack_addr))
             };
 
@@ -3151,10 +3579,18 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             };
 
             self.value_map.insert(id, result);
-        }
 
-        // Temporaries of arguments cannot be disposed until we have returned from the function.
-        self.dispose_temporaries();
+            // Temporaries of arguments cannot be disposed until we have returned from the function.
+            self.dispose_temporaries();
+
+            // This function returns a temporary that may need disposing.
+            // Note: because results of functions cannot be dropped, these
+            // temporaries will never be disposed but moved.
+            if self.codegen.type_contains_set_types(callee_return_type) {
+                assert!(!return_type_is_simple);
+                self.new_temporary_to_dispose(result, callee_return_type);
+            }
+        }
 
         false
     }

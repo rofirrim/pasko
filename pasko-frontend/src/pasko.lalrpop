@@ -536,7 +536,7 @@ SingleExpression : SpannedBox<ast::Expr> = {
     <start:@L> <variable:VariableAccess> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::Variable(ast::ExprVariable(variable))),
     <start:@L> "(" <expr:Expression> ")" <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::Parentheses(ast::ExprParentheses(expr))),
     <start:@L> <constant:UnsignedConst> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::Const(ast::ExprConst(constant))),
-    <start:@L> "[" <members:CommaSeparated<SetMember>> "]" <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::SetLiteral(ast::ExprSetLiteral(members))),
+    <start:@L> "[" <members:OptionalCommaSeparated<SetMember>> "]" <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::SetLiteral(ast::ExprSetLiteral(members))),
     <start:@L> "not" <end_op:@R> <operand:SingleExpression> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::UnOp(ast::ExprUnOp(Spanned::new(span_loc!(start, end_op), ast::UnaryOp::LogicalNot), operand))),
     <start:@L> <identifier:Identifier> "(" <arguments:CommaSeparated<Expression>> ")" <end:@R> =>
        SpannedBox::new(span_loc!(start, end), ast::Expr::FunctionCall(ast::ExprFunctionCall(identifier, arguments)))
@@ -578,6 +578,16 @@ CommaSeparated<T>: Vec<T> = {
     <mut v:(<T> ",")*> <e:T> =>  { 
         v.push(e);
         v
+    }
+};
+
+OptionalCommaSeparated<T>: Vec<T> = {
+    <v:CommaSeparated<T>?> => {
+        if let Some(w) = v { 
+            w
+        } else {
+            vec![]
+        }
     }
 };
 

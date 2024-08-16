@@ -151,9 +151,11 @@ void __pasko_set_dispose(pasko_set_t *s) {
   switch (s->mode) {
   case SM_BITMAP:
     // Nothing to do.
+    __pasko_deallocate(s);
     break;
   case SM_SORTED_ARRAY:
     __pasko_deallocate(s->array.values);
+    __pasko_deallocate(s);
     break;
   default:
     __pasko_runtime_error("invalid set mode");

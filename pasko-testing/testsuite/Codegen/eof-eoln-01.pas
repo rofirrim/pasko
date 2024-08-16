@@ -19,7 +19,7 @@ end.
 
 {
 
-CHECK: *** IR for main
+CHECK: *** IR for 'main'
 CHECK-NEXT: function u0:0(i32, i64) -> i32 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 24
 CHECK-NEXT:     ss1 = explicit_slot 24
@@ -98,6 +98,6 @@ CHECK-NEXT:     call fn1(v11, v10)  ; v11 = 2
 CHECK-NEXT:     v36 = iconst.i32 0
 CHECK-NEXT:     return v36  ; v36 = 0
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for main seems OK
+CHECK-NEXT: *** IR for 'main' seems OK
 
 }

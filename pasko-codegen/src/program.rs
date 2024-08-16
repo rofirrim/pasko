@@ -2,6 +2,7 @@
 
 use cranelift_codegen::ir::function::FunctionParameters;
 use cranelift_codegen::settings::Configurable;
+use cranelift_codegen::write::PlainWriter;
 use pasko_frontend::ast::{self, FormalParameter};
 use pasko_frontend::semantic::SemanticContext;
 use pasko_frontend::span;
@@ -11,7 +12,7 @@ use pasko_frontend::visitor::{Visitable, VisitorMut};
 
 use cranelift_codegen::ir::types::{F64, I32, I64, I8};
 use cranelift_codegen::ir::{
-    function, AbiParam, Function, Signature, StackSlotData, StackSlotKind, UserFuncName,
+    function, AbiParam, FuncRef, Function, Signature, StackSlotData, StackSlotKind, UserFuncName,
 };
 use cranelift_codegen::isa::{CallConv, TargetFrontendConfig};
 use cranelift_codegen::settings;
@@ -27,6 +28,8 @@ use cranelift_object;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fs::File;
+use std::hash::Hash;
+use std::io::BufWriter;
 use std::io::Write;
 
 use std::cell::RefCell;
@@ -50,7 +53,10 @@ pub struct CodegenVisitor<'a> {
 
     pub data_location: HashMap<SymbolId, DataLocation>,
     pub function_identifiers: HashMap<SymbolId, cranelift_module::FuncId>,
+    pub function_names: HashMap<cranelift_module::FuncId, String>,
+    pub global_names: HashMap<cranelift_module::DataId, String>,
     pub offset_cache: RefCell<HashMap<SymbolId, usize>>,
+    pub annotations: EntityAnnotations,
 
     ir_dump: bool,
     globals_to_dispose: Vec<SymbolId>,
@@ -61,6 +67,114 @@ pub struct CodegenVisitor<'a> {
     output_data_id: Option<cranelift_module::DataId>,
 
     rt_functions_cache: HashMap<RuntimeFunctionId, cranelift_module::FuncId>,
+}
+
+#[derive(Default)]
+pub struct EntityAnnotations {
+    annotations: HashMap<cranelift_codegen::ir::entities::AnyEntity, String>,
+}
+
+impl EntityAnnotations {
+    pub fn get(&self, entity: cranelift_codegen::ir::entities::AnyEntity) -> Option<String> {
+        self.annotations.get(&entity).cloned()
+    }
+
+    fn new(&mut self, entity: cranelift_codegen::ir::entities::AnyEntity, text: &str) {
+        self.annotations.insert(entity, text.to_string());
+    }
+
+    fn clear_temporary(&mut self) {
+        let stack_slots: HashMap<_, _> = self
+            .annotations
+            .iter()
+            .filter(|(&e, _)| match e {
+                cranelift_codegen::ir::entities::AnyEntity::StackSlot { .. } => false,
+                _ => true,
+            })
+            .map(|(a, b)| (*a, b.clone()))
+            .collect();
+
+        self.annotations = stack_slots;
+    }
+
+    pub fn new_function_ref(&mut self, func_ref: cranelift_codegen::ir::FuncRef, text: &str) {
+        self.new(
+            cranelift_codegen::ir::entities::AnyEntity::FuncRef(func_ref),
+            text,
+        );
+    }
+
+    pub fn new_stack_slot(&mut self, stack_slot: cranelift_codegen::ir::StackSlot, text: &str) {
+        self.new(
+            cranelift_codegen::ir::entities::AnyEntity::StackSlot(stack_slot),
+            text,
+        );
+    }
+
+    pub fn new_global_value(&mut self, global_value: cranelift_codegen::ir::GlobalValue, text: &str) {
+        self.new(
+            cranelift_codegen::ir::entities::AnyEntity::GlobalValue(global_value),
+            text,
+        );
+    }
+}
+
+struct AnnotatedFuncWriter<'a> {
+    annotations: &'a EntityAnnotations,
+}
+
+impl<'a> AnnotatedFuncWriter<'a> {
+    fn new(annotations: &'a EntityAnnotations) -> Self {
+        Self { annotations }
+    }
+}
+
+impl<'a> cranelift_codegen::write::FuncWriter for AnnotatedFuncWriter<'a> {
+    fn write_block_header(
+        &mut self,
+        w: &mut dyn std::fmt::Write,
+        func: &cranelift_codegen::ir::Function,
+        block: cranelift_codegen::ir::Block,
+        indent: usize,
+    ) -> std::fmt::Result {
+        let mut p = PlainWriter;
+        p.write_block_header(w, func, block, indent)
+    }
+    fn write_instruction(
+        &mut self,
+        w: &mut dyn std::fmt::Write,
+        func: &Function,
+        aliases: &cranelift_entity::SecondaryMap<
+            cranelift_codegen::ir::Value,
+            Vec<cranelift_codegen::ir::Value>,
+        >,
+        inst: cranelift_codegen::ir::Inst,
+        indent: usize,
+    ) -> std::fmt::Result {
+        let mut p = PlainWriter;
+        p.write_instruction(w, func, aliases, inst, indent)
+    }
+
+    fn write_entity_definition(
+        &mut self,
+        w: &mut dyn std::fmt::Write,
+        _func: &cranelift_codegen::ir::Function,
+        entity: cranelift_codegen::ir::entities::AnyEntity,
+        value: &dyn std::fmt::Display,
+        maybe_fact: Option<&cranelift_codegen::ir::pcc::Fact>,
+    ) -> std::fmt::Result {
+        if let Some(fact) = maybe_fact {
+            write!(w, "    {} ! {} = {}", entity, fact, value)?;
+        } else {
+            write!(w, "    {} = {}", entity, value)?;
+        }
+
+        if let Some(annot) = self.annotations.get(entity) {
+            write!(w, " ; {}", annot)?;
+        }
+
+        writeln!(w)
+    }
 }
 
 impl<'a> CodegenVisitor<'a> {
@@ -94,7 +208,10 @@ impl<'a> CodegenVisitor<'a> {
             string_table: HashMap::new(),
             data_location: HashMap::new(),
             function_identifiers: HashMap::new(),
+            function_names: HashMap::new(),
+            global_names: HashMap::new(),
             offset_cache: RefCell::new(HashMap::new()),
+            annotations: EntityAnnotations::default(),
             // Private
             ir_dump,
             globals_to_dispose: vec![],
@@ -124,6 +241,7 @@ impl<'a> CodegenVisitor<'a> {
             .unwrap()
             .declare_function(name, Linkage::Import, &sig)
             .unwrap();
+        self.function_names.insert(func_id, name.to_string());
         Some(func_id)
     }
 
@@ -674,11 +792,7 @@ impl<'a> CodegenVisitor<'a> {
                             .is_pointer_type(param_symbol_type_id)
                     {
                         sig.params.push(AbiParam::new(self.pointer_type));
-                        if self
-                            .semantic_context
-                            .type_system
-                            .is_set_type(param_symbol_type_id)
-                        {
+                        if self.type_contains_set_types(param_symbol_type_id) {
                             parameters_to_dispose.push(*param_symbol_id);
                         }
                     } else {
@@ -707,6 +821,7 @@ impl<'a> CodegenVisitor<'a> {
 
         self.function_identifiers
             .insert(function_symbol_id, func_id);
+        self.function_names.insert(func_id, function_name.clone());
 
         let mut func = Function::with_name_signature(UserFuncName::user(0, func_id.as_u32()), sig);
         let mut func_builder_ctx = FunctionBuilderContext::new();
@@ -757,9 +872,14 @@ impl<'a> CodegenVisitor<'a> {
                         .semantic_context
                         .type_system
                         .is_set_type(*param_type_id);
+                    let is_pointer_type = function_codegen
+                        .get_codegen()
+                        .semantic_context
+                        .type_system
+                        .is_pointer_type(*param_type_id);
                     match parameter_kind {
                         ParameterKind::Value => {
-                            if is_simple_type || is_set_type {
+                            if is_simple_type || is_set_type || is_pointer_type {
                                 // Simple types passed by value will have their
                                 // actual value in the stack.
                                 //
@@ -767,17 +887,20 @@ impl<'a> CodegenVisitor<'a> {
                                 // opaque pointer. The caller will be
                                 // responsible for creating a new opaque pointer
                                 // to honour value semantics.
+                                //
+                                // Pointer types can be passed by value in
+                                // cranelift as well.
                                 function_codegen.allocate_value_in_stack(*param_sym_id);
                             } else {
                                 // Other non-simple types passed by value are
                                 // non-opaque storage-wise so we pass a pointer
-                                // to their actual storage by value (allocated
+                                // to their actual "by value" storage (allocated
                                 // by the caller).
                                 function_codegen.allocate_address_in_stack(*param_sym_id);
                             }
                         }
                         ParameterKind::Variable => {
-                            // Other types will always pass a pointer to the non-opaque storage.
+                            // Variable parameters are always passed as pointer to variable itself.
                             function_codegen.allocate_address_in_stack(*param_sym_id);
                         }
                     }
@@ -822,35 +945,9 @@ impl<'a> CodegenVisitor<'a> {
         function_codegen.finish_function();
 
         // Verify the IR
-        let flags = settings::Flags::new(settings::builder());
-        let res = verify_function(&func, &flags);
-        if self.ir_dump {
-            println!(
-                "*** IR for {} '{}'",
-                if return_symbol_id.is_some() {
-                    "function"
-                } else {
-                    "procedure"
-                },
-                function_name
-            );
-            let s = format!("{}", func.display());
-            println!("{}", s.trim());
-        }
-        if let Err(errors) = res {
-            panic!("{}", errors);
-        }
-        if self.ir_dump {
-            println!(
-                "*** IR for {} '{}' seems OK\n",
-                if return_symbol_id.is_some() {
-                    "function"
-                } else {
-                    "procedure"
-                },
-                function_name
-            );
-        }
+        self.verify_ir(&func, function_name);
+
+        self.annotations.clear_temporary();
 
         // Codegen the IR it to the module.
         self.ctx.clear();
@@ -870,31 +967,30 @@ impl<'a> CodegenVisitor<'a> {
         self.globals_to_dispose.push(sym);
     }
 
-    // FIXME: We should memoize the result of this as it won't change.
-    fn is_trivially_copyable_impl(&self, ty: TypeId) -> bool {
+    fn type_contains_set_types_impl(&self, ty: TypeId) -> bool {
         let ts = &self.semantic_context.type_system;
         if ts.is_set_type(ty) {
-            false
+            true
         } else if ts.is_array_type(ty) {
-            self.is_trivially_copyable(ts.array_type_get_component_type(ty))
+            self.type_contains_set_types(ts.array_type_get_component_type(ty))
         } else if ts.is_record_type(ty) {
             let fields = ts.record_type_get_fields(ty);
-            fields.iter().all(|&field| {
+            fields.iter().any(|&field| {
                 let field_sym = self.semantic_context.get_symbol(field);
                 let field_sym = field_sym.borrow();
                 let field_ty = field_sym.get_type().unwrap();
-                self.is_trivially_copyable(field_ty)
+                self.type_contains_set_types(field_ty)
             })
         } else {
-            true
+            false
         }
     }
 
-    pub fn is_trivially_copyable(&self, ty: TypeId) -> bool {
+    pub fn type_contains_set_types(&self, ty: TypeId) -> bool {
         if let Some(&s) = self.trivially_copiable_cache.borrow().get(&ty) {
             return s;
         }
-        let r = self.is_trivially_copyable_impl(ty);
+        let r = self.type_contains_set_types_impl(ty);
 
         self.trivially_copiable_cache.borrow_mut().insert(ty, r);
 
@@ -926,7 +1022,10 @@ impl<'a> CodegenVisitor<'a> {
             .collect();
 
         self.input_data_id = Some(input_output[0]);
+        self.global_names.insert(input_output[0], "[input-textfile]".to_string());
+
         self.output_data_id = Some(input_output[1]);
+        self.global_names.insert(input_output[1], "[output-textfile]".to_string());
     }
 
     pub fn get_input_file_data_id(&self) -> cranelift_module::DataId {
@@ -935,6 +1034,24 @@ impl<'a> CodegenVisitor<'a> {
 
     pub fn get_output_file_data_id(&self) -> cranelift_module::DataId {
         self.output_data_id.unwrap()
+    }
+
+    fn verify_ir(&self, func: &cranelift_codegen::ir::Function, function_name: &str) {
+        let flags = settings::Flags::new(settings::builder());
+        let res = verify_function(&func, &flags);
+        if self.ir_dump {
+            println!("*** IR for '{}'", function_name);
+            let mut s = String::new();
+            let mut my_writer = AnnotatedFuncWriter::new(&self.annotations);
+            cranelift_codegen::write::decorate_function(&mut my_writer, &mut s, func).unwrap();
+            println!("{}", s.trim());
+        }
+        if let Err(errors) = res {
+            panic!("{}", errors);
+        }
+        if self.ir_dump {
+            println!("*** IR for '{}' seems OK\n", function_name);
+        }
     }
 }
 
@@ -1005,12 +1122,17 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             .as_mut()
             .unwrap()
             .declare_func_in_func(pasko_init_id, &mut func);
+        self.annotations
+            .new_function_ref(pasko_init_func_ref, "__pasko_init");
+
         let pasko_finish_id = self.get_runtime_function(RuntimeFunctionId::Finish);
         let pasko_finish_func_ref = self
             .object_module
             .as_mut()
             .unwrap()
             .declare_func_in_func(pasko_finish_id, &mut func);
+        self.annotations
+            .new_function_ref(pasko_finish_func_ref, "__pasko_finish");
 
         let get_input_func_id = self.get_runtime_function(RuntimeFunctionId::InputFile);
         let get_input_func_ref = self
@@ -1018,6 +1140,8 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             .as_mut()
             .unwrap()
             .declare_func_in_func(get_input_func_id, &mut func);
+        self.annotations
+            .new_function_ref(get_input_func_ref, "__pasko_get_input");
 
         let get_output_func_id = self.get_runtime_function(RuntimeFunctionId::OutputFile);
         let get_output_func_ref = self
@@ -1025,6 +1149,8 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             .as_mut()
             .unwrap()
             .declare_func_in_func(get_output_func_id, &mut func);
+        self.annotations
+            .new_function_ref(get_output_func_ref, "__pasko_get_output");
 
         let input_data_id = self.input_data_id.unwrap();
         let output_data_id = self.output_data_id.unwrap();
@@ -1064,7 +1190,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                     addr_string
                 })
                 .collect();
-            function_codegen.emit_stack_ptr_array_null_ended(&str_addresses)
+            function_codegen.emit_stack_ptr_array_null_ended(&str_addresses, "program-parameter-names")
         };
 
         let global_files_addr = {
@@ -1072,7 +1198,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                 .iter()
                 .map(|sym_id| function_codegen.get_address_of_symbol(*sym_id))
                 .collect();
-            function_codegen.emit_stack_ptr_array_null_ended(&object_addresses)
+            function_codegen.emit_stack_ptr_array_null_ended(&object_addresses, "global-files")
         };
 
         let num_global_files = function_codegen
@@ -1158,19 +1284,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         function_codegen.finish_function();
 
         // Verify the IR
-        let flags = settings::Flags::new(settings::builder());
-        let res = verify_function(&func, &flags);
-        if self.ir_dump {
-            println!("*** IR for main");
-            let s = format!("{}", func.display());
-            println!("{}", s.trim());
-        }
-        if let Err(errors) = res {
-            panic!("{}", errors);
-        }
-        if self.ir_dump {
-            println!("*** IR for main seems OK\n");
-        }
+        self.verify_ir(&func, "main");
 
         // Codegen the IR it to the module.
         self.ctx.clear();
@@ -1250,6 +1364,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                     .unwrap()
                     .declare_anonymous_data(true, false)
                     .unwrap();
+                self.global_names.insert(data_id, sym.get_name().clone());
 
                 let mut data_desc = DataDescription::new();
                 let size_in_bytes = self.size_in_bytes(ty);
@@ -1265,7 +1380,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                 self.data_location
                     .insert(sym_id, DataLocation::GlobalVar(data_id));
 
-                if self.semantic_context.type_system.is_set_type(ty) {
+                if self.type_contains_set_types(ty) {
                     self.add_global_to_dispose(sym_id);
                 }
             } else {

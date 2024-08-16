@@ -539,10 +539,23 @@ impl<'a> SemanticCheckerVisitor<'a> {
         self.ctx.type_system.is_pointer_type(a) && self.ctx.type_system.is_generic_pointer_type(b)
     }
 
+    fn is_set_and_generic_set(&self, a: TypeId, b: TypeId) -> bool {
+        self.ctx.type_system.is_set_type(a) && self.ctx.type_system.is_generic_set_type(b)
+    }
+
     fn is_compatible(&self, lhs_type_id: TypeId, rhs_type_id: TypeId) -> bool {
         // Two generic pointer types are assumed incompatible. This can only happen if the code does `nil <> nil`.
+        // FIXME: we could allow this case but it is rather useless so little is lost by not allowing it.
         if self.ctx.type_system.is_generic_pointer_type(lhs_type_id)
             && self.ctx.type_system.is_generic_pointer_type(rhs_type_id)
+        {
+            return false;
+        }
+
+        // Two generic set types are assumed incompatible. This can only happen if the code does `[] <> []`.
+        // FIXME: we could allow this case but it is rather useless so little is lost by not allowing it.
+        if self.ctx.type_system.is_generic_set_type(lhs_type_id)
+            && self.ctx.type_system.is_generic_set_type(rhs_type_id)
         {
             return false;
         }
@@ -599,6 +612,14 @@ impl<'a> SemanticCheckerVisitor<'a> {
             return true;
         }
 
+        // We have to allow operations of the form `[] <> s` and `s <> []`.
+        // Something like `[] <> []` has been handled earlier.
+        if self.is_set_and_generic_set(rhs_type_id, lhs_type_id)
+            || self.is_set_and_generic_set(lhs_type_id, rhs_type_id)
+        {
+            return true;
+        }
+
         // TODO: lhs and rhs are string-types with the same number of components
 
         false
@@ -608,6 +629,13 @@ impl<'a> SemanticCheckerVisitor<'a> {
         // Two generic pointers are assumed incompatible (this should not happen)
         if self.ctx.type_system.is_generic_pointer_type(lhs_type_id)
             && self.ctx.type_system.is_generic_pointer_type(rhs_type_id)
+        {
+            return false;
+        }
+
+        // Two generic sets are assumed incompatible (this should not happen)
+        if self.ctx.type_system.is_generic_set_type(lhs_type_id)
+            && self.ctx.type_system.is_generic_set_type(rhs_type_id)
         {
             return false;
         }
@@ -648,6 +676,11 @@ impl<'a> SemanticCheckerVisitor<'a> {
             return true;
         }
 
+        // s := [];
+        if self.is_set_and_generic_set(lhs_type_id, rhs_type_id) {
+            return true;
+        }
+
         // TODO: lhs and rhs are compatible string types
 
         false
@@ -677,6 +710,15 @@ impl<'a> SemanticCheckerVisitor<'a> {
     }
 
     fn same_set_type(&self, lhs_ty: TypeId, rhs_ty: TypeId) -> Option<TypeId> {
+        // Special cases when operating with []
+        if self.is_set_and_generic_set(lhs_ty, rhs_ty) {
+            return Some(lhs_ty);
+        }
+
+        if self.is_set_and_generic_set(rhs_ty, lhs_ty) {
+            return Some(rhs_ty);
+        }
+
         if !self.ctx.type_system.is_set_type(lhs_ty) || !self.ctx.type_system.is_set_type(rhs_ty) {
             return None;
         }
@@ -692,8 +734,9 @@ impl<'a> SemanticCheckerVisitor<'a> {
             self.ctx.type_system.set_type_get_packed(lhs_ty),
             self.ctx.type_system.set_type_get_packed(rhs_ty),
         ) {
-            (Some(true), Some(true)) | (Some(false), Some(false)) | (_, None) => Some(rhs_ty),
-            (None, _) => Some(rhs_ty),
+            (Some(true), Some(true)) | (Some(false), Some(false)) | (_, None) | (None, _) => {
+                Some(rhs_ty)
+            }
             _ => None,
         }
     }
@@ -771,7 +814,9 @@ impl<'a> SemanticCheckerVisitor<'a> {
         rhs_type_id: TypeId,
     ) -> Option<TypeId> {
         let valid_type = |ty: TypeId| {
-            self.ctx.type_system.is_simple_type(ty) || self.ctx.type_system.is_set_type(ty)
+            self.ctx.type_system.is_simple_type(ty)
+                || self.ctx.type_system.is_set_type(ty)
+                || self.ctx.type_system.is_generic_set_type(ty)
             // || self.ctx.type_system.is_string_type(ty))
         };
 
@@ -788,6 +833,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
         let valid_type = |ty: TypeId| {
             self.ctx.type_system.is_simple_type(ty)
                 || self.ctx.type_system.is_set_type(ty)
+                || self.ctx.type_system.is_generic_set_type(ty)
                 || self.ctx.type_system.is_pointer_type(ty)
                 || self.ctx.type_system.is_generic_pointer_type(ty)
             // self.ctx.type_system.is_string_type(ty)
@@ -969,7 +1015,9 @@ impl<'a> SemanticCheckerVisitor<'a> {
                         let conversion = SemanticCheckerVisitor::create_conversion_expr(arg.take());
                         arg.reset(conversion);
                         self.ctx.set_ast_type(arg.id(), param_type_id);
-                    } else if self.is_pointer_and_generic_pointer(param_type_id, arg_type_id) {
+                    } else if self.is_pointer_and_generic_pointer(param_type_id, arg_type_id)
+                        || self.is_set_and_generic_set(param_type_id, arg_type_id)
+                    {
                         self.ctx.set_ast_type(arg.id(), param_type_id);
                     }
                 }
@@ -2527,7 +2575,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     let conversion = SemanticCheckerVisitor::create_conversion_expr(rhs.take());
                     rhs.reset(conversion);
                     self.ctx.set_ast_type(rhs.id(), lhs_type);
-                } else if self.is_pointer_and_generic_pointer(lhs_type, rhs_type) {
+                } else if self.is_pointer_and_generic_pointer(lhs_type, rhs_type)
+                    || self.is_set_and_generic_set(lhs_type, rhs_type)
+                {
                     // Convert it into a pointer type the lhs.
                     self.ctx.set_ast_type(rhs.id(), lhs_type);
                 }
@@ -2680,6 +2730,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                 SemanticCheckerVisitor::create_conversion_expr(node.2.take());
                             node.2.reset(conversion);
                             self.ctx.set_ast_type(node.2.id(), operand_type);
+                        } else if self.is_set_and_generic_set(lhs_ty, rhs_ty) {
+                            self.ctx.set_ast_type(node.2.id(), lhs_ty);
+                        } else if self.is_set_and_generic_set(rhs_ty, lhs_ty) {
+                            self.ctx.set_ast_type(node.1.id(), rhs_ty);
                         }
                         self.ctx
                             .set_ast_type(id, self.ctx.type_system.get_bool_type());
@@ -2750,6 +2804,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                 SemanticCheckerVisitor::create_conversion_expr(node.2.take());
                             node.2.reset(conversion);
                             self.ctx.set_ast_type(node.2.id(), operand_type);
+                        } else if self.is_set_and_generic_set(lhs_ty, rhs_ty) {
+                            self.ctx.set_ast_type(node.2.id(), lhs_ty);
+                        } else if self.is_set_and_generic_set(rhs_ty, lhs_ty) {
+                            self.ctx.set_ast_type(node.1.id(), rhs_ty);
                         } else if self.is_pointer_and_generic_pointer(lhs_ty, rhs_ty) {
                             self.ctx.set_ast_type(node.2.id(), lhs_ty);
                         } else if self.is_pointer_and_generic_pointer(rhs_ty, lhs_ty) {
@@ -2816,6 +2874,12 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     None => {
                         if let Some(set_ty) = self.same_set_type(lhs_ty, rhs_ty) {
                             self.ctx.set_ast_type(id, set_ty);
+                            if self.ctx.type_system.is_generic_set_type(lhs_ty) {
+                                self.ctx.set_ast_type(node.1.id(), set_ty);
+                            }
+                            if self.ctx.type_system.is_generic_set_type(rhs_ty) {
+                                self.ctx.set_ast_type(node.2.id(), set_ty);
+                            }
                         } else {
                             self.diagnose_invalid_binary_operator(
                                 id,

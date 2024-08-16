@@ -10,4 +10,5 @@ cranelift-frontend = "0.104.0"
 cranelift-codegen = { version = "0.104.0", features = ["x86", "arm64", "riscv64"] }
 cranelift-object = "0.104.0"
 cranelift-module = "0.104.0"
+cranelift-entity = "0.104.0"
 pasko-frontend = { path = "../pasko-frontend" }

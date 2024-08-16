@@ -17,7 +17,7 @@ end.
 
 {
 
-CHECK: *** IR for function 'increment'
+CHECK: *** IR for 'increment'
 CHECK-NEXT: function u0:0(i64) -> i64 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -35,9 +35,9 @@ CHECK-NEXT:     v7 = stack_addr.i64 ss0
 CHECK-NEXT:     v8 = load.i64 v7
 CHECK-NEXT:     return v8
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for function 'increment' seems OK
+CHECK-NEXT: *** IR for 'increment' seems OK
 
-CHECK: *** IR for main
+CHECK: *** IR for 'main'
 CHECK-NEXT: function u0:1(i32, i64) -> i32 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -79,6 +79,6 @@ CHECK-NEXT:     call fn1(v7, v6)  ; v7 = 0
 CHECK-NEXT:     v15 = iconst.i32 0
 CHECK-NEXT:     return v15  ; v15 = 0
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for main seems OK
+CHECK-NEXT: *** IR for 'main' seems OK
 
 }

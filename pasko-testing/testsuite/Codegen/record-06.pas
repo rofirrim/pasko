@@ -24,10 +24,10 @@ end.
 
 {
 
-CHECK: *** IR for procedure 'foo'
+CHECK: *** IR for 'foo'
 CHECK-NEXT: function u0:0() system_v {
 CHECK-NEXT:     ss0 = explicit_slot 160
-CHECK-EMPTY: 
+CHECK-EMPTY:
 CHECK-NEXT: block0:
 CHECK-NEXT:     v0 = iconst.i64 42
 CHECK-NEXT:     v1 = stack_addr.i64 ss0
@@ -37,11 +37,9 @@ CHECK-NEXT:     v4 = isub v2, v3  ; v2 = 1, v3 = 1
 CHECK-NEXT:     v5 = iconst.i64 16
 CHECK-NEXT:     v6 = imul v4, v5  ; v5 = 16
 CHECK-NEXT:     v7 = iadd v1, v6
-CHECK-NEXT:     v8 = iconst.i64 0
-CHECK-NEXT:     v9 = iadd v7, v8  ; v8 = 0
-CHECK-NEXT:     store v0, v9  ; v0 = 42
+CHECK-NEXT:     store v0, v7  ; v0 = 42
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for procedure 'foo' seems OK
+CHECK-NEXT: *** IR for 'foo' seems OK
 
 }

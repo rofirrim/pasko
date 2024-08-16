@@ -15,7 +15,7 @@ end.
 
 {
 
-CHECK: *** IR for procedure 'foo'
+CHECK: *** IR for 'foo'
 CHECK-NEXT: function u0:0(i64) system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     gv0 = symbol colocated userextname0
@@ -35,9 +35,9 @@ CHECK-NEXT:     call fn0(v4, v5)
 CHECK-NEXT:     call fn1(v4)
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for procedure 'foo' seems OK
+CHECK-NEXT: *** IR for 'foo' seems OK
 
-CHECK: *** IR for main
+CHECK: *** IR for 'main'
 CHECK-NEXT: function u0:3(i32, i64) -> i32 system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -76,6 +76,6 @@ CHECK-NEXT:     call fn1(v7, v6)  ; v7 = 0
 CHECK-NEXT:     v13 = iconst.i32 0
 CHECK-NEXT:     return v13  ; v13 = 0
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for main seems OK
+CHECK-NEXT: *** IR for 'main' seems OK
 
 }

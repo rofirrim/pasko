@@ -16,7 +16,7 @@ end.
 
 {
 
-CHECK: *** IR for procedure 'p'
+CHECK: *** IR for 'p'
 CHECK-NEXT: function u0:0() system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8
 CHECK-EMPTY: 
@@ -32,6 +32,6 @@ CHECK-NEXT:     v6 = stack_addr.i64 ss0
 CHECK-NEXT:     store v5, v6
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for procedure 'p' seems OK
+CHECK-NEXT: *** IR for 'p' seems OK
 
 }

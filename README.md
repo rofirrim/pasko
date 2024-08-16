@@ -80,7 +80,6 @@ From inside the build-directory
 
 | Feature                                                | State | Notes                                                       |
 | ------------------------------------------------------ | ----- | ----------------------------------------------------------- |
-| Record types containing sets inside                    | ❌     | Non trivially copiable types not implemented yet.           |
 | Variadic types                                         | ❌     | Not even supported in the parser yet.                       |
 | Conformable arrays in functions and procedures         | ❌     |                                                             |
 | Nested procedures and functions                        | ❌     |                                                             |
