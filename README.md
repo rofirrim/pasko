@@ -80,10 +80,10 @@ From inside the build-directory
 
 | Feature                                                | State | Notes                                                       |
 | ------------------------------------------------------ | ----- | ----------------------------------------------------------- |
-| Variadic types                                         | ❌     | Not even supported in the parser yet.                       |
-| Conformable arrays in functions and procedures         | ❌     |                                                             |
-| Nested procedures and functions                        | ❌     |                                                             |
-| pack/unpack required procedures                        | ❌     |                                                             |
+| Conformable arrays in functions and procedures         | ❌    |                                                             |
+| Nested procedures and functions                        | ❌    |                                                             |
+| pack/unpack required procedures                        | ❌    |                                                             |
+| Variant types                                          | ⚠️     | Variant types including non-trivial types types are not supported  |
 
 ### Areas of improvement
 

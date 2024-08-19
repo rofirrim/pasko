@@ -7,7 +7,7 @@ use pasko_frontend::ast::{self, FormalParameter};
 use pasko_frontend::semantic::SemanticContext;
 use pasko_frontend::span;
 use pasko_frontend::symbol::{ParameterKind, SymbolId};
-use pasko_frontend::typesystem::TypeId;
+use pasko_frontend::typesystem::{TypeId, VariantPart};
 use pasko_frontend::visitor::{Visitable, VisitorMut};
 
 use cranelift_codegen::ir::types::{F64, I32, I64, I8};
@@ -111,7 +111,11 @@ impl EntityAnnotations {
         );
     }
 
-    pub fn new_global_value(&mut self, global_value: cranelift_codegen::ir::GlobalValue, text: &str) {
+    pub fn new_global_value(
+        &mut self,
+        global_value: cranelift_codegen::ir::GlobalValue,
+        text: &str,
+    ) {
         self.new(
             cranelift_codegen::ir::entities::AnyEntity::GlobalValue(global_value),
             text,
@@ -565,6 +569,93 @@ impl<'a> CodegenVisitor<'a> {
         s
     }
 
+    fn align_of_variant(&self, variant_part: &Option<VariantPart>) -> usize {
+        if let Some(variant) = variant_part {
+            // Note that we always storage for the tag, even if it does not have name.
+            std::cmp::max(
+                self.align_in_bytes(variant.tag_type),
+                variant
+                    .cases
+                    .iter()
+                    .map(|case| {
+                        std::cmp::max(
+                            case.fields
+                                .iter()
+                                .map(|field| {
+                                    let field_sym = self.semantic_context.get_symbol(*field);
+                                    let field_sym = field_sym.borrow();
+                                    self.align_in_bytes(field_sym.get_type().unwrap())
+                                })
+                                .max()
+                                .unwrap_or(0usize),
+                            self.align_of_variant(&case.variant),
+                        )
+                    })
+                    .max()
+                    .unwrap_or(0usize),
+            )
+        } else {
+            return 0;
+        }
+    }
+
+    fn set_offset_of_variant(&self, variant_part: &Option<VariantPart>, offset: usize) -> usize {
+        if let Some(variant) = variant_part {
+            let mut variant_offset = offset;
+            // We assign an offset to the tag type even if it does not have a tag name.
+            let tag_type_align = self.align_in_bytes(variant.tag_type);
+            let tag_type_size = self.size_in_bytes(variant.tag_type);
+            // First pad to the required alignment.
+            variant_offset = Self::align_to(variant_offset, tag_type_align);
+            // Keep the offset now.
+            self.offset_cache
+                .borrow_mut()
+                .insert(variant.tag_name, offset);
+            // Advance the size of the tag.
+            variant_offset += tag_type_size;
+            let variant_offset = variant_offset;
+
+            variant
+                .cases
+                .iter()
+                .map(|case| {
+                    case.fields
+                        .iter()
+                        .map(|field| {
+                            let mut current_case_offset = variant_offset;
+                            let field_sym = self.semantic_context.get_symbol(*field);
+                            let field_sym = field_sym.borrow();
+                            let current_field_align =
+                                self.align_in_bytes(field_sym.get_type().unwrap());
+                            let current_field_size =
+                                self.size_in_bytes(field_sym.get_type().unwrap());
+
+                            // First pad to the required alignment.
+                            current_case_offset =
+                                Self::align_to(current_case_offset, current_field_align);
+
+                            // Keep the offset now.
+                            self.offset_cache
+                                .borrow_mut()
+                                .insert(*field, current_case_offset);
+
+                            // Advance the size of this field.
+                            current_case_offset += current_field_size;
+
+                            self.set_offset_of_variant(&case.variant, current_case_offset);
+
+                            current_case_offset
+                        })
+                        .max()
+                        .unwrap_or(0)
+                })
+                .max()
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
     fn size_and_align_in_bytes_impl(&self, ty: TypeId) -> SizeAndAlignment {
         if self.semantic_context.type_system.is_real_type(ty)
             || self.semantic_context.type_system.is_integer_type(ty)
@@ -608,13 +699,22 @@ impl<'a> CodegenVisitor<'a> {
             // could order them by descending alignmeent rather than follow
             // declaration order)
             let mut max_align = 0;
-            let fields = self.semantic_context.type_system.record_type_get_fields(ty);
+            let fields = self
+                .semantic_context
+                .type_system
+                .record_type_get_fixed_fields(ty);
             for field in fields {
                 let field_sym = self.semantic_context.get_symbol(*field);
                 let field_sym = field_sym.borrow();
                 let current_field_align = self.align_in_bytes(field_sym.get_type().unwrap());
                 max_align = std::cmp::max(max_align, current_field_align);
             }
+            // Compute the alignment required by the variant, if any.
+            let variant = self
+                .semantic_context
+                .type_system
+                .record_type_get_variant_part(ty);
+            max_align = std::cmp::max(max_align, self.align_of_variant(variant));
             // Empty structs take at least one byte.
             if max_align == 0 {
                 max_align = 1;
@@ -622,6 +722,7 @@ impl<'a> CodegenVisitor<'a> {
             // Rebind immutably.
             let max_align = max_align;
 
+            // Now compute offsets.
             let mut offset = 0usize;
             for field in fields {
                 let field_sym = self.semantic_context.get_symbol(*field);
@@ -638,6 +739,9 @@ impl<'a> CodegenVisitor<'a> {
                 // Advance the size of this field.
                 offset += current_field_size;
             }
+
+            // Now assign offsets to the variant fields.
+            offset += self.set_offset_of_variant(variant, offset);
 
             // Pad the last element.
             offset = Self::align_to(offset, max_align);
@@ -967,6 +1071,21 @@ impl<'a> CodegenVisitor<'a> {
         self.globals_to_dispose.push(sym);
     }
 
+    fn variant_contains_set_types(&self, variant: &Option<VariantPart>) -> bool {
+        if let Some(variant) = variant {
+            variant.cases.iter().any(|case| {
+                case.fields.iter().any(|field| {
+                    let field_sym = self.semantic_context.get_symbol(*field);
+                    let field_sym = field_sym.borrow();
+                    let field_ty = field_sym.get_type().unwrap();
+                    self.type_contains_set_types(field_ty)
+                }) || self.variant_contains_set_types(&case.variant)
+            })
+        } else {
+            false
+        }
+    }
+
     fn type_contains_set_types_impl(&self, ty: TypeId) -> bool {
         let ts = &self.semantic_context.type_system;
         if ts.is_set_type(ty) {
@@ -974,13 +1093,18 @@ impl<'a> CodegenVisitor<'a> {
         } else if ts.is_array_type(ty) {
             self.type_contains_set_types(ts.array_type_get_component_type(ty))
         } else if ts.is_record_type(ty) {
-            let fields = ts.record_type_get_fields(ty);
-            fields.iter().any(|&field| {
+            let fields = ts.record_type_get_fixed_fields(ty);
+            let fixed_fields = fields.iter().any(|&field| {
                 let field_sym = self.semantic_context.get_symbol(field);
                 let field_sym = field_sym.borrow();
                 let field_ty = field_sym.get_type().unwrap();
                 self.type_contains_set_types(field_ty)
-            })
+            });
+            let variant_part = self.variant_contains_set_types(ts.record_type_get_variant_part(ty));
+            if variant_part {
+                unimplemented!("Variants with set types");
+            }
+            fixed_fields || variant_part
         } else {
             false
         }
@@ -1022,10 +1146,12 @@ impl<'a> CodegenVisitor<'a> {
             .collect();
 
         self.input_data_id = Some(input_output[0]);
-        self.global_names.insert(input_output[0], "[input-textfile]".to_string());
+        self.global_names
+            .insert(input_output[0], "[input-textfile]".to_string());
 
         self.output_data_id = Some(input_output[1]);
-        self.global_names.insert(input_output[1], "[output-textfile]".to_string());
+        self.global_names
+            .insert(input_output[1], "[output-textfile]".to_string());
     }
 
     pub fn get_input_file_data_id(&self) -> cranelift_module::DataId {
@@ -1190,7 +1316,8 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                     addr_string
                 })
                 .collect();
-            function_codegen.emit_stack_ptr_array_null_ended(&str_addresses, "program-parameter-names")
+            function_codegen
+                .emit_stack_ptr_array_null_ended(&str_addresses, "program-parameter-names")
         };
 
         let global_files_addr = {

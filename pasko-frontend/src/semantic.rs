@@ -2,7 +2,6 @@ use crate::ast::{self, ExprVariableReference, UnaryOp};
 use crate::ast::{BinOperand, FormalParameter};
 use crate::constant::Constant;
 use crate::diagnostics::{Diagnostic, DiagnosticKind, Diagnostics};
-use crate::scope;
 use crate::span;
 use crate::symbol::{
     ParameterKind, Symbol, SymbolId, SymbolKind, SymbolMap, SymbolMapImpl, SymbolRef,
@@ -10,6 +9,7 @@ use crate::symbol::{
 use crate::typesystem::{Type, TypeId, TypeKind, TypeSystem};
 use crate::visitor::MutatingVisitable;
 use crate::visitor::MutatingVisitorMut;
+use crate::{scope, typesystem};
 
 use std::collections::HashMap;
 
@@ -145,6 +145,9 @@ struct SemanticCheckerVisitor<'a> {
     in_pointer_type: bool,
 
     program_heading_loc: Option<span::SpanLoc>,
+
+    // Information needed for records.
+    record_info: typesystem::VariantPart,
 }
 
 enum FunctionProcedureDeclarationStatus {
@@ -1092,7 +1095,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                 self.ctx.type_system.array_type_get_component_type(ty),
             );
         } else if self.ctx.type_system.is_record_type(ty) {
-            let fields = self.ctx.type_system.record_type_get_fields(ty);
+            let fields = self.ctx.type_system.record_type_get_all_fields(ty);
             for field in fields {
                 let field_sym = self.ctx.get_symbol(*field);
                 let field_sym = field_sym.borrow();
@@ -1228,6 +1231,20 @@ impl<'a> SemanticCheckerVisitor<'a> {
             }
         }
         (first_arg, file_component, is_textfile)
+    }
+
+    fn record_type_get_all_fields_of_variant(
+        &self,
+        variant_part: &Option<typesystem::VariantPart>,
+        result: &mut Vec<SymbolId>,
+    ) {
+        if let Some(variant_part) = variant_part {
+            result.push(variant_part.tag_name);
+            variant_part.cases.iter().for_each(|case| {
+                case.fields.iter().for_each(|f| result.push(*f));
+                self.record_type_get_all_fields_of_variant(&case.variant, result);
+            });
+        }
     }
 }
 
@@ -1564,17 +1581,6 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         self.ctx.set_ast_type(id, array_type);
     }
 
-    fn visit_pre_record_type(
-        &mut self,
-        _n: &mut ast::RecordType,
-        _span: &span::SpanLoc,
-        _id: span::SpanId,
-    ) -> bool {
-        // Create a new scope for the fields
-        self.scope.push_scope(None);
-        true
-    }
-
     fn visit_post_record_section(
         &mut self,
         n: &mut ast::RecordSection,
@@ -1599,36 +1605,238 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             self.scope.add_entry(field_name.get(), new_sym);
 
             self.ctx.set_ast_symbol(field_name.id(), new_sym);
+
+            // Remember this field.
+            self.record_info
+                .cases
+                .last_mut()
+                .unwrap()
+                .fields
+                .push(new_sym);
         }
     }
 
-    fn visit_post_record_type(
+    fn visit_pre_variant(
         &mut self,
-        n: &mut ast::RecordType,
+        n: &mut ast::Variant,
         _span: &span::SpanLoc,
-        id: span::SpanId,
-    ) {
-        // Leave the scope of the fields.
-        self.scope.pop_scope();
+        _id: span::SpanId,
+    ) -> bool {
+        // Constants
+        let constants = &mut n.0;
+        for constant in constants {
+            let loc = *constant.loc();
+            let id = constant.id();
+            constant.get_mut().mutating_walk_mut(self, &loc, id);
 
-        let packed = n.0.is_some();
-        let mut fields: Vec<SymbolId> = vec![];
+            self.record_info
+                .cases
+                .last_mut()
+                .unwrap()
+                .constants
+                .push(self.ctx.get_ast_value(id).unwrap());
+        }
 
-        // Grab all the symbols.
-        for record_section in &n.1 {
-            for field_name in &record_section.get().0 {
-                if let Some(sym) = self.ctx.get_ast_symbol(field_name.id()) {
-                    fields.push(sym);
+        // Field list
+        let field_list = &mut n.1;
+        let loc = *field_list.loc();
+        let id = field_list.id();
+        field_list.get_mut().mutating_walk_mut(self, &loc, id);
+
+        // We're done
+        false
+    }
+
+    fn visit_pre_variant_part(
+        &mut self,
+        n: &mut ast::VariantPart,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        // Keep the current variant.
+        // This effectively clears the current record info.
+        let mut previous_variant = std::mem::take(&mut self.record_info);
+
+        // Walk first the variant selector.
+        let variant_selector = &mut n.0;
+        let loc = *variant_selector.loc();
+        let id = variant_selector.id();
+        variant_selector.get_mut().mutating_walk_mut(self, &loc, id);
+
+        let variants = &mut n.1;
+        for variant in variants {
+            // This is each variant case
+            self.record_info
+                .cases
+                .push(typesystem::VariantCase::default());
+
+            let loc = *variant.loc();
+            let id = variant.id();
+            variant.get_mut().mutating_walk_mut(self, &loc, id);
+        }
+
+        // Now embed this internal variant to the enclosing one.
+        previous_variant.cases.last_mut().unwrap().variant =
+            Some(std::mem::take(&mut self.record_info));
+        // Reinstate the previous variant info.
+        self.record_info = previous_variant;
+
+        // Now typecheck
+        let variant_selector = &n.0;
+        let variants = &n.1;
+        let variant_selector_type = self.ctx.get_ast_type(variant_selector.id()).unwrap();
+        if !self.ctx.type_system.is_error_type(variant_selector_type) {
+            // Now check that each constant can be converted.
+            for variant in variants {
+                let consts = &variant.get().0;
+                for const_ in consts {
+                    let const_ty = self.ctx.get_ast_type(const_.id()).unwrap();
+                    if !self.is_compatible(variant_selector_type, const_ty) {
+                        self.diagnostics.add_with_extra(
+                            DiagnosticKind::Error,
+                            *const_.loc(),
+                            format!(
+                                "type {} of constant is not compatible with selector type {}",
+                                self.ctx.type_system.get_type_name(const_ty),
+                                self.ctx.type_system.get_type_name(variant_selector_type)
+                            ),
+                            vec![],
+                            vec![Diagnostic::new(
+                                DiagnosticKind::Info,
+                                *variant_selector.loc(),
+                                format!("corresponding variant selector declaration"),
+                            )],
+                        );
+                    }
                 }
             }
         }
 
+        // We're done
+        false
+    }
+
+    fn visit_post_variant_selector(
+        &mut self,
+        n: &mut ast::VariantSelector,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) {
+        let type_denoter = self.ctx.get_ast_type(n.1.id()).unwrap();
+        self.record_info.tag_type = type_denoter;
+
+        if let Some(tag_name) = &n.0 {
+            if !self.diagnose_redeclared_symbol(tag_name.get(), tag_name.loc()) {
+                let mut new_sym = Symbol::new();
+                new_sym.set_name(tag_name.get());
+                new_sym.set_kind(SymbolKind::Field);
+                new_sym.set_defining_point(*tag_name.loc());
+                new_sym.set_type(type_denoter);
+
+                let new_sym = self.ctx.new_symbol(new_sym);
+
+                self.scope.add_entry(tag_name.get(), new_sym);
+
+                self.ctx.set_ast_symbol(tag_name.id(), new_sym);
+
+                // Remember this selector as a field.
+                self.record_info.tag_name = new_sym;
+            }
+        } else {
+            // We always create a fake symbol.
+            let mut new_sym = Symbol::new();
+            new_sym.set_name("{tag}");
+            new_sym.set_kind(SymbolKind::Field);
+            new_sym.set_defining_point(*span);
+            new_sym.set_type(type_denoter);
+            let new_sym = self.ctx.new_symbol(new_sym);
+
+            // Remember this selector as a field.
+            self.record_info.tag_name = new_sym;
+        }
+
+        self.ctx.set_ast_type(id, type_denoter);
+    }
+
+    fn visit_pre_field_list(
+        &mut self,
+        n: &mut ast::FieldList,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        // Fixed part of this field list.
+        let fixed_part = &mut n.0;
+        if let Some(fixed_part) = fixed_part {
+            for record_section in fixed_part {
+                let loc = *record_section.loc();
+                let id = record_section.id();
+                record_section.get_mut().mutating_walk_mut(self, &loc, id);
+            }
+        }
+
+        // Variant part of this field list.
+        let variant_part = &mut n.1;
+        if let Some(variant_part) = variant_part {
+            let loc = *variant_part.loc();
+            let id = variant_part.id();
+            variant_part.get_mut().mutating_walk_mut(self, &loc, id);
+        }
+
+        // Done
+        false
+    }
+
+    fn visit_pre_record_type(
+        &mut self,
+        n: &mut ast::RecordType,
+        _span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        let keep_record_info = std::mem::take(&mut self.record_info);
+
+        // Create a new scope for the fields
+        self.scope.push_scope(None);
+
+        // Create a fake case, used only for the fixed part.
+        self.record_info
+            .cases
+            .push(typesystem::VariantCase::default());
+
+        // Walk the fields
+        let field_list = &mut n.1;
+        let field_list_loc = *field_list.loc();
+        let field_list_id = field_list.id();
+        field_list
+            .get_mut()
+            .mutating_walk_mut(self, &field_list_loc, field_list_id);
+
+        // Leave the scope of the fields.
+        self.scope.pop_scope();
+
+        // Now gather all the info.
+        let fixed_fields = std::mem::take(&mut self.record_info.cases[0].fields);
+        let variant = std::mem::take(&mut self.record_info.cases[0].variant);
+
+        // Compute all the fields for convenience.
+        let mut all_fields = fixed_fields.clone();
+        self.record_type_get_all_fields_of_variant(&variant, &mut all_fields);
+
+        let packed = n.0.is_some();
         let mut new_record_type = Type::default();
-        new_record_type.set_kind(TypeKind::Record { packed, fields });
+        new_record_type.set_kind(TypeKind::Record {
+            packed,
+            fixed_fields,
+            variant,
+            all_fields,
+        });
 
         let new_record_type = self.ctx.type_system.new_type(new_record_type);
-
         self.ctx.set_ast_type(id, new_record_type);
+
+        self.record_info = keep_record_info;
+
+        // We are done.
+        false
     }
 
     fn visit_post_set_type(
@@ -2283,7 +2491,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         }
 
         let current_field_name = n.1.get();
-        let record_fields = self.ctx.type_system.record_type_get_fields(base_type);
+        let record_fields = self.ctx.type_system.record_type_get_all_fields(base_type);
         if let Some(named_field) = record_fields.iter().find(|record_field| {
             let record_field_sym = self.ctx.get_symbol(**record_field);
             let record_field_sym = record_field_sym.borrow();
@@ -4391,6 +4599,7 @@ pub fn check_program(
         in_type_definition_part: false,
         in_pointer_type: false,
         program_heading_loc: None,
+        record_info: typesystem::VariantPart::default(),
     };
 
     let loc = *program.loc();

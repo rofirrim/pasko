@@ -21,6 +21,23 @@ impl Default for TypeId {
         TypeId(utils::new_id())
     }
 }
+
+pub type FieldList = Vec<symbol::SymbolId>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct VariantCase {
+    pub constants: Vec<constant::Constant>,
+    pub fields: FieldList,
+    pub variant: Option<VariantPart>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct VariantPart {
+    pub tag_name: symbol::SymbolId,
+    pub tag_type: TypeId,
+    pub cases: Vec<VariantCase>,
+}
+
 #[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
 pub enum TypeKind {
     #[default]
@@ -40,7 +57,11 @@ pub enum TypeKind {
     },
     Record {
         packed: bool,
-        fields: Vec<symbol::SymbolId>,
+        fixed_fields: FieldList,
+        // Variants represented by their nesting level.
+        variant: Option<VariantPart>,
+        // For efficiency.
+        all_fields: FieldList,
     },
     Set {
         packed: Option<bool>,
@@ -178,9 +199,23 @@ impl Type {
         }
     }
 
-    fn record_type_get_fields(&self) -> &Vec<symbol::SymbolId> {
+    fn record_type_get_fixed_fields(&self) -> &Vec<symbol::SymbolId> {
         match &self.info.kind {
-            TypeKind::Record { fields, .. } => fields,
+            TypeKind::Record { fixed_fields, .. } => fixed_fields,
+            _ => panic!("This is not a record type"),
+        }
+    }
+
+    fn record_type_get_all_fields(&self) -> &Vec<symbol::SymbolId> {
+        match &self.info.kind {
+            TypeKind::Record { all_fields, .. } => all_fields,
+            _ => panic!("This is not a record type"),
+        }
+    }
+
+    fn record_type_get_variant_part(&self) -> &Option<VariantPart> {
+        match &self.info.kind {
+            TypeKind::Record { variant, .. } => variant,
             _ => panic!("This is not a record type"),
         }
     }
@@ -594,11 +629,25 @@ impl TypeSystem {
         ty.is_record_type()
     }
 
-    pub fn record_type_get_fields(&self, ty: TypeId) -> &Vec<symbol::SymbolId> {
+    pub fn record_type_get_all_fields(&self, ty: TypeId) -> &Vec<symbol::SymbolId> {
         let ty = self.ultimate_type(ty);
         let ty = self.get_type_internal(ty);
 
-        ty.record_type_get_fields()
+        ty.record_type_get_all_fields()
+    }
+
+    pub fn record_type_get_fixed_fields(&self, ty: TypeId) -> &Vec<symbol::SymbolId> {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.record_type_get_fixed_fields()
+    }
+
+    pub fn record_type_get_variant_part(&self, ty: TypeId) -> &Option<VariantPart> {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.record_type_get_variant_part()
     }
 
     pub fn record_type_is_packed(&self, ty: TypeId) -> bool {
@@ -749,6 +798,64 @@ impl TypeSystem {
         format!("{}", self.get_type_name_impl(id, false, HashSet::new()))
     }
 
+    fn print_variant_part(
+        &self,
+        variant: &Option<VariantPart>,
+        skip_alias: bool,
+        cycles: HashSet<TypeId>,
+    ) -> String {
+        if let Some(variant_part) = variant {
+            format!("case {}{} of {}", 
+                        {
+                            let sym = self.symbol_map.borrow().get_symbol(variant_part.tag_name);
+                            let sym = sym.borrow();
+                            format!("{} : ", sym.get_name())
+                        },
+                        self.get_type_name_impl(variant_part.tag_type, skip_alias, cycles.clone()),
+            variant_part
+                .cases
+                .iter()
+                .map(|case| {
+                    format!(
+                        "{}{}",
+                        {
+                            format!(
+                                "{}: ({});",
+                                case.constants
+                                    .iter()
+                                    .map(|x| x.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                                case.fields
+                                    .iter()
+                                    .map(|field_sym| {
+                                        let sym = self.symbol_map.borrow().get_symbol(*field_sym);
+                                        let sym = sym.borrow();
+                                        format!(
+                                            "{}: {};",
+                                            sym.get_name().to_string(),
+                                            self.get_type_name_impl(
+                                                sym.get_type().unwrap(),
+                                                /* skip_alias */ true,
+                                                cycles.clone()
+                                            )
+                                        )
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(" "),
+                            )
+                        },
+                        { self.print_variant_part(&case.variant, skip_alias, cycles.clone()) }
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+            )
+        } else {
+            "".to_string()
+        }
+    }
+
     fn get_type_name_impl(
         &self,
         id: TypeId,
@@ -805,11 +912,17 @@ impl TypeSystem {
                         .join(", ")
                 )
             }
-            TypeKind::Record { packed, fields } => {
+            TypeKind::Record {
+                packed,
+                fixed_fields,
+                variant,
+                ..
+            } => {
                 format!(
-                    "{}record {} end",
+                    "{}record {}{} end",
                     if packed { "packed " } else { "" },
-                    fields
+                    // FIXME, we should not be flattening the fields.
+                    fixed_fields
                         .iter()
                         .map(|sym_id| {
                             let sym = self.symbol_map.borrow().get_symbol(*sym_id);
@@ -825,7 +938,8 @@ impl TypeSystem {
                             )
                         })
                         .collect::<Vec<_>>()
-                        .join(" ")
+                        .join(" "),
+                    self.print_variant_part(&variant, skip_alias, cycles)
                 )
             }
             TypeKind::Set { packed, element } => {
@@ -943,7 +1057,7 @@ impl TypeSystem {
         if self.is_file_type(ty) {
             return false;
         } else if self.is_record_type(ty) {
-            let fields = self.record_type_get_fields(ty);
+            let fields = self.record_type_get_all_fields(ty);
 
             fields.iter().all(|field| {
                 let sym = self.symbol_map.borrow().get_symbol(*field);

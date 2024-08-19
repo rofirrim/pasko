@@ -188,8 +188,8 @@ TypeDenoter : SpannedBox<ast::TypeDenoter> = {
     <enumerated:EnumeratedTypeDenoter> => enumerated,
     <start:@L> <packed:Packed?> "array" "[" <indexes:CommaSeparated<OrdinalTypeDenoter>> "]" "of" <element_type:TypeDenoter> <end:@R> =>
         SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::ArrayType(ast::ArrayType(packed, indexes, element_type))),
-    <start:@L> <packed:Packed?> "record" <fixed_part:SemicolonSeparatedOptionallyTerminated<RecordSection>> "end" <end:@R> => 
-        SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::RecordType(ast::RecordType(packed, fixed_part, None))),
+    <start:@L> <packed:Packed?> "record" <field_list:FieldList> "end" <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::RecordType(ast::RecordType(packed, field_list))),
     <start:@L> <packed:Packed?> "set" "of" <base_type:OrdinalTypeDenoter> <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::TypeDenoter::SetType(ast::SetType(packed, base_type))),
     <start:@L> <packed:Packed?> "file" "of" <element_type:TypeDenoter> <end:@R> => 
@@ -215,6 +215,55 @@ OrdinalTypeDenoter : SpannedBox<ast::TypeDenoter> = {
     <subrange:SubrangeTypeDenoter> => subrange,
     <enumerated:EnumeratedTypeDenoter> => enumerated,
 };
+
+FieldList : SpannedBox<ast::FieldList> = { 
+    <start:@L> <fixed_part:FixedPart> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::FieldList(Some(fixed_part), None)),
+    <start:@L> <fixed_part:FixedPartSemicolon> <variant_part:VariantPart> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::FieldList(Some(fixed_part), Some(variant_part))),
+    <start:@L> <variant_part:VariantPart> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::FieldList(None, Some(variant_part))),
+}
+
+FixedPart : Vec<SpannedBox<ast::RecordSection>> = {
+  <v:FixedPartNoSemicolon> => v,
+  <v:FixedPartSemicolon> => v,
+}
+
+FixedPartNoSemicolon : Vec<SpannedBox<ast::RecordSection>> = {
+  <fixed_part:SemicolonSeparated<RecordSection>> => fixed_part,
+}
+
+FixedPartSemicolon : Vec<SpannedBox<ast::RecordSection>> = {
+  <fixed_part:SemicolonSeparated<RecordSection>> ";" => fixed_part,
+}
+
+VariantPart : SpannedBox<ast::VariantPart> = {
+    <v:VariantPartNoSemicolon> => v,
+    <v:VariantPartSemicolon> => v,
+}
+
+VariantPartNoSemicolon : SpannedBox<ast::VariantPart> = {
+    <start:@L> "case" <variant_selector:VariantSelector> "of" <variants:SemicolonSeparated<Variant>> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::VariantPart(variant_selector, variants))
+};
+
+VariantPartSemicolon : SpannedBox<ast::VariantPart> = {
+    <start:@L> "case" <variant_selector:VariantSelector> "of" <variants:SemicolonSeparated<Variant>> <end:@R> ";" =>
+        SpannedBox::new(span_loc!(start, end), ast::VariantPart(variant_selector, variants))
+};
+
+VariantSelector : SpannedBox<ast::VariantSelector> = {
+    <start:@L> <tag_field:Identifier> ":" <tag_type:NamedTypeDenoter> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::VariantSelector(Some(tag_field), tag_type)),
+    <start:@L> <tag_type:NamedTypeDenoter> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::VariantSelector(None, tag_type)),
+}
+
+Variant : SpannedBox<ast::Variant> = {
+    <start:@L> <case_constant_list:CommaSeparated<Const>> ":" "(" <field_list:FieldList> ")" <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::Variant(case_constant_list, field_list))
+}
 
 RecordSection : SpannedBox<ast::RecordSection> = {
     <start:@L> <identifiers:CommaSeparated<Identifier>> ":" <type_denoter:TypeDenoter> <end:@R> =>
@@ -591,12 +640,12 @@ OptionalCommaSeparated<T>: Vec<T> = {
     }
 };
 
-SemicolonSeparated<T>: Vec<T> = {
-    <mut v:(<T> ";")*> <e:T> =>  { 
-        v.push(e);
-        v
-    }
-};
+SemicolonSeparated<T> : Vec<T> = {
+    <e:T> => vec![e],
+    <mut v:SemicolonSeparated<T>> ";" <e:T> => { 
+        v.push(e); v
+    },
+}
 
 SemicolonSeparatedOptionallyTerminated<T>: Vec<T> = {
     <mut v:(<T> ";")*> <e:T> ";"? =>  { 

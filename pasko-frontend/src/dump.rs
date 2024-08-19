@@ -129,6 +129,12 @@ impl<'a> ASTDumper<'a> {
         }
     }
 
+    fn walk_vec_child_not_last<T: Visitable>(&mut self, n: &Vec<span::SpannedBox<T>>) {
+        for c in n.iter() {
+            self.walk_child(&c);
+        }
+    }
+
     fn walk_optional_vec_child<T: Visitable>(&mut self, n: &Option<Vec<span::SpannedBox<T>>>) {
         if let Some(n) = n {
             for (idx, c) in n.iter().enumerate() {
@@ -500,13 +506,13 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         id: span::SpanId,
     ) -> bool {
         self.emit_line_payload(
-            "AssigArrayAccess",
+            "AssigFieldAccess",
             span,
             id,
             &format!("field:<{}> {}", n.1.get(), self.type_to_string(id)),
         );
 
-        self.walk_child(&n.0);
+        self.walk_last_child(&n.0);
 
         false
     }
@@ -813,7 +819,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
                 if n.0.is_some() {
                     n.0.as_ref().unwrap().get().clone()
                 } else {
-                    "(packed)".to_string()
+                    "(unpacked)".to_string()
                 }
             ),
         );
@@ -851,13 +857,90 @@ impl<'a> VisitorMut for ASTDumper<'a> {
                 if n.0.is_some() {
                     n.0.as_ref().unwrap().get().clone()
                 } else {
-                    "(packed)".to_string()
+                    "(unpacked)".to_string()
                 }
             ),
         );
 
-        // VariantPart in n.2 not supported yet.
+        self.walk_last_child(&n.1);
+
+        false
+    }
+
+    fn visit_pre_field_list(
+        &mut self,
+        n: &ast::FieldList,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        self.emit_line("FieldList", span, id);
+
+        match (&n.0, &n.1) {
+            (Some(fixed_part), Some(variant_part)) => {
+                self.walk_vec_child_not_last(fixed_part);
+                self.walk_last_child(variant_part);
+            }
+            (None, Some(variant_part)) => {
+                self.walk_last_child(variant_part);
+            }
+            (Some(fixed_part), None) => {
+                self.walk_vec_child(fixed_part);
+            }
+            (None, None) => {}
+        }
+
+        false
+    }
+
+    fn visit_pre_variant_part(
+        &mut self,
+        n: &ast::VariantPart,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        self.emit_line("VariantPart", span, id);
+
+        self.walk_child(&n.0);
         self.walk_vec_child(&n.1);
+
+        false
+    }
+
+    fn visit_pre_variant(
+        &mut self,
+        n: &ast::Variant,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        self.emit_line("Variant", span, id);
+
+        self.walk_vec_child_not_last(&n.0);
+        self.walk_last_child(&n.1);
+
+        false
+    }
+
+    fn visit_pre_variant_selector(
+        &mut self,
+        n: &ast::VariantSelector,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        self.emit_line_payload(
+            "VariantSelector",
+            span,
+            id,
+            &format!(
+                "{}",
+                if n.0.is_some() {
+                    n.0.as_ref().unwrap().get()
+                } else {
+                    "[unnamed]"
+                },
+            ),
+        );
+
+        self.walk_last_child(&n.1);
 
         false
     }
@@ -901,7 +984,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
                 if n.0.is_some() {
                     n.0.as_ref().unwrap().get().clone()
                 } else {
-                    "(packed)".to_string()
+                    "(unpacked)".to_string()
                 }
             ),
         );

@@ -25,18 +25,18 @@ end.
 
 {
 
-CHECK: Program 4:1 
+CHECK: Program 4:1
 CHECK-NEXT: ├─╴ProgramHeading 4:1 "main" []
-CHECK-NEXT: └─╴ProgramBlock 6:1 
-CHECK-NEXT:    └─╴Block 6:1 
-CHECK-NEXT:       ├─╴VariableDeclarationPart 6:1 
+CHECK-NEXT: └─╴ProgramBlock 6:1
+CHECK-NEXT:    └─╴Block 6:1
+CHECK-NEXT:       ├─╴VariableDeclarationPart 6:1
 CHECK-NEXT:       │  ├─╴VariableDeclaration 7:3 ["a", "b"]
-CHECK-NEXT:       │  │  └─╴SetType 7:10 (packed)
+CHECK-NEXT:       │  │  └─╴SetType 7:10 (unpacked)
 CHECK-NEXT:       │  │     └─╴TypeIdentifier 7:17 "integer" integer
 CHECK-NEXT:       │  └─╴VariableDeclaration 8:3 ["t"]
 CHECK-NEXT:       │     └─╴TypeIdentifier 8:7 "boolean" boolean
-CHECK-NEXT:       └─╴Statement 10:1 
-CHECK-NEXT:          └─╴StmtCompound 10:1 
+CHECK-NEXT:       └─╴Statement 10:1
+CHECK-NEXT:          └─╴StmtCompound 10:1
 CHECK-NEXT:             ├─╴StmtAssignment 11:3 lhs set of integer rhs set of integer
 CHECK-NEXT:             │  ├─╴AssigVariable 11:3 "b" set of integer
 CHECK-NEXT:             │  └─╴BinOp 11:8 + set of integer
@@ -97,6 +97,6 @@ CHECK-NEXT:             │  └─╴BinOp 23:8 >= boolean
 CHECK-NEXT:             │     ├─╴ExprSetLiteral 23:8 set of integer
 CHECK-NEXT:             │     └─╴ExprVariable 23:14 set of integer
 CHECK-NEXT:             │        └─╴AssigVariable 23:14 "a" set of integer
-CHECK-NEXT:             └─╴StmtEmpty 24:1
+CHECK-NEXT:             └─╴StmtEmpty 24:1 
 
 }

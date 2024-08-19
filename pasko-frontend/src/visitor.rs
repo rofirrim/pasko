@@ -133,6 +133,10 @@ macro_rules! define_visitor_trait {
             $define_visitor!(ArrayType);
             $define_visitor!(RecordType);
             $define_visitor!(RecordSection);
+            $define_visitor!(FieldList);
+            $define_visitor!(VariantPart);
+            $define_visitor!(VariantSelector);
+            $define_visitor!(Variant);
             $define_visitor!(SetType);
             $define_visitor!(FileType);
             $define_visitor!(PointerType);
@@ -973,10 +977,10 @@ define_visitable!(
     self,
     v,
     {
-        visit_vector_child!(self, 1, v);
+        visit_child!(self, 1, v);
     },
     {
-        visit_vector_child_mut!(self, 1, v);
+        visit_child_mut!(self, 1, v);
     }
 );
 
@@ -985,10 +989,10 @@ define_mutating_visitable!(
     self,
     v,
     {
-        mutating_visit_vector_child!(self, 1, v);
+        mutating_visit_child!(self, 1, v);
     },
     {
-        mutating_visit_vector_child_mut!(self, 1, v);
+        mutating_visit_child_mut!(self, 1, v);
     }
 );
 
@@ -1013,6 +1017,118 @@ define_mutating_visitable!(
         mutating_visit_child!(self, 1, v);
     },
     {
+        mutating_visit_child_mut!(self, 1, v);
+    }
+);
+
+// FieldList
+define_visitable!(
+    FieldList,
+    self,
+    v,
+    {
+        visit_optional_vector_child!(self, 0, v);
+        visit_optional_child!(self, 1, v);
+    },
+    {
+        visit_optional_vector_child_mut!(self, 0, v);
+        visit_optional_child_mut!(self, 1, v);
+    }
+);
+
+define_mutating_visitable!(
+    FieldList,
+    self,
+    v,
+    {
+        mutating_visit_optional_vector_child!(self, 0, v);
+        mutating_visit_optional_child!(self, 1, v);
+    },
+    {
+        mutating_visit_optional_vector_child_mut!(self, 0, v);
+        mutating_visit_optional_child_mut!(self, 1, v);
+    }
+);
+
+// VariantPart
+define_visitable!(
+    VariantPart,
+    self,
+    v,
+    {
+        visit_child!(self, 0, v);
+        visit_vector_child!(self, 1, v);
+    },
+    {
+        visit_child_mut!(self, 0, v);
+        visit_vector_child_mut!(self, 1, v);
+    }
+);
+
+define_mutating_visitable!(
+    VariantPart,
+    self,
+    v,
+    {
+        mutating_visit_child!(self, 0, v);
+        mutating_visit_vector_child!(self, 1, v);
+    },
+    {
+        mutating_visit_child_mut!(self, 0, v);
+        mutating_visit_vector_child_mut!(self, 1, v);
+    }
+);
+
+// VariantSelector
+define_visitable!(
+    VariantSelector,
+    self,
+    v,
+    {
+        visit_child!(self, 1, v);
+    },
+    {
+        visit_child_mut!(self, 1, v);
+    }
+);
+
+define_mutating_visitable!(
+    VariantSelector,
+    self,
+    v,
+    {
+        mutating_visit_child!(self, 1, v);
+    },
+    {
+        mutating_visit_child_mut!(self, 1, v);
+    }
+);
+
+// Variant
+define_visitable!(
+    Variant,
+    self,
+    v,
+    {
+        visit_vector_child!(self, 0, v);
+        visit_child!(self, 1, v);
+    },
+    {
+        visit_vector_child_mut!(self, 0, v);
+        visit_child_mut!(self, 1, v);
+    }
+);
+
+define_mutating_visitable!(
+    Variant,
+    self,
+    v,
+    {
+        mutating_visit_vector_child!(self, 0, v);
+        mutating_visit_child!(self, 1, v);
+    },
+    {
+        mutating_visit_vector_child_mut!(self, 0, v);
         mutating_visit_child_mut!(self, 1, v);
     }
 );

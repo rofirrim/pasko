@@ -525,7 +525,16 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     .codegen
                     .semantic_context
                     .type_system
-                    .record_type_get_fields(addr_ty);
+                    .record_type_get_fixed_fields(addr_ty);
+                if self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .record_type_get_variant_part(addr_ty)
+                    .is_some()
+                {
+                    unimplemented!("Variant types");
+                }
                 fields.iter().for_each(|field_id| {
                     let offset = {
                         let cache = self.codegen.offset_cache.borrow();
@@ -1260,7 +1269,16 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 .codegen
                 .semantic_context
                 .type_system
-                .record_type_get_fields(addr_ty);
+                .record_type_get_fixed_fields(addr_ty);
+            if self
+                .codegen
+                .semantic_context
+                .type_system
+                .record_type_get_variant_part(addr_ty)
+                .is_some()
+            {
+                unimplemented!("Variant types");
+            }
             fields.iter().for_each(|field_id| {
                 let field_sym = self.codegen.semantic_context.get_symbol(*field_id);
                 let field_sym = field_sym.borrow();
@@ -1349,7 +1367,16 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 .codegen
                 .semantic_context
                 .type_system
-                .record_type_get_fields(addr_ty);
+                .record_type_get_fixed_fields(addr_ty);
+            if self
+                .codegen
+                .semantic_context
+                .type_system
+                .record_type_get_variant_part(addr_ty)
+                .is_some()
+            {
+                unimplemented!("Variant types");
+            }
             fields.iter().for_each(|field_id| {
                 let field_sym = self.codegen.semantic_context.get_symbol(*field_id);
                 let field_sym = field_sym.borrow();
