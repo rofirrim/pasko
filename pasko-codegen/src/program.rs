@@ -792,7 +792,7 @@ impl<'a> CodegenVisitor<'a> {
         self.size_and_align_in_bytes(ty).align
     }
 
-    fn common_function_emisson(
+    fn common_function_emission(
         &mut self,
         function_name: &String,
         function_symbol_id: SymbolId,
@@ -1432,7 +1432,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
-        self.common_function_emisson(
+        self.common_function_emission(
             n.0.get(),
             self.semantic_context.get_ast_symbol(n.0.id()).unwrap(),
             None,
@@ -1453,7 +1453,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             let function_symbol = function_symbol.borrow();
             function_symbol.get_return_symbol().unwrap()
         };
-        self.common_function_emisson(
+        self.common_function_emission(
             n.0.get(),
             self.semantic_context.get_ast_symbol(n.0.id()).unwrap(),
             Some(return_symbol_id),
