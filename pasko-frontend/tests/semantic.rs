@@ -63,13 +63,11 @@ fn diagnostic_not_implemented() {
     semantic_check_diags(
         r#"
 program test(input, output);
-var
-  a : set of integer;
 begin
-  a := [1..10];
+    goto 1234;
 end.
   "#,
-        vec!["sorry, range expressions not implemented yet".to_string()],
+        vec!["sorry, goto-statements not implemented yet".to_string()],
     );
 }
 

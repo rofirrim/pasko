@@ -2673,16 +2673,68 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         true
     }
 
-    fn visit_pre_expr_range(
+    fn visit_post_expr_range(
         &mut self,
-        _n: &mut ast::ExprRange,
-        span: &span::SpanLoc,
+        n: &mut ast::ExprRange,
+        _span: &span::SpanLoc,
         id: span::SpanId,
-    ) -> bool {
-        self.unimplemented(*span, "range expressions");
-        self.ctx
-            .set_ast_type(id, self.ctx.type_system.get_error_type());
-        false
+    ) {
+        let lower_bound = &n.0;
+        let lower_bound_ty = self.ctx.get_ast_type(lower_bound.id()).unwrap();
+
+        let upper_bound = &n.1;
+        let upper_bound_ty = self.ctx.get_ast_type(upper_bound.id()).unwrap();
+
+        if self.ctx.type_system.is_error_type(lower_bound_ty)
+            || self.ctx.type_system.is_error_type(upper_bound_ty)
+        {
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
+            return;
+        }
+
+        for (e, ty) in [(lower_bound, lower_bound_ty), (upper_bound, upper_bound_ty)] {
+            if !self.ctx.type_system.is_ordinal_type(ty) {
+                self.diagnostics.add(
+                    DiagnosticKind::Error,
+                    *e.loc(),
+                    format!("expression must be of ordinal type"),
+                );
+                self.ctx
+                    .set_ast_type(id, self.ctx.type_system.get_error_type());
+                return;
+            }
+        }
+
+        if !self
+            .ctx
+            .type_system
+            .same_type(lower_bound_ty, upper_bound_ty)
+        {
+            self.diagnostics.add_with_extra(
+                DiagnosticKind::Error,
+                *upper_bound.loc(),
+                format!(
+                    "upper bound expression is of type {} but it should be of type {}",
+                    self.ctx.type_system.get_type_name(upper_bound_ty),
+                    self.ctx.type_system.get_type_name(lower_bound_ty)
+                ),
+                vec![],
+                vec![Diagnostic::new(
+                    DiagnosticKind::Info,
+                    *lower_bound.loc(),
+                    format!(
+                        "lower bound expression is of type {}",
+                        self.ctx.type_system.get_type_name(lower_bound_ty)
+                    ),
+                )],
+            );
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
+            return;
+        }
+
+        self.ctx.set_ast_type(id, lower_bound_ty);
     }
 
     fn visit_post_expr_variable(

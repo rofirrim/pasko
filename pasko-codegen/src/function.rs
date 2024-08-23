@@ -313,7 +313,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         }
     }
 
-    // Assumes start_val <= end_val
     // FIXME: Adapted from visit_pre_stmt_for
     // Maybe we can generalise this one and use it there.
     fn emit_counted_loop<F>(
@@ -1627,10 +1626,20 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                     .codegen
                                     .get_runtime_function(RuntimeFunctionId::WriteTextfileStr);
                                 let func_ref = self.get_function_reference(func_id);
-                                let index_type  = self.codegen.semantic_context.type_system.array_type_get_index_type(type_id);
-                                let extent = self.codegen.semantic_context.type_system.ordinal_type_extent(index_type);
+                                let index_type = self
+                                    .codegen
+                                    .semantic_context
+                                    .type_system
+                                    .array_type_get_index_type(type_id);
+                                let extent = self
+                                    .codegen
+                                    .semantic_context
+                                    .type_system
+                                    .ordinal_type_extent(index_type);
                                 let number_of_chars = self.emit_const_integer(extent);
-                                self.builder().ins().call(func_ref, &[file_argument, v, number_of_chars]);
+                                self.builder()
+                                    .ins()
+                                    .call(func_ref, &[file_argument, v, number_of_chars]);
                             } else if self
                                 .codegen
                                 .semantic_context
@@ -2193,6 +2202,16 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         self.set_value(id, v);
     }
 
+    fn visit_pre_expr_range(
+        &mut self,
+        _n: &ast::ExprRange,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        // This node is handled manually in the visitor of set literal
+        true
+    }
+
     fn visit_pre_expr_set_literal(
         &mut self,
         n: &ast::ExprSetLiteral,
@@ -2203,18 +2222,28 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             e.get().walk_mut(self, e.loc(), e.id());
         });
 
+        let num_total_members = n.0.len();
+        let num_range_members =
+            n.0.iter()
+                .filter(|member| match member.get() {
+                    ast::Expr::Range(..) => true,
+                    _ => false,
+                })
+                .count();
+        let num_expr_members = num_total_members - num_range_members;
+
         let set_type = self.codegen.semantic_context.get_ast_type(id).unwrap();
         let element_type = self
             .codegen
             .semantic_context
             .type_system
             .set_type_get_element(set_type);
+        let element_size = self.codegen.size_in_bytes(element_type);
 
-        let number_of_elements = n.0.len();
-        let call = if number_of_elements > 0 {
-            let element_size = self.codegen.size_in_bytes(element_type);
+        let call = if num_expr_members > 0 {
+            // FIXME: This could blow the stack if the number of members is large.
             let stack_slot =
-                self.allocate_storage_in_stack((element_size * number_of_elements) as u32);
+                self.allocate_storage_in_stack((element_size * num_expr_members) as u32);
             self.codegen
                 .annotations
                 .new_stack_slot(stack_slot, "[set-constructor]");
@@ -2230,7 +2259,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 );
             }
 
-            let number_of_elements_value = self.emit_const_integer(number_of_elements as i64);
+            let number_of_elements_value = self.emit_const_integer(num_expr_members as i64);
 
             let func_id = self.codegen.get_runtime_function(RuntimeFunctionId::SetNew);
             let func_ref = self.get_function_reference(func_id);
@@ -2248,6 +2277,112 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             let results = self.builder().inst_results(call);
             assert!(results.len() == 1, "Invalid number of results");
             results[0]
+        };
+
+        let result = if num_range_members > 0 {
+            // Range members will be added in a loop to avoid blowing the stack very easily.
+            let stack_slot = self.allocate_storage_for_type_in_stack(set_type);
+            self.codegen
+                .annotations
+                .new_stack_slot(stack_slot, "[set-constructor-tmp-set]");
+            let pointer = self.codegen.pointer_type;
+            let set_tmp_stack = self.builder().ins().stack_addr(pointer, stack_slot, 0);
+            self.builder().ins().store(
+                cranelift_codegen::ir::MemFlags::new(),
+                result,
+                set_tmp_stack,
+                0,
+            );
+
+            let stack_slot = self.allocate_storage_for_type_in_stack(element_type);
+            self.codegen
+                .annotations
+                .new_stack_slot(stack_slot, "[set-constructor-ith-element]");
+            let stack_addr = self.builder().ins().stack_addr(pointer, stack_slot, 0);
+            let one = self.emit_const_integer(1 as i64);
+
+            n.0.iter()
+                .filter(|member| match member.get() {
+                    ast::Expr::Range(..) => true,
+                    _ => false,
+                })
+                .for_each(|member| {
+                    //
+                    match member.get() {
+                        ast::Expr::Range(range) => {
+                            let ast::ExprRange(lower_bound, upper_bound) = range;
+                            let lower_bound_val = self.get_value(lower_bound.id());
+                            let upper_bound_val = self.get_value(upper_bound.id());
+
+                            self.emit_counted_loop(
+                                lower_bound_val,
+                                upper_bound_val,
+                                |self_, idx| {
+                                    // This is a bit silly but emit_counted_loop gives us an 0-based index for now.
+                                    let current_value =
+                                        self_.builder().ins().iadd(lower_bound_val, idx);
+                                    // Store the value of the current member.
+                                    self_.builder().ins().store(
+                                        cranelift_codegen::ir::MemFlags::new(),
+                                        current_value,
+                                        stack_addr,
+                                        0,
+                                    );
+
+                                    // Create a singleton.
+                                    let func_id = self_
+                                        .codegen
+                                        .get_runtime_function(RuntimeFunctionId::SetNew);
+                                    let func_ref = self_.get_function_reference(func_id);
+                                    let call =
+                                        self_.builder().ins().call(func_ref, &[one, stack_addr]);
+                                    let singleton = {
+                                        let results = self_.builder().inst_results(call);
+                                        assert!(results.len() == 1, "Invalid number of results");
+                                        results[0]
+                                    };
+
+                                    let previous_set =
+                                        self_.load_value_from_address(set_tmp_stack, set_type);
+
+                                    // Union with the current set
+                                    let func_id = self_
+                                        .codegen
+                                        .get_runtime_function(RuntimeFunctionId::SetUnion);
+                                    let func_ref = self_.get_function_reference(func_id);
+                                    let call = self_
+                                        .builder()
+                                        .ins()
+                                        .call(func_ref, &[previous_set, singleton]);
+                                    let union_set = {
+                                        let results = self_.builder().inst_results(call);
+                                        assert!(results.len() == 1, "Invalid number of results");
+                                        results[0]
+                                    };
+                                    // Now free the previous set and the singleton.
+                                    let func_id = self_
+                                        .codegen
+                                        .get_runtime_function(RuntimeFunctionId::SetDispose);
+                                    let func_ref = self_.get_function_reference(func_id);
+                                    self_.builder().ins().call(func_ref, &[singleton]);
+                                    self_.builder().ins().call(func_ref, &[previous_set]);
+
+                                    // Update the previous set
+                                    self_.builder().ins().store(
+                                        cranelift_codegen::ir::MemFlags::new(),
+                                        union_set,
+                                        set_tmp_stack,
+                                        0,
+                                    );
+                                },
+                            );
+                        }
+                        _ => unreachable!(),
+                    }
+                });
+            self.load_value_from_address(set_tmp_stack, set_type)
+        } else {
+            result
         };
 
         self.set_value(id, result);

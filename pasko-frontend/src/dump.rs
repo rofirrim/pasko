@@ -994,6 +994,20 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         false
     }
 
+    fn visit_pre_expr_range(&mut self, n: &ast::ExprRange,span: &span::SpanLoc,id:span::SpanId) -> bool {
+        self.emit_line_payload(
+            "ExprRange",
+            span,
+            id,
+            &format!("{}", self.type_to_string(id)),
+        );
+
+        self.walk_child(&n.0);
+        self.walk_last_child(&n.1);
+
+        false
+    }
+
     fn visit_pre_expr_set_literal(
         &mut self,
         n: &ast::ExprSetLiteral,
