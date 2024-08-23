@@ -805,51 +805,53 @@ impl TypeSystem {
         cycles: HashSet<TypeId>,
     ) -> String {
         if let Some(variant_part) = variant {
-            format!("case {}{} of {}", 
-                        {
-                            let sym = self.symbol_map.borrow().get_symbol(variant_part.tag_name);
-                            let sym = sym.borrow();
-                            format!("{} : ", sym.get_name())
-                        },
-                        self.get_type_name_impl(variant_part.tag_type, skip_alias, cycles.clone()),
-            variant_part
-                .cases
-                .iter()
-                .map(|case| {
-                    format!(
-                        "{}{}",
-                        {
-                            format!(
-                                "{}: ({});",
-                                case.constants
-                                    .iter()
-                                    .map(|x| x.to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(", "),
-                                case.fields
-                                    .iter()
-                                    .map(|field_sym| {
-                                        let sym = self.symbol_map.borrow().get_symbol(*field_sym);
-                                        let sym = sym.borrow();
-                                        format!(
-                                            "{}: {};",
-                                            sym.get_name().to_string(),
-                                            self.get_type_name_impl(
-                                                sym.get_type().unwrap(),
-                                                /* skip_alias */ true,
-                                                cycles.clone()
+            format!(
+                "case {}{} of {}",
+                {
+                    let sym = self.symbol_map.borrow().get_symbol(variant_part.tag_name);
+                    let sym = sym.borrow();
+                    format!("{} : ", sym.get_name())
+                },
+                self.get_type_name_impl(variant_part.tag_type, skip_alias, cycles.clone()),
+                variant_part
+                    .cases
+                    .iter()
+                    .map(|case| {
+                        format!(
+                            "{}{}",
+                            {
+                                format!(
+                                    "{}: ({});",
+                                    case.constants
+                                        .iter()
+                                        .map(|x| x.to_string())
+                                        .collect::<Vec<_>>()
+                                        .join(", "),
+                                    case.fields
+                                        .iter()
+                                        .map(|field_sym| {
+                                            let sym =
+                                                self.symbol_map.borrow().get_symbol(*field_sym);
+                                            let sym = sym.borrow();
+                                            format!(
+                                                "{}: {};",
+                                                sym.get_name().to_string(),
+                                                self.get_type_name_impl(
+                                                    sym.get_type().unwrap(),
+                                                    /* skip_alias */ true,
+                                                    cycles.clone()
+                                                )
                                             )
-                                        )
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join(" "),
-                            )
-                        },
-                        { self.print_variant_part(&case.variant, skip_alias, cycles.clone()) }
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(" ")
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join(" "),
+                                )
+                            },
+                            { self.print_variant_part(&case.variant, skip_alias, cycles.clone()) }
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ")
             )
         } else {
             "".to_string()
