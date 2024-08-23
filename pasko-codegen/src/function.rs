@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 
+use cranelift_codegen::ir::function;
 use cranelift_codegen::ir::StackSlot;
 use cranelift_codegen::ir::Value;
 use cranelift_codegen::settings::Configurable;
@@ -72,10 +73,12 @@ pub struct FunctionCodegenVisitor<'a, 'b, 'c> {
     temporaries_to_dispose: Vec<Temporary>,
 
     symbols_to_dispose: Vec<pasko_frontend::symbol::SymbolId>,
+
+    enclosing_environment: Option<cranelift_codegen::ir::Value>,
 }
 
 impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
-    pub fn init_function(&mut self) {
+    pub fn init_function(&mut self, function_symbol_id: Option<symbol::SymbolId>) {
         let entry_block = self.builder().create_block();
         self.entry_block = Some(entry_block);
         self.builder()
@@ -83,6 +86,15 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
         self.block_stack.push(entry_block);
         self.builder().switch_to_block(entry_block);
+
+        if let Some(function_symbol_id) = function_symbol_id {
+            // If this is a nested function, remember the enclosing environment
+            // that will always be passed as the first parameter of the
+            // function.
+            if self.codegen.is_nested_function(function_symbol_id) {
+                self.enclosing_environment = Some(self.builder().block_params(entry_block)[0]);
+            }
+        }
     }
 
     pub fn get_entry_block(&self) -> Option<cranelift_codegen::ir::Block> {
@@ -243,6 +255,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             function_references: HashMap::new(),
             temporaries_to_dispose: vec![],
             symbols_to_dispose: vec![],
+            enclosing_environment: None,
         }
     }
 
@@ -267,6 +280,33 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         self.allocate_storage_in_stack(size)
     }
 
+    fn link_symbol_to_value_stack_slot(
+        &mut self,
+        sym_id: pasko_frontend::symbol::SymbolId,
+        stack_slot: StackSlot,
+        annotation_prefix: &str,
+    ) {
+        let symbol = self.codegen.semantic_context.get_symbol(sym_id);
+        let symbol = symbol.borrow();
+
+        self.codegen.annotations.new_stack_slot(
+            stack_slot,
+            &format!("{}{}", annotation_prefix, symbol.get_name()),
+        );
+
+        self.codegen
+            .data_location
+            .insert(sym_id, DataLocation::StackVarValue(stack_slot));
+    }
+
+    pub fn allocate_function_address_in_stack(&mut self, sym_id: pasko_frontend::symbol::SymbolId) {
+        // One for the function address and another for the environment.
+        let size = self.codegen.pointer_type.bytes() * 2;
+        let stack_slot = self.allocate_storage_in_stack(size);
+
+        self.link_symbol_to_value_stack_slot(sym_id, stack_slot, "[function] ");
+    }
+
     pub fn allocate_value_in_stack(&mut self, sym_id: pasko_frontend::symbol::SymbolId) {
         let symbol = self.codegen.semantic_context.get_symbol(sym_id);
         let symbol = symbol.borrow();
@@ -274,22 +314,16 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
         let stack_slot = self.allocate_storage_for_type_in_stack(symbol_type);
 
-        self.codegen
-            .annotations
-            .new_stack_slot(stack_slot, symbol.get_name());
-
-        self.codegen
-            .data_location
-            .insert(sym_id, DataLocation::StackVarValue(stack_slot));
+        self.link_symbol_to_value_stack_slot(sym_id, stack_slot, "");
     }
 
     pub fn allocate_address_in_stack(&mut self, sym_id: pasko_frontend::symbol::SymbolId) {
-        let symbol = self.codegen.semantic_context.get_symbol(sym_id);
-        let symbol = symbol.borrow();
-
         let size = self.codegen.pointer_type.bytes();
 
         let stack_slot = self.allocate_storage_in_stack(size);
+
+        let symbol = self.codegen.semantic_context.get_symbol(sym_id);
+        let symbol = symbol.borrow();
 
         self.codegen
             .annotations
@@ -622,7 +656,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         }
     }
 
-    fn store_value_into_address_impl(
+    fn store_value_into_address(
         &mut self,
         addr: cranelift_codegen::ir::Value,
         addr_ty: pasko_frontend::typesystem::TypeId,
@@ -655,7 +689,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         value_ty: pasko_frontend::typesystem::TypeId,
     ) {
         // value_is_variable is set to true so we will always copy rather than move a handle.
-        self.store_value_into_address_impl(addr, addr_ty, value, value_ty, false, true);
+        self.store_value_into_address(addr, addr_ty, value, value_ty, false, true);
     }
 
     fn expr_is_variable(&self, expr_value: &span::SpannedBox<ast::Expr>) -> bool {
@@ -681,14 +715,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .get_ast_type(expr_value.id())
             .unwrap();
 
-        self.store_value_into_address_impl(
-            addr,
-            addr_ty,
-            value,
-            value_ty,
-            false,
-            value_is_variable,
-        );
+        self.store_value_into_address(addr, addr_ty, value, value_ty, false, value_is_variable);
     }
 
     fn store_expr_into_address_for_initialization(
@@ -706,7 +733,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .get_ast_type(expr_value.id())
             .unwrap();
 
-        self.store_value_into_address_impl(addr, addr_ty, value, value_ty, true, value_is_variable);
+        self.store_value_into_address(addr, addr_ty, value, value_ty, true, value_is_variable);
     }
 
     fn load_value_from_address(
@@ -852,6 +879,45 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             param_value,
             stack_address,
             0,
+        );
+    }
+
+    pub fn copy_in_function_functional_parameter(
+        &mut self,
+        param_idx: usize,
+        sym_id: pasko_frontend::symbol::SymbolId,
+    ) {
+        let builder = self.builder_obj.as_mut().unwrap();
+        let function_address = builder.block_params(self.entry_block.unwrap())[param_idx];
+        let environment_address = builder.block_params(self.entry_block.unwrap())[param_idx + 1];
+
+        let location = self.codegen.data_location.get(&sym_id).unwrap();
+
+        let stack_slot = match location {
+            DataLocation::StackVarValue(stack_slot) | DataLocation::StackVarAddress(stack_slot) => {
+                *stack_slot
+            }
+            _ => {
+                panic!("Unexpected data location for parameter");
+            }
+        };
+        let builder = self.builder_obj.as_mut().unwrap();
+
+        let stack_address = builder
+            .ins()
+            .stack_addr(self.codegen.pointer_type, stack_slot, 0);
+
+        builder.ins().store(
+            cranelift_codegen::ir::MemFlags::new(),
+            function_address,
+            stack_address,
+            0,
+        );
+        builder.ins().store(
+            cranelift_codegen::ir::MemFlags::new(),
+            environment_address,
+            stack_address,
+            self.codegen.pointer_type.bytes() as i32,
         );
     }
 
@@ -1020,82 +1086,380 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     .unwrap()
                     .declare_func_in_func(func_id, *func);
 
-                if let Some(name) = self.codegen.function_names.get(&func_id) {
-                    self.codegen.annotations.new_function_ref(func_ref, name);
-                }
-
                 entry.insert(func_ref);
                 func_ref
             }
         };
 
+        // Always insert an annotation because we start afresh for each function.
+        if let Some(name) = self.codegen.function_names.get(&func_id) {
+            self.codegen.annotations.new_function_ref(func_ref, name);
+        }
+
         func_ref
     }
 
-    fn call_pass_arguments(
+    fn call_pass_arguments<F>(
         &mut self,
-        args: Vec<(&span::SpannedBox<ast::Expr>, ParameterKind)>,
-    ) -> Vec<cranelift_codegen::ir::Value> {
-        args.iter()
+        callee_sym_id: pasko_frontend::symbol::SymbolId,
+        args: &Vec<(&span::SpannedBox<ast::Expr>, ParameterKind)>,
+        environment: Option<F>,
+        arg_return: Option<cranelift_codegen::ir::Value>,
+    ) -> Vec<cranelift_codegen::ir::Value>
+    where
+        F: Fn(&mut Self) -> cranelift_codegen::ir::Value,
+    {
+        let mut result = vec![];
+        let needs_environment = {
+            if self.codegen.is_nested_function(callee_sym_id) {
+                true
+            } else {
+                let callee_sym = self.codegen.semantic_context.get_symbol(callee_sym_id);
+                let callee_sym = callee_sym.borrow();
+                // We allow calling functional parameters without environment.
+                callee_sym.get_parameter().is_some() && environment.is_some()
+            }
+        };
+        if needs_environment {
+            result.push(environment.unwrap()(self));
+        }
+        if let Some(arg_return) = arg_return {
+            result.push(arg_return);
+        }
+        let mut args: Vec<_> = args
+            .iter()
             .map(|item| {
                 let (arg, param_kind) = item;
-                let arg_ty = self
-                    .codegen
-                    .semantic_context
-                    .get_ast_type(arg.id())
-                    .unwrap();
-                let arg_value = *self.value_map.get(&arg.id()).unwrap();
-                if *param_kind == ParameterKind::Variable
-                    || self
-                        .codegen
-                        .semantic_context
-                        .type_system
-                        .is_simple_type(arg_ty)
-                    || self
-                        .codegen
-                        .semantic_context
-                        .type_system
-                        .is_pointer_type(arg_ty)
-                {
-                    arg_value
-                } else if self
-                    .codegen
-                    .semantic_context
-                    .type_system
-                    .is_array_type(arg_ty)
-                    || self
-                        .codegen
-                        .semantic_context
-                        .type_system
-                        .is_record_type(arg_ty)
-                    || self
-                        .codegen
-                        .semantic_context
-                        .type_system
-                        .is_set_type(arg_ty)
-                {
-                    // We need to do a copy in.
-                    let arg_type_size = self.codegen.size_in_bytes(arg_ty);
-                    let stack_slot = self.allocate_storage_in_stack(arg_type_size as u32);
-                    self.codegen
-                        .annotations
-                        .new_stack_slot(stack_slot, "[copy-in]");
-                    let pointer = self.codegen.pointer_type;
-                    let stack_addr = self.builder().ins().stack_addr(pointer, stack_slot, 0);
 
-                    self.store_expr_into_address_for_initialization(stack_addr, arg_ty, arg);
-                    stack_addr
-                } else {
-                    panic!(
-                        "Unexpected type in argument pass {}",
-                        self.codegen
+                match param_kind {
+                    ParameterKind::Variable => {
+                        let arg_value = *self.value_map.get(&arg.id()).unwrap();
+                        vec![arg_value]
+                    }
+                    ParameterKind::Value => {
+                        let arg_value = *self.value_map.get(&arg.id()).unwrap();
+                        let arg_ty = self
+                            .codegen
+                            .semantic_context
+                            .get_ast_type(arg.id())
+                            .unwrap();
+                        if self
+                            .codegen
                             .semantic_context
                             .type_system
-                            .get_type_name(arg_ty)
-                    );
+                            .is_simple_type(arg_ty)
+                            || self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .is_pointer_type(arg_ty)
+                        {
+                            vec![arg_value]
+                        } else if self
+                            .codegen
+                            .semantic_context
+                            .type_system
+                            .is_array_type(arg_ty)
+                            || self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .is_record_type(arg_ty)
+                            || self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .is_set_type(arg_ty)
+                        {
+                            // We need to do a copy in.
+                            let arg_type_size = self.codegen.size_in_bytes(arg_ty);
+                            let stack_slot = self.allocate_storage_in_stack(arg_type_size as u32);
+                            self.codegen
+                                .annotations
+                                .new_stack_slot(stack_slot, "[copy-in]");
+                            let pointer = self.codegen.pointer_type;
+                            let stack_addr =
+                                self.builder().ins().stack_addr(pointer, stack_slot, 0);
+
+                            self.store_expr_into_address_for_initialization(
+                                stack_addr, arg_ty, arg,
+                            );
+                            vec![stack_addr]
+                        } else {
+                            panic!(
+                                "Unexpected type in argument pass {}",
+                                self.codegen
+                                    .semantic_context
+                                    .type_system
+                                    .get_type_name(arg_ty)
+                            );
+                        }
+                    }
+                    ParameterKind::Function | ParameterKind::Procedure => {
+                        let function_address = *self.value_map.get(&arg.id()).unwrap();
+                        // This is not ideal but this is always a weird case.
+                        let ast_id = match arg.get() {
+                            ast::Expr::VariableReference(var_ref) => var_ref.0.id(),
+                            _ => unreachable!(),
+                        };
+                        let function_arg_sym_id = self
+                            .codegen
+                            .semantic_context
+                            .get_ast_symbol(ast_id)
+                            .unwrap();
+                        let function_arg_sym = self
+                            .codegen
+                            .semantic_context
+                            .get_symbol(function_arg_sym_id);
+                        let function_arg_sym = function_arg_sym.borrow();
+
+                        let arg_environment = if function_arg_sym.get_parameter().is_none() {
+                            self.emit_environment_for_function_reference(function_arg_sym_id)
+                        } else {
+                            let callee_storage = self.get_address_of_symbol(function_arg_sym_id);
+
+                            let pointer_type = self.codegen.pointer_type;
+
+                            self.builder().ins().load(
+                                pointer_type,
+                                cranelift_codegen::ir::MemFlags::new(),
+                                callee_storage,
+                                pointer_type.bytes() as i32,
+                            )
+                        };
+
+                        vec![function_address, arg_environment]
+                    }
                 }
             })
-            .collect()
+            .flatten()
+            .collect();
+
+        result.append(&mut args);
+
+        result
+    }
+
+    fn emit_if_then_else<FThen, FElse>(
+        &mut self,
+        cond_val: cranelift_codegen::ir::Value,
+        then_part: FThen,
+        else_part: Option<FElse>,
+    ) where
+        FThen: Fn(&mut Self),
+        FElse: Fn(&mut Self),
+    {
+        let then_block = self.builder().create_block();
+        let end_if_block = self.builder().create_block();
+        let else_block = if else_part.is_some() {
+            self.builder().create_block()
+        } else {
+            end_if_block
+        };
+
+        self.builder()
+            .ins()
+            .brif(cond_val, then_block, &[], else_block, &[]);
+        self.block_stack.pop();
+
+        self.block_stack.push(then_block);
+        self.builder().switch_to_block(then_block);
+
+        then_part(self);
+
+        self.builder().ins().jump(end_if_block, &[]);
+        self.block_stack.pop();
+
+        if let Some(else_part) = else_part {
+            self.builder().switch_to_block(else_block);
+            self.block_stack.push(else_block);
+
+            else_part(self);
+
+            self.builder().ins().jump(end_if_block, &[]);
+            self.block_stack.pop();
+        }
+
+        self.block_stack.push(end_if_block);
+        self.builder().switch_to_block(end_if_block);
+    }
+
+    fn emit_call(
+        &mut self,
+        callee_sym_id: pasko_frontend::symbol::SymbolId,
+        args: Vec<(&span::SpannedBox<ast::Expr>, ParameterKind)>,
+        arg_return: Option<cranelift_codegen::ir::Value>,
+        wants_return_value: bool,
+    ) -> Option<cranelift_codegen::ir::Value> {
+        let callee_sym = self.codegen.semantic_context.get_symbol(callee_sym_id);
+        let callee_sym = callee_sym.borrow();
+
+        let mut result = None;
+
+        if callee_sym.get_parameter().is_some() {
+            let callee_storage = self.get_address_of_symbol(callee_sym_id);
+            let pointer_type = self.codegen.pointer_type;
+
+            let environment = self.builder().ins().load(
+                pointer_type,
+                cranelift_codegen::ir::MemFlags::new(),
+                callee_storage,
+                pointer_type.bytes() as i32,
+            );
+
+            // Check if the environmeent is null. If it is, this function
+            // does not need environment.  Note that we pass the environment
+            // for all nested functions, even if they don't actually use it
+            // at all, so this should be correct.
+            let zero = self.builder().ins().iconst(pointer_type, 0);
+            let cond_value = self
+                .builder()
+                .ins()
+                .icmp(IntCC::NotEqual, environment, zero);
+
+            let mut return_addr = None;
+            let mut return_type = None;
+            if wants_return_value {
+                assert!(callee_sym.get_kind() == pasko_frontend::symbol::SymbolKind::Function);
+
+                let return_sym_id = callee_sym.get_return_symbol().unwrap();
+                let return_sym = self.codegen.semantic_context.get_symbol(return_sym_id);
+                let return_sym = return_sym.borrow();
+
+                return_type = return_sym.get_type();
+
+                let ss = self.allocate_storage_for_type_in_stack(return_type.unwrap());
+                return_addr = Some(self.builder().ins().stack_addr(pointer_type, ss, 0));
+            }
+
+            self.emit_if_then_else(
+                cond_value,
+                |self_: &mut FunctionCodegenVisitor<'a, 'b, 'c>| {
+                    let arg_values = self_.call_pass_arguments(
+                        callee_sym_id,
+                        &args,
+                        Some(|_: &mut Self| environment),
+                        arg_return,
+                    );
+
+                    let signature = self_
+                        .codegen
+                        .function_signatures
+                        .get(&callee_sym_id)
+                        .unwrap()
+                        .clone();
+                    let function_address = self_.builder().ins().load(
+                        pointer_type,
+                        cranelift_codegen::ir::MemFlags::new(),
+                        callee_storage,
+                        0,
+                    );
+                    let sig_ref = self_.builder().import_signature(signature);
+                    let call = self_.builder().ins().call_indirect(
+                        sig_ref,
+                        function_address,
+                        arg_values.as_slice(),
+                    );
+                    let results = self_.builder().inst_results(call).to_vec();
+                    if wants_return_value {
+                        assert!(results.len() == 1);
+                        self_.store_value_into_address(
+                            return_addr.unwrap(),
+                            return_type.unwrap(),
+                            results[0],
+                            return_type.unwrap(),
+                            true,
+                            false,
+                        );
+                    } else {
+                        assert!(results.len() == 0);
+                    }
+                },
+                Some({
+                    |self_: &mut FunctionCodegenVisitor<'a, 'b, 'c>| {
+                        let arg_values = self_.call_pass_arguments(
+                            callee_sym_id,
+                            &args,
+                            None::<fn(&mut Self) -> cranelift_codegen::ir::Value>,
+                            arg_return,
+                        );
+
+                        let mut signature = self_
+                            .codegen
+                            .function_signatures
+                            .get(&callee_sym_id)
+                            .unwrap()
+                            .clone();
+                        // Remove the environment parameter;
+                        signature.params.remove(0);
+
+                        let function_address = self_.builder().ins().load(
+                            pointer_type,
+                            cranelift_codegen::ir::MemFlags::new(),
+                            callee_storage,
+                            0,
+                        );
+                        let sig_ref = self_.builder().import_signature(signature);
+                        let call = self_.builder().ins().call_indirect(
+                            sig_ref,
+                            function_address,
+                            arg_values.as_slice(),
+                        );
+                        let results = self_.builder().inst_results(call).to_vec();
+                        if wants_return_value {
+                            assert!(results.len() == 1);
+                            self_.store_value_into_address(
+                                return_addr.unwrap(),
+                                return_type.unwrap(),
+                                results[0],
+                                return_type.unwrap(),
+                                true,
+                                false,
+                            );
+                        } else {
+                            assert!(results.len() == 0);
+                        }
+                    }
+                }),
+            );
+            if wants_return_value {
+                result =
+                    Some(self.load_value_from_address(return_addr.unwrap(), return_type.unwrap()));
+            }
+        } else {
+            let environment =
+                |self_: &mut Self| self_.emit_environment_for_function_reference(callee_sym_id);
+            let arg_values =
+                self.call_pass_arguments(callee_sym_id, &args, Some(environment), arg_return);
+
+            let func_id = *self
+                .codegen
+                .function_identifiers
+                .get(&callee_sym_id)
+                .unwrap();
+
+            let func_ref = self.get_function_reference(func_id);
+            let call = self.builder().ins().call(func_ref, arg_values.as_slice());
+            if wants_return_value {
+                let results = self.builder().inst_results(call);
+                assert!(results.len() == 1);
+                result = Some(results[0]);
+            }
+        }
+        result
+    }
+
+    fn emit_procedure_call(
+        &mut self,
+        callee_sym_id: pasko_frontend::symbol::SymbolId,
+        args: Vec<(&span::SpannedBox<ast::Expr>, ParameterKind)>,
+    ) {
+        self.emit_call(
+            callee_sym_id,
+            args,
+            None,
+            /* want_return_value */ false,
+        );
     }
 
     fn new_temporary_to_dispose(
@@ -1161,6 +1525,38 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 );
 
                 addr
+            }
+            DataLocation::NestedVarValue {
+                env_levels_up,
+                env_var_index,
+            } => {
+                let pointer_type = self.codegen.pointer_type;
+                // This is an address
+                let mut enclosing_environment = self.enclosing_environment.unwrap();
+
+                // Move up the static chain.
+                (0..env_levels_up).for_each(|_idx| {
+                    enclosing_environment = self.builder().ins().load(
+                        pointer_type,
+                        cranelift_codegen::ir::MemFlags::new(),
+                        enclosing_environment,
+                        0,
+                    )
+                });
+
+                // TODO: Traverse nesting up if larger than 1.
+                // +1
+                let addr = self.builder().ins().load(
+                    pointer_type,
+                    cranelift_codegen::ir::MemFlags::new(),
+                    enclosing_environment,
+                    pointer_type.bytes() as i32 * (env_var_index as i32 + 1),
+                );
+
+                addr
+            }
+            _ => {
+                unimplemented!()
             }
         }
     }
@@ -1463,6 +1859,133 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             }
         } else {
             (None, true, textfile_ty)
+        }
+    }
+
+    fn normalize_environment(
+        &self,
+        function_symbol_id: symbol::SymbolId,
+    ) -> Option<Vec<(symbol::SymbolId, usize)>> {
+        let function_symbol = self.codegen.semantic_context.get_symbol(function_symbol_id);
+        let function_symbol = function_symbol.borrow();
+        let function_symbol_scope = function_symbol.get_scope().unwrap();
+
+        let enclosing_symbol_id = self.codegen.get_enclosing_function(function_symbol_id);
+        // If this is not a nested function, no need to initialise anything.
+        if enclosing_symbol_id.is_none() {
+            return None;
+        }
+
+        let enclosing_symbol_id = enclosing_symbol_id.unwrap();
+        let enclosing_symbol = self
+            .codegen
+            .semantic_context
+            .get_symbol(enclosing_symbol_id);
+        let enclosing_symbol = enclosing_symbol.borrow();
+
+        let mut required_environment = enclosing_symbol
+            .get_required_environment()
+            .iter()
+            .cloned()
+            .map(|sym_id| {
+                let sym = self.codegen.semantic_context.get_symbol(sym_id);
+                let sym = sym.borrow();
+                let scope_of_sym = sym.get_scope().unwrap();
+                let env_levels_up = self
+                    .codegen
+                    .semantic_context
+                    .scope
+                    .nesting_distance(function_symbol_scope, scope_of_sym);
+                (sym_id, env_levels_up)
+            })
+            .collect::<Vec<_>>();
+
+        // Ensure consistent ordering as this stuff is stored in a hashmap. Order them first by nesting level and then by scope_id.
+        // FIXME: Do we have to use a hashmap or we could avoid repeated symbols differently?
+        required_environment.sort_by(|(a_sym_id, a_nesting_level), (b_sym_id, b_nesting_level)| {
+            (*a_nesting_level, *a_sym_id).cmp(&(*b_nesting_level, *b_sym_id))
+        });
+
+        Some(required_environment)
+    }
+
+    pub fn init_enclosing_environment(&mut self, function_symbol_id: symbol::SymbolId) {
+        let required_environment = self.normalize_environment(function_symbol_id);
+
+        if required_environment.is_none() {
+            return;
+        }
+        let required_environment = required_environment.unwrap();
+
+        let mut idx = 0;
+        let mut current_nesting_level = 0;
+        required_environment
+            .iter()
+            .for_each(|(sym_id, env_levels_up)| {
+                if current_nesting_level < *env_levels_up {
+                    idx = 0;
+                    current_nesting_level = *env_levels_up;
+                }
+
+                let env_var_index = idx;
+                idx += 1;
+                // FIXME: Parameters by reference!!!!
+                self.codegen.data_location.insert(
+                    *sym_id,
+                    DataLocation::NestedVarValue {
+                        env_levels_up: *env_levels_up,
+                        env_var_index,
+                    },
+                );
+            });
+    }
+
+    fn emit_environment_for_function_reference(
+        &mut self,
+        function_symbol_id: symbol::SymbolId,
+    ) -> cranelift_codegen::ir::Value {
+        let required_environment = self.normalize_environment(function_symbol_id);
+        if let Some(required_environment) = required_environment {
+            let prev_environment = self
+                .enclosing_environment
+                .unwrap_or(self.emit_const_integer(0));
+
+            let required_environment = required_environment
+                .iter()
+                .filter_map(|(sym_id, env_level)| if *env_level == 0 { Some(sym_id) } else { None })
+                .cloned()
+                .collect::<Vec<_>>();
+
+            let num_items_env = 1 + required_environment.len();
+            let pointer_type = self.codegen.pointer_type;
+
+            let new_environment_ss =
+                self.allocate_storage_in_stack(num_items_env as u32 * pointer_type.bytes() as u32);
+            self.codegen
+                .annotations
+                .new_stack_slot(new_environment_ss, "[nested-environment]");
+
+            self.builder()
+                .ins()
+                .stack_store(prev_environment, new_environment_ss, 0);
+
+            required_environment
+                .iter()
+                .enumerate()
+                .for_each(|(idx, sym_id)| {
+                    let var_addr = self.get_address_of_symbol(*sym_id);
+                    self.builder().ins().stack_store(
+                        var_addr,
+                        new_environment_ss,
+                        pointer_type.bytes() as i32 * (idx + 1) as i32,
+                    );
+                });
+
+            self.builder()
+                .ins()
+                .stack_addr(pointer_type, new_environment_ss, 0)
+        } else {
+            self.emit_const_integer(0)
         }
     }
 }
@@ -2098,31 +2621,23 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             let callee_sym = callee_sym.borrow();
             let callee_parameters = callee_sym.get_formal_parameters().unwrap();
 
-            let func_id = *self
-                .codegen
-                .function_identifiers
-                .get(&callee_sym_id)
-                .unwrap();
-
-            let func_ref = self.get_function_reference(func_id);
-
-            let arg_values = if let Some(args) = args {
-                assert!(args.len() == callee_parameters.len());
-                let args = args
-                    .iter()
-                    .zip(callee_parameters)
-                    .map(|(value, param)| {
-                        let param_symbol = self.codegen.semantic_context.get_symbol(param);
-                        let param_symbol = param_symbol.borrow();
-                        (value, param_symbol.get_parameter().unwrap())
-                    })
-                    .collect::<Vec<_>>();
-                self.call_pass_arguments(args)
-            } else {
-                vec![]
+            let args = {
+                if let Some(args) = args {
+                    assert!(args.len() == callee_parameters.len());
+                    args.iter()
+                        .zip(callee_parameters)
+                        .map(|(value, param)| {
+                            let param_symbol = self.codegen.semantic_context.get_symbol(param);
+                            let param_symbol = param_symbol.borrow();
+                            (value, param_symbol.get_parameter().unwrap())
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    vec![]
+                }
             };
 
-            self.builder().ins().call(func_ref, arg_values.as_slice());
+            self.emit_procedure_call(callee_sym_id, args);
         }
 
         // Dispose temporaries created during parameter passing.
@@ -2462,13 +2977,22 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         _span: &span::SpanLoc,
         id: span::SpanId,
     ) {
-        //
         let sym_id = self.codegen.semantic_context.get_ast_symbol(id).unwrap();
         let sym = self.codegen.semantic_context.get_symbol(sym_id);
         let sym = sym.borrow();
 
         let addr_value = match sym.get_kind() {
             symbol::SymbolKind::Variable => self.get_address_of_symbol(sym_id),
+            symbol::SymbolKind::Function | symbol::SymbolKind::Procedure => {
+                if sym.get_parameter().is_some() {
+                    self.get_address_of_symbol(sym_id)
+                } else {
+                    let pointer_type = self.codegen.pointer_type;
+                    let func_id = *self.codegen.function_identifiers.get(&sym_id).unwrap();
+                    let func_ref = self.get_function_reference(func_id);
+                    self.builder().ins().func_addr(pointer_type, func_ref)
+                }
+            }
             _ => {
                 panic!(
                     "Unexpected kind of symbol {}",
@@ -3067,46 +3591,21 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         let cond_val = self.get_value(cond.id());
 
-        let then_block = self.builder().create_block();
-        let end_if_block = self.builder().create_block();
-        let else_block = if else_part.is_some() {
-            self.builder().create_block()
-        } else {
-            end_if_block
-        };
-
-        // Jump to then or else (else_block will be end_if_block if there is no else-part)
-        self.builder()
-            .ins()
-            .brif(cond_val, then_block, &[], else_block, &[]);
-        self.block_stack.pop();
-
-        // Then
-        self.block_stack.push(then_block);
-        self.builder().switch_to_block(then_block);
-
-        then_part
-            .get()
-            .walk_mut(self, then_part.loc(), then_part.id());
-
-        self.builder().ins().jump(end_if_block, &[]);
-        self.block_stack.pop();
-
-        // Else (if any)
-        if let Some(else_part) = else_part {
-            self.builder().switch_to_block(else_block);
-            self.block_stack.push(else_block);
-
-            else_part
-                .get()
-                .walk_mut(self, else_part.loc(), else_part.id());
-
-            self.builder().ins().jump(end_if_block, &[]);
-            self.block_stack.pop();
-        }
-
-        self.block_stack.push(end_if_block);
-        self.builder().switch_to_block(end_if_block);
+        self.emit_if_then_else(
+            cond_val,
+            |self_: &mut FunctionCodegenVisitor<'a, 'b, 'c>| {
+                then_part
+                    .get()
+                    .walk_mut(self_, then_part.loc(), then_part.id());
+            },
+            else_part.as_ref().map(|else_part| {
+                |self_: &mut FunctionCodegenVisitor<'a, 'b, 'c>| {
+                    else_part
+                        .get()
+                        .walk_mut(self_, else_part.loc(), else_part.id());
+                }
+            }),
+        );
 
         false
     }
@@ -3688,16 +4187,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     .type_system
                     .is_pointer_type(callee_return_type);
 
-            let func_id = *self
-                .codegen
-                .function_identifiers
-                .get(&callee_sym_id)
-                .unwrap();
-
-            let func_ref = self.get_function_reference(func_id);
-
             assert!(args.len() == callee_parameters.len());
-            let args = args
+            let args: Vec<(&span::SpannedBox<ast::Expr>, ParameterKind)> = args
                 .iter()
                 .zip(callee_parameters)
                 .map(|(value, param)| {
@@ -3707,8 +4198,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 })
                 .collect::<Vec<_>>();
 
-            let (arg_returns, return_stack_addr) = if return_type_is_simple {
-                (vec![], None)
+            let (arg_return, return_stack_addr) = if return_type_is_simple {
+                (None, None)
             } else {
                 // Special treatment for the return when it is not simple.
                 let return_type_size = self.codegen.size_in_bytes(callee_return_type);
@@ -3721,25 +4212,16 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 if self.codegen.type_contains_set_types(callee_return_type) {
                     self.initialize_set_data(stack_addr, callee_return_type);
                 }
-                (vec![stack_addr], Some(stack_addr))
+                (Some(stack_addr), Some(stack_addr))
             };
 
-            let arg_parameters = self.call_pass_arguments(args);
+            let wants_return = return_type_is_simple;
+            let return_value = self.emit_call(callee_sym_id, args, arg_return, wants_return);
 
-            let arg_values = arg_returns
-                .iter()
-                .chain(arg_parameters.iter())
-                .copied()
-                .collect::<Vec<_>>();
-
-            let call = self.builder().ins().call(func_ref, arg_values.as_slice());
             let result = {
-                let results = self.builder().inst_results(call);
                 if return_type_is_simple {
-                    assert!(results.len() == 1, "Invalid number of results");
-                    results[0]
+                    return_value.unwrap()
                 } else {
-                    assert!(results.len() == 0, "Invalid number of results");
                     return_stack_addr.unwrap()
                 }
             };

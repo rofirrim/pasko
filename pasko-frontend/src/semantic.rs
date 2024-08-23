@@ -2,7 +2,7 @@ use crate::ast::{self, ExprVariableReference, UnaryOp};
 use crate::ast::{BinOperand, FormalParameter};
 use crate::constant::Constant;
 use crate::diagnostics::{Diagnostic, DiagnosticKind, Diagnostics};
-use crate::span;
+use crate::span::{self, SpannedBox};
 use crate::symbol::{
     ParameterKind, Symbol, SymbolId, SymbolKind, SymbolMap, SymbolMapImpl, SymbolRef,
 };
@@ -11,7 +11,7 @@ use crate::visitor::MutatingVisitable;
 use crate::visitor::MutatingVisitorMut;
 use crate::{scope, typesystem};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct SemanticContext {
     symbol_map: SymbolMap,
@@ -20,6 +20,8 @@ pub struct SemanticContext {
     ast_types: HashMap<span::SpanId, TypeId>,
     ast_symbols: HashMap<span::SpanId, SymbolId>,
     ast_values: HashMap<span::SpanId, Constant>,
+
+    pub scope: scope::Scope,
 
     pub program_parameters: Vec<(String, span::SpanLoc)>,
     pub global_files: Vec<SymbolId>,
@@ -65,6 +67,7 @@ impl SemanticContext {
         let sc = SemanticContext {
             symbol_map,
             type_system,
+            scope: scope::Scope::new(),
 
             ast_types: HashMap::new(),
             ast_symbols: HashMap::new(),
@@ -134,12 +137,64 @@ impl SemanticContext {
             _ => panic!("Unexpected function {}", name),
         }
     }
+
+    fn init_global_scope(&mut self) {
+        let mut new_sym = Symbol::new();
+        new_sym.set_name("integer");
+        new_sym.set_kind(SymbolKind::Type);
+        new_sym.set_type(self.type_system.get_integer_type());
+        let new_sym = self.new_symbol(new_sym);
+        self.scope.add_entry("integer", new_sym);
+
+        let mut new_sym = Symbol::new();
+        new_sym.set_name("real");
+        new_sym.set_kind(SymbolKind::Type);
+        new_sym.set_type(self.type_system.get_real_type());
+        let new_sym = self.new_symbol(new_sym);
+        self.scope.add_entry("real", new_sym);
+
+        let mut new_sym = Symbol::new();
+        new_sym.set_name("boolean");
+        new_sym.set_kind(SymbolKind::Type);
+        new_sym.set_type(self.type_system.get_bool_type());
+        let new_sym = self.new_symbol(new_sym);
+        self.scope.add_entry("boolean", new_sym);
+
+        let mut new_sym = Symbol::new();
+        new_sym.set_name("char");
+        new_sym.set_kind(SymbolKind::Type);
+        new_sym.set_type(self.type_system.get_char_type());
+        let new_sym = self.new_symbol(new_sym);
+        self.scope.add_entry("char", new_sym);
+
+        let mut new_sym = Symbol::new();
+        new_sym.set_name("true");
+        new_sym.set_kind(SymbolKind::Const);
+        new_sym.set_type(self.type_system.get_bool_type());
+        new_sym.set_const(Constant::Bool(true));
+        let new_sym = self.new_symbol(new_sym);
+        self.scope.add_entry("true", new_sym);
+
+        let mut new_sym = Symbol::new();
+        new_sym.set_name("false");
+        new_sym.set_kind(SymbolKind::Const);
+        new_sym.set_type(self.type_system.get_bool_type());
+        new_sym.set_const(Constant::Bool(false));
+        let new_sym = self.new_symbol(new_sym);
+        self.scope.add_entry("false", new_sym);
+
+        let mut new_sym = Symbol::new();
+        new_sym.set_name("text");
+        new_sym.set_kind(SymbolKind::Type);
+        new_sym.set_type(self.type_system.get_textfile_type());
+        let new_sym = self.new_symbol(new_sym);
+        self.scope.add_entry("text", new_sym);
+    }
 }
 
 struct SemanticCheckerVisitor<'a> {
     ctx: &'a mut SemanticContext,
     diagnostics: &'a mut Diagnostics,
-    scope: &'a mut scope::Scope,
 
     in_type_definition_part: bool,
     in_pointer_type: bool,
@@ -169,7 +224,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
         span: &span::SpanLoc,
         diagnose: bool,
     ) -> Option<SymbolId> {
-        let query = self.scope.lookup(name);
+        let query = self.ctx.scope.lookup(name);
         if query.is_none() {
             if diagnose {
                 self.diagnostics.add(
@@ -183,10 +238,11 @@ impl<'a> SemanticCheckerVisitor<'a> {
             dummy_sym.set_name(name);
             dummy_sym.set_kind(SymbolKind::ErrorLookup);
             dummy_sym.set_defining_point(*span);
+            dummy_sym.set_scope(self.ctx.scope.get_current_scope_id());
 
             let dummy_sym = self.ctx.new_symbol(dummy_sym);
 
-            self.scope.add_entry(name, dummy_sym);
+            self.ctx.scope.add_entry(name, dummy_sym);
         }
         query
     }
@@ -226,7 +282,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
     }
 
     fn diagnose_redeclared_symbol(&mut self, name: &String, span: &span::SpanLoc) -> bool {
-        let sym = self.scope.lookup_current_scope(name);
+        let sym = self.ctx.scope.lookup_current_scope(name);
         match sym {
             Some(x) => {
                 let extra = self.extra_diag_previous_location(&self.ctx.get_symbol(x).borrow());
@@ -249,7 +305,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
     }
 
     fn is_pending_type_definition(&mut self, name: &String) -> Option<SymbolId> {
-        let sym = self.scope.lookup_current_scope(name);
+        let sym = self.ctx.scope.lookup_current_scope(name);
         if let Some(sym_id) = sym {
             let sym = self.ctx.get_symbol(sym_id);
             let sym = sym.borrow();
@@ -267,7 +323,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
         span: &span::SpanLoc,
         is_procedure: bool,
     ) -> FunctionProcedureDeclarationStatus {
-        if let Some(sym_id) = self.scope.lookup_current_scope(&name) {
+        if let Some(sym_id) = self.ctx.scope.lookup_current_scope(&name) {
             let sym = self.ctx.get_symbol(sym_id);
             let sym = sym.borrow();
 
@@ -376,8 +432,11 @@ impl<'a> SemanticCheckerVisitor<'a> {
                     FormalParameter::Variable(n) => {
                         n.0.iter().for_each(|name| register_parameter(name));
                     }
-                    _ => {
-                        panic!("Not implemented yet");
+                    FormalParameter::Function(n) => {
+                        register_parameter(&n.0);
+                    }
+                    FormalParameter::Procedure(n) => {
+                        register_parameter(&n.0);
                     }
                 };
             });
@@ -457,6 +516,22 @@ impl<'a> SemanticCheckerVisitor<'a> {
                 .same_type(result_type, prev_result_type)
     }
 
+    fn equivalent_function_symbols(&self, sym_id_1: SymbolId, sym_id_2: SymbolId) -> bool {
+        let sym_1 = self.ctx.get_symbol(sym_id_1);
+        let sym_1 = sym_1.borrow();
+        let sym_1_return_type = {
+            let result_sym_id = sym_1.get_return_symbol().unwrap();
+            let result_sym = self.ctx.get_symbol(result_sym_id);
+            let result_sym = result_sym.borrow();
+            result_sym.get_type().unwrap()
+        };
+        self.equivalent_function_declarations(
+            sym_id_2,
+            sym_1.get_formal_parameters().as_ref().unwrap(),
+            sym_1_return_type,
+        )
+    }
+
     fn create_new_function_symbol(
         &mut self,
         scope_id: scope::ScopeId,
@@ -471,16 +546,13 @@ impl<'a> SemanticCheckerVisitor<'a> {
         function_sym.set_kind(SymbolKind::Function);
         function_sym.set_defining_point(defining_loc);
         function_sym.set_defined(is_definition);
+        function_sym.set_scope(scope_id);
+        function_sym.set_formal_parameters(formal_parameters);
 
         let function_sym_id = self.ctx.new_symbol(function_sym);
-        // self.ctx.set_ast_symbol(n.0.id(), function_sym_id);
-        self.scope
-            .add_entry_to_scope(scope_id, function_name, function_sym_id);
-
         self.ctx
-            .get_symbol_mut(function_sym_id)
-            .borrow_mut()
-            .set_formal_parameters(formal_parameters);
+            .scope
+            .add_entry_to_scope(scope_id, function_name, function_sym_id);
 
         let mut return_symbol = Symbol::new();
         return_symbol.set_name(function_name);
@@ -511,6 +583,15 @@ impl<'a> SemanticCheckerVisitor<'a> {
         self.compare_parameter_declarations(&prev_params, formal_parameters)
     }
 
+    fn equivalent_procedure_symbols(&self, sym_id_1: SymbolId, sym_id_2: SymbolId) -> bool {
+        let sym_1 = self.ctx.get_symbol(sym_id_1);
+        let sym_1 = sym_1.borrow();
+        self.equivalent_procedure_declarations(
+            sym_id_2,
+            sym_1.get_formal_parameters().as_ref().unwrap(),
+        )
+    }
+
     fn create_new_procedure_symbol(
         &mut self,
         scope_id: scope::ScopeId,
@@ -524,16 +605,13 @@ impl<'a> SemanticCheckerVisitor<'a> {
         proc_sym.set_kind(SymbolKind::Procedure);
         proc_sym.set_defining_point(defining_loc);
         proc_sym.set_defined(is_definition);
+        proc_sym.set_scope(scope_id);
+        proc_sym.set_formal_parameters(formal_parameters);
 
         let proc_sym_id = self.ctx.new_symbol(proc_sym);
-        // self.ctx.set_ast_symbol(n.0.id(), proc_sym_id);
-        self.scope
-            .add_entry_to_scope(scope_id, proc_name, proc_sym_id);
-
         self.ctx
-            .get_symbol_mut(proc_sym_id)
-            .borrow_mut()
-            .set_formal_parameters(formal_parameters);
+            .scope
+            .add_entry_to_scope(scope_id, proc_name, proc_sym_id);
 
         proc_sym_id
     }
@@ -623,8 +701,6 @@ impl<'a> SemanticCheckerVisitor<'a> {
             return true;
         }
 
-        // TODO: lhs and rhs are string-types with the same number of components
-
         false
     }
 
@@ -683,8 +759,6 @@ impl<'a> SemanticCheckerVisitor<'a> {
         if self.is_set_and_generic_set(lhs_type_id, rhs_type_id) {
             return true;
         }
-
-        // TODO: lhs and rhs are compatible string types
 
         false
     }
@@ -928,11 +1002,96 @@ impl<'a> SemanticCheckerVisitor<'a> {
         new_sym.set_type(param_ty);
 
         new_sym.set_parameter(kind);
+        new_sym.set_scope(self.ctx.scope.get_current_scope_id());
 
         let new_sym_id = self.ctx.new_symbol(new_sym);
-        self.scope.add_entry(&name.get().clone(), new_sym_id);
+        self.ctx.scope.add_entry(&name.get().clone(), new_sym_id);
 
         self.ctx.set_ast_symbol(name.id(), new_sym_id);
+    }
+
+    fn declare_function_parameter(
+        &mut self,
+        name: &span::Spanned<String>,
+        formal_parameters: Vec<SymbolId>,
+        result_type: TypeId,
+    ) {
+        let mut function_sym = Symbol::new();
+        function_sym.set_name(name.get());
+        function_sym.set_kind(SymbolKind::Function);
+        function_sym.set_defining_point(*name.loc());
+        function_sym.set_scope(self.ctx.scope.get_current_scope_id());
+        function_sym.set_parameter(ParameterKind::Function);
+        function_sym.set_formal_parameters(formal_parameters);
+
+        let function_sym_id = self.ctx.new_symbol(function_sym);
+        self.ctx.scope.add_entry_to_scope(
+            self.ctx.scope.get_current_scope_id(),
+            name.get(),
+            function_sym_id,
+        );
+
+        let mut return_symbol = Symbol::new();
+        return_symbol.set_name(name.get());
+        return_symbol.set_kind(SymbolKind::Variable);
+        return_symbol.set_defining_point(*name.loc());
+        return_symbol.set_type(result_type);
+
+        let return_symbol_id = self.ctx.new_symbol(return_symbol);
+
+        self.ctx
+            .get_symbol_mut(function_sym_id)
+            .borrow_mut()
+            .set_return_symbol(return_symbol_id);
+
+        self.ctx.set_ast_symbol(name.id(), function_sym_id);
+    }
+
+    fn declare_procedure_parameter(
+        &mut self,
+        name: &span::Spanned<String>,
+        formal_parameters: Vec<SymbolId>,
+    ) {
+        let mut proc_sym = Symbol::new();
+        proc_sym.set_name(name.get());
+        proc_sym.set_kind(SymbolKind::Procedure);
+        proc_sym.set_defining_point(*name.loc());
+        proc_sym.set_scope(self.ctx.scope.get_current_scope_id());
+        proc_sym.set_parameter(ParameterKind::Procedure);
+        proc_sym.set_formal_parameters(formal_parameters);
+
+        let proc_sym_id = self.ctx.new_symbol(proc_sym);
+        self.ctx.scope.add_entry_to_scope(
+            self.ctx.scope.get_current_scope_id(),
+            name.get(),
+            proc_sym_id,
+        );
+
+        self.ctx.set_ast_symbol(name.id(), proc_sym_id);
+    }
+
+    fn get_symbols_formal_parameter(
+        &self,
+        formal_param: &SpannedBox<ast::FormalParameter>,
+    ) -> Vec<SymbolId> {
+        match formal_param.get() {
+            ast::FormalParameter::Function(param, ..) => {
+                vec![self.ctx.get_ast_symbol(param.0.id()).unwrap()]
+            }
+            ast::FormalParameter::Procedure(param, ..) => {
+                vec![self.ctx.get_ast_symbol(param.0.id()).unwrap()]
+            }
+            ast::FormalParameter::Value(param) => param
+                .0
+                .iter()
+                .map(|x| self.ctx.get_ast_symbol(x.id()).unwrap())
+                .collect(),
+            ast::FormalParameter::Variable(param) => param
+                .0
+                .iter()
+                .map(|x| self.ctx.get_ast_symbol(x.id()).unwrap())
+                .collect(),
+        }
     }
 
     fn common_check_parameters(
@@ -943,31 +1102,11 @@ impl<'a> SemanticCheckerVisitor<'a> {
         call_loc: span::SpanLoc,
         callee_symbol_id: SymbolId,
     ) -> bool {
-        // If any argument of the call is wrong, give up.
-        if args.iter().any(|arg| {
-            self.ctx
-                .type_system
-                .is_error_type(self.ctx.get_ast_type(arg.id()).unwrap())
-        }) {
-            return false;
-        }
-
         let params = {
             let callee_symbol = self.ctx.get_symbol(callee_symbol_id);
             let callee_symbol = callee_symbol.borrow();
             callee_symbol.get_formal_parameters().unwrap()
         };
-
-        // If any parameter of the function declaration was already wrong, give up.
-        if params.iter().any(|param| {
-            let param_sym = self.ctx.get_symbol(*param);
-            let param_sym = param_sym.borrow();
-            self.ctx
-                .type_system
-                .is_error_type(param_sym.get_type().unwrap())
-        }) {
-            return false;
-        }
 
         if args.len() != params.len() {
             self.diagnostics.add(
@@ -999,10 +1138,23 @@ impl<'a> SemanticCheckerVisitor<'a> {
             let param_sym = self.ctx.get_symbol(param_sym_id);
             let param_sym = param_sym.borrow();
             let param_kind = param_sym.get_parameter().unwrap();
-            let param_type_id = param_sym.get_type().unwrap();
-            let arg_type_id = self.ctx.get_ast_type(arg.id()).unwrap();
             match param_kind {
                 ParameterKind::Value => {
+                    let param_type_id = param_sym.get_type().unwrap();
+                    if self.ctx.type_system.is_error_type(param_type_id) {
+                        continue;
+                    }
+                    // Typecheck argument now.
+                    {
+                        let loc = *arg.loc();
+                        let id = arg.id();
+                        arg.get_mut().mutating_walk_mut(self, &loc, id);
+                    }
+                    let arg_type_id = self.ctx.get_ast_type(arg.id()).unwrap();
+                    if self.ctx.type_system.is_error_type(arg_type_id) {
+                        argument_error = true;
+                        continue;
+                    }
                     if !self.is_assignment_compatible(param_type_id, arg_type_id) {
                         self.diagnostics.add(DiagnosticKind::Error,
                                                 *arg.loc(),
@@ -1025,6 +1177,21 @@ impl<'a> SemanticCheckerVisitor<'a> {
                     }
                 }
                 ParameterKind::Variable => {
+                    let param_type_id = param_sym.get_type().unwrap();
+                    if self.ctx.type_system.is_error_type(param_type_id) {
+                        continue;
+                    }
+                    // Typecheck argument now.
+                    {
+                        let loc = *arg.loc();
+                        let id = arg.id();
+                        arg.get_mut().mutating_walk_mut(self, &loc, id);
+                    }
+                    let arg_type_id = self.ctx.get_ast_type(arg.id()).unwrap();
+                    if self.ctx.type_system.is_error_type(arg_type_id) {
+                        argument_error = true;
+                        continue;
+                    }
                     let arg_sym = self.ctx.get_ast_symbol(arg.id());
 
                     let expr_is_variable = match arg.get() {
@@ -1065,6 +1232,90 @@ impl<'a> SemanticCheckerVisitor<'a> {
                                     ExprVariableReference(span::SpannedBox::from(assig)),
                                 );
                                 *argument = var_reference;
+                            }
+                            _ => {
+                                panic!("Unexpected tree");
+                            }
+                        }
+                    }
+                }
+                ParameterKind::Function | ParameterKind::Procedure => {
+                    let param_kind_name = if param_kind == ParameterKind::Function {
+                        "function"
+                    } else {
+                        "procedure"
+                    };
+                    let mut valid_argument = false;
+                    let mut valid_name = false;
+                    match arg.get() {
+                        ast::Expr::Variable(expr_var) => match expr_var.0.get() {
+                            ast::Assig::Variable(var) => {
+                                let name = var.0.get();
+                                if let Some(arg_sym_id) = self.lookup_symbol(name, var.0.loc()) {
+                                    let arg_sym = self.ctx.get_symbol(arg_sym_id);
+                                    let arg_sym = arg_sym.borrow();
+                                    match (param_kind, arg_sym.get_kind()) {
+                                        (ParameterKind::Function, SymbolKind::Function)
+                                        | (ParameterKind::Procedure, SymbolKind::Procedure) => {
+                                            valid_name = true;
+
+                                            let equivalent_decl =
+                                                if param_kind == ParameterKind::Function {
+                                                    self.equivalent_function_symbols(
+                                                        param_sym_id,
+                                                        arg_sym_id,
+                                                    )
+                                                } else {
+                                                    self.equivalent_procedure_symbols(
+                                                        param_sym_id,
+                                                        arg_sym_id,
+                                                    )
+                                                };
+
+                                            if !equivalent_decl {
+                                                self.diagnostics.add_with_extra(DiagnosticKind::Error, *arg.loc(),
+                                                   format!("{param_kind_name} argument is not compatible with the {param_kind_name} parameter"),
+                                                   vec![],
+                                                   vec![Diagnostic::new(DiagnosticKind::Error,
+                                                    {
+                                                      let param_sym = self.ctx.get_symbol(param_sym_id);
+                                                      let param_sym = param_sym.borrow();
+                                                      param_sym.get_defining_point().unwrap()
+                                                    }, format!("declaration of the {} parameter", param_kind_name))],);
+                                            } else {
+                                                self.ctx
+                                                    .set_ast_symbol(expr_var.0.id(), arg_sym_id);
+                                                valid_argument = true;
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            _ => {}
+                        },
+                        _ => {}
+                    }
+                    if !valid_argument {
+                        argument_error = true;
+                        if !valid_name {
+                            self.diagnostics.add(
+                                DiagnosticKind::Error,
+                                *arg.loc(),
+                                format!("argument should be the name of a {}", param_kind_name),
+                            );
+                        }
+                        continue;
+                    } else {
+                        let argument = arg.get_mut();
+                        match argument {
+                            ast::Expr::Variable(expr_variable) => {
+                                let assig = &mut expr_variable.0;
+                                let assig = assig.take();
+                                let func_reference = ast::Expr::VariableReference(
+                                    ExprVariableReference(span::SpannedBox::from(assig)),
+                                );
+                                *argument = func_reference;
                             }
                             _ => {
                                 panic!("Unexpected tree");
@@ -1116,7 +1367,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
     }
 
     fn _ensure_global_file(&mut self, name: &str, span: &span::SpanLoc) {
-        let query = self.scope.lookup_program_scope(name);
+        let query = self.ctx.scope.lookup_program_scope(name);
         if query.is_none() {
             self.diagnostics.add_with_extra(
                 DiagnosticKind::Error,
@@ -1139,7 +1390,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
             new_sym.set_defining_point(*span);
 
             let new_sym = self.ctx.new_symbol(new_sym);
-            self.scope.add_entry_program_scope(name, new_sym);
+            self.ctx.scope.add_entry_program_scope(name, new_sym);
         }
     }
 
@@ -1276,9 +1527,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 new_sym.set_type(self.ctx.type_system.get_textfile_type());
                 new_sym.set_defining_point(*span);
                 new_sym.set_required(true);
+                new_sym.set_scope(self.ctx.scope.get_current_scope_id());
 
                 let new_sym = self.ctx.new_symbol(new_sym);
-                self.scope.add_entry(s.get().as_str(), new_sym);
+                self.ctx.scope.add_entry(s.get().as_str(), new_sym);
             } else {
                 self.ctx
                     .program_parameters
@@ -1294,12 +1546,12 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         _id: span::SpanId,
     ) -> bool {
         // Note this also includes the program block.
-        self.scope.push_scope(None);
+        self.ctx.scope.push_scope(None);
         true
     }
 
     fn visit_post_block(&mut self, _n: &mut ast::Block, _span: &span::SpanLoc, _id: span::SpanId) {
-        self.scope.pop_scope();
+        self.ctx.scope.pop_scope();
     }
 
     fn visit_label_declaration_part(
@@ -1329,6 +1581,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         new_sym.set_kind(SymbolKind::Const);
         new_sym.set_defining_point(*n.0.loc());
         new_sym.set_type(const_ty);
+        new_sym.set_scope(self.ctx.scope.get_current_scope_id());
 
         if let Some(val) = self.ctx.get_ast_value(n.1.id()) {
             new_sym.set_const(val);
@@ -1337,7 +1590,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         }
 
         let new_sym = self.ctx.new_symbol(new_sym);
-        self.scope.add_entry(name, new_sym);
+        self.ctx.scope.add_entry(name, new_sym);
         self.ctx.set_ast_symbol(n.0.id(), new_sym);
     }
 
@@ -1402,9 +1655,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             new_sym.set_kind(SymbolKind::Type);
             new_sym.set_defining_point(*n.0.loc());
             new_sym.set_type(self.ctx.type_system.get_none_type());
+            new_sym.set_scope(self.ctx.scope.get_current_scope_id());
 
             let new_sym = self.ctx.new_symbol(new_sym);
-            self.scope.add_entry(name, new_sym);
+            self.ctx.scope.add_entry(name, new_sym);
             self.ctx.set_ast_symbol(n.0.id(), new_sym);
 
             new_sym
@@ -1459,9 +1713,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             new_sym.set_kind(SymbolKind::Const);
             new_sym.set_defining_point(*constant.loc());
             new_sym.set_const(Constant::Integer(idx));
+            new_sym.set_scope(self.ctx.scope.get_current_scope_id());
 
             let new_sym = self.ctx.new_symbol(new_sym);
-            self.scope.add_entry(constant_name, new_sym);
+            self.ctx.scope.add_entry(constant_name, new_sym);
             self.ctx.set_ast_symbol(constant.id(), new_sym);
 
             enum_ids.push(new_sym);
@@ -1599,10 +1854,11 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             new_sym.set_kind(SymbolKind::Field);
             new_sym.set_defining_point(*field_name.loc());
             new_sym.set_type(type_denoter);
+            new_sym.set_scope(self.ctx.scope.get_current_scope_id());
 
             let new_sym = self.ctx.new_symbol(new_sym);
 
-            self.scope.add_entry(field_name.get(), new_sym);
+            self.ctx.scope.add_entry(field_name.get(), new_sym);
 
             self.ctx.set_ast_symbol(field_name.id(), new_sym);
 
@@ -1732,10 +1988,11 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 new_sym.set_kind(SymbolKind::Field);
                 new_sym.set_defining_point(*tag_name.loc());
                 new_sym.set_type(type_denoter);
+                new_sym.set_scope(self.ctx.scope.get_current_scope_id());
 
                 let new_sym = self.ctx.new_symbol(new_sym);
 
-                self.scope.add_entry(tag_name.get(), new_sym);
+                self.ctx.scope.add_entry(tag_name.get(), new_sym);
 
                 self.ctx.set_ast_symbol(tag_name.id(), new_sym);
 
@@ -1749,6 +2006,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             new_sym.set_kind(SymbolKind::Field);
             new_sym.set_defining_point(*span);
             new_sym.set_type(type_denoter);
+            new_sym.set_scope(self.ctx.scope.get_current_scope_id());
+
             let new_sym = self.ctx.new_symbol(new_sym);
 
             // Remember this selector as a field.
@@ -1795,7 +2054,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let keep_record_info = std::mem::take(&mut self.record_info);
 
         // Create a new scope for the fields
-        self.scope.push_scope(None);
+        self.ctx.scope.push_scope(None);
 
         // Create a fake case, used only for the fixed part.
         self.record_info
@@ -1811,7 +2070,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             .mutating_walk_mut(self, &field_list_loc, field_list_id);
 
         // Leave the scope of the fields.
-        self.scope.pop_scope();
+        self.ctx.scope.pop_scope();
 
         // Now gather all the info.
         let fixed_fields = std::mem::take(&mut self.record_info.cases[0].fields);
@@ -1979,9 +2238,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             return false;
         }
 
-        let proc_decl_scope_id = self.scope.get_current_scope_id();
+        let proc_decl_scope_id = self.ctx.scope.get_current_scope_id();
 
-        self.scope.push_scope(None);
+        self.ctx.scope.push_scope(None);
 
         let formal_parameters = self.gather_formal_parameters(&mut n.1);
         // No parameters here means zero parameters in a forward declaration.
@@ -1998,7 +2257,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                      vec![],
                      vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), format!("previous declaration"))]);
                 }
-                self.scope.pop_scope();
+                self.ctx.scope.pop_scope();
                 // Nothing else to do at this point.
                 return false;
             }
@@ -2017,10 +2276,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             /* is_definition */ false,
             *n.0.loc(),
         );
-        self.scope.set_scope_symbol(Some(proc_sym_id));
+        self.ctx.scope.set_scope_symbol(Some(proc_sym_id));
         self.ctx.set_ast_symbol(n.0.id(), proc_sym_id);
 
-        self.scope.pop_scope();
+        self.ctx.scope.pop_scope();
         false
     }
 
@@ -2065,9 +2324,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             return false;
         }
 
-        let function_decl_scope_id = self.scope.get_current_scope_id();
+        let function_decl_scope_id = self.ctx.scope.get_current_scope_id();
 
-        self.scope.push_scope(None);
+        self.ctx.scope.push_scope(None);
 
         let formal_parameters = self.gather_formal_parameters(&mut n.1);
         // In a forward declaration, no parameters means 0 parameters.
@@ -2089,7 +2348,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                      vec![],
                      vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), format!("previous declaration"))]);
                 }
-                self.scope.pop_scope();
+                self.ctx.scope.pop_scope();
                 // Nothing else to do at this point.
                 return false;
             }
@@ -2109,10 +2368,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             /* is_definition */ false,
             *n.0.loc(),
         );
-        self.scope.set_scope_symbol(Some(function_sym_id));
+        self.ctx.scope.set_scope_symbol(Some(function_sym_id));
         self.ctx.set_ast_symbol(n.0.id(), function_sym_id);
 
-        self.scope.pop_scope();
+        self.ctx.scope.pop_scope();
         false
     }
 
@@ -2163,43 +2422,45 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             return false;
         }
 
-        let function_decl_scope_id = self.scope.get_current_scope_id();
-        self.scope.push_scope(None);
+        self.ctx.scope.push_scope(None);
 
-        let (formal_parameters, result_type) = match redeclaration_status {
+        let function_sym_id = match redeclaration_status {
             FunctionProcedureDeclarationStatus::ForwardDeclared(prev_sym_id) => {
-                let prev_sym = self.ctx.get_symbol(prev_sym_id);
-                let prev_sym = prev_sym.borrow();
-                let return_sym_id = prev_sym.get_return_symbol().unwrap();
-                let return_sym = self.ctx.get_symbol(return_sym_id);
-                let return_sym = return_sym.borrow();
-
-                let prev_formal_parameters = prev_sym.get_formal_parameters().unwrap();
+                let prev_formal_parameters = {
+                    let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                    let prev_sym = prev_sym.borrow();
+                    prev_sym.get_formal_parameters().unwrap()
+                };
 
                 // We also need to insert the formal parameters in the scope, so name resolution works.
                 for prev_formal_param_sym_id in &prev_formal_parameters {
                     let prev_formal_param = self.ctx.get_symbol(*prev_formal_param_sym_id);
-                    let prev_formal_param = prev_formal_param.borrow();
-                    self.scope
+                    let mut prev_formal_param = prev_formal_param.borrow_mut();
+                    prev_formal_param.set_scope(self.ctx.scope.get_current_scope_id());
+
+                    self.ctx
+                        .scope
                         .add_entry(&prev_formal_param.get_name(), *prev_formal_param_sym_id);
                 }
 
-                (prev_formal_parameters, return_sym.get_type().unwrap())
+                let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                let mut prev_sym = prev_sym.borrow_mut();
+                prev_sym.set_defined(true);
+                prev_sym.set_defining_point(*n.0.loc());
+
+                let return_sym_id = prev_sym.get_return_symbol().unwrap();
+                let return_sym = self.ctx.get_symbol(return_sym_id);
+                let mut return_sym = return_sym.borrow_mut();
+                return_sym.set_defining_point(*n.0.loc());
+
+                prev_sym_id
             }
             _ => {
                 unreachable!();
             }
         };
 
-        let function_sym_id = self.create_new_function_symbol(
-            function_decl_scope_id,
-            function_name,
-            formal_parameters,
-            result_type,
-            /* is_definition */ true,
-            *n.0.loc(),
-        );
-        self.scope.set_scope_symbol(Some(function_sym_id));
+        self.ctx.scope.set_scope_symbol(Some(function_sym_id));
         self.ctx.set_ast_symbol(n.0.id(), function_sym_id);
 
         let function_block = &mut n.1;
@@ -2207,7 +2468,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let id = function_block.id();
         function_block.get_mut().mutating_walk_mut(self, &loc, id);
 
-        self.scope.pop_scope();
+        self.ctx.scope.pop_scope();
 
         false
     }
@@ -2312,7 +2573,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         _span: &span::SpanLoc,
         _id: span::SpanId,
     ) {
-        if self.scope.is_global() {
+        if self.ctx.scope.get_current_scope_id() == self.ctx.scope.get_global_scope_id() {
             // Check whether program parameters have been declared.
             let program_parameters = self.ctx.program_parameters.clone();
             for (program_param, loc) in program_parameters {
@@ -2356,10 +2617,11 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             new_sym.set_kind(SymbolKind::Variable);
             new_sym.set_defining_point(*e.loc());
             new_sym.set_type(ty.clone());
+            new_sym.set_scope(self.ctx.scope.get_current_scope_id());
 
             let new_sym = self.ctx.new_symbol(new_sym);
 
-            self.scope.add_entry(e.get(), new_sym);
+            self.ctx.scope.add_entry(e.get(), new_sym);
 
             self.ctx.set_ast_symbol(e.id(), new_sym);
         });
@@ -2372,16 +2634,53 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         id: span::SpanId,
     ) {
         if let Some(sym_id) = self.lookup_symbol(node.0.get(), node.0.loc()) {
-            let (sym_kind, sym_type) = {
+            let (sym_kind, sym_type, scope_id) = {
                 let var_name = self.ctx.get_symbol(sym_id);
                 let var_name = var_name.borrow();
-                (var_name.get_kind(), var_name.get_type())
+                (
+                    var_name.get_kind(),
+                    var_name.get_type(),
+                    var_name.get_scope().unwrap(),
+                )
             };
 
             match sym_kind {
                 SymbolKind::Variable => {
                     self.ctx.set_ast_symbol(id, sym_id);
                     self.ctx.set_ast_type(id, sym_type.unwrap());
+
+                    // Now let's analyse in which scopes these variables live.
+                    let symbol_of_current_scope = self
+                        .ctx
+                        .scope
+                        .get_innermost_scope_symbol(self.ctx.scope.get_current_scope_id());
+                    let symbol_of_variable_scope =
+                        self.ctx.scope.get_innermost_scope_symbol(scope_id);
+
+                    match (symbol_of_current_scope, symbol_of_variable_scope) {
+                        (Some(symbol_of_current_scope), Some(symbol_of_variable_scope)) => {
+                            if symbol_of_current_scope != symbol_of_variable_scope {
+                                let symbol_of_current_scope =
+                                    self.ctx.get_symbol(symbol_of_current_scope);
+                                let mut symbol_of_current_scope =
+                                    symbol_of_current_scope.borrow_mut();
+
+                                assert!(
+                                    symbol_of_current_scope.get_kind() == SymbolKind::Function
+                                        || symbol_of_current_scope.get_kind()
+                                            == SymbolKind::Procedure
+                                );
+                                symbol_of_current_scope.add_to_required_environment(sym_id);
+                            }
+                        }
+                        (Some(_), None) => {
+                            // We're in a non-global scope referring to a global-scope variable.
+                        }
+                        (None, None) => {
+                            // We're in a global scope referring to a global-scope variable. This typically happens in the main program statement.
+                        }
+                        _ => unreachable!(),
+                    }
                 }
                 SymbolKind::ErrorLookup => {
                     self.ctx
@@ -2578,7 +2877,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 let assig = assig.0.get();
                 match assig {
                     ast::Assig::Variable(x) => {
-                        if let Some(sym_id) = self.scope.lookup(x.0.get()) {
+                        if let Some(sym_id) = self.ctx.scope.lookup(x.0.get()) {
                             let (sym_kind, sym_type, sym_const, formal_parameters) = {
                                 let var_name = self.ctx.get_symbol(sym_id);
                                 let var_name = var_name.borrow();
@@ -2763,14 +3062,18 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         // Handle lhs or walk it.
         let mut must_walk_lhs = true;
         let lhs = &mut node.0;
-        if let Some(scope_symbol_id) = self.scope.get_innermost_scope_symbol() {
+        if let Some(scope_symbol_id) = self
+            .ctx
+            .scope
+            .get_innermost_scope_symbol(self.ctx.scope.get_current_scope_id())
+        {
             let scope_symbol = self.ctx.get_symbol(scope_symbol_id);
             let scope_symbol = scope_symbol.borrow();
             if scope_symbol.get_kind() == SymbolKind::Function {
                 match lhs.get_mut() {
                     ast::Assig::Variable(assig_var) => {
                         let name = assig_var.0.get();
-                        if let Some(symbol_id) = self.scope.lookup(&name) {
+                        if let Some(symbol_id) = self.ctx.scope.lookup(&name) {
                             if symbol_id == scope_symbol_id {
                                 // This is an assignment to the return variable. Fixup.
                                 let return_id = scope_symbol.get_return_symbol().unwrap();
@@ -3161,7 +3464,6 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         self.ctx.set_ast_type(id, result_type);
                     }
                     None => {
-                        // TODO: Set-type operations.
                         self.diagnose_invalid_binary_operator(
                             id,
                             lhs_ty,
@@ -3193,7 +3495,6 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         self.ctx.set_ast_type(id, result_type);
                     }
                     None => {
-                        // TODO: Set-type operations.
                         self.diagnose_invalid_binary_operator(
                             id,
                             lhs_ty,
@@ -3213,7 +3514,6 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         self.ctx.set_ast_type(id, result_type);
                     }
                     None => {
-                        // TODO: Set-type operations.
                         self.diagnose_invalid_binary_operator(
                             id,
                             lhs_ty,
@@ -3298,13 +3598,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             return false;
         }
 
-        args.iter_mut().for_each(|arg| {
-            let loc = *arg.loc();
-            let id = arg.id();
-            arg.get_mut().mutating_walk_mut(self, &loc, id);
-        });
-
         if is_required_function(callee.get()) {
+            args.iter_mut().for_each(|arg| {
+                let loc = *arg.loc();
+                let id = arg.id();
+                arg.get_mut().mutating_walk_mut(self, &loc, id);
+            });
+
             let function_name = callee.get();
             match function_name.as_str() {
                 "eof" => {
@@ -3871,158 +4171,17 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         _id: span::SpanId,
     ) -> bool {
         let callee = &node.0;
-        let proc_name = callee.get().as_str();
-        if is_required_procedure(proc_name) {
-            match proc_name {
-                "read" | "readln" | "write" | "writeln" | "new" | "dispose" | "rewrite"
-                | "reset" | "put" | "get" => return true,
-                _ => {
-                    self.unimplemented(*span, &format!("required procedure '{}'", proc_name));
-                    return false;
-                }
-            }
-        }
-        true
-    }
-
-    fn visit_post_stmt_case(
-        &mut self,
-        n: &mut ast::StmtCase,
-        _span: &span::SpanLoc,
-        _id: span::SpanId,
-    ) {
-        let case_expr = &n.0;
-        let cases = &n.1;
-
-        let mut case_expr_err = false;
-
-        let expr_ty = self.ctx.get_ast_type(case_expr.id()).unwrap();
-        if !self.ctx.type_system.is_ordinal_type(expr_ty) {
-            self.diagnostics.add(
-                DiagnosticKind::Error,
-                *case_expr.loc(),
-                format!("expression must be of ordinal type",),
-            );
-            case_expr_err = true;
-        }
-
-        let mut const_set = HashMap::new();
-
-        for case in cases {
-            let case_ast = case.get();
-            let case_consts = &case_ast.0;
-            for case_const in case_consts {
-                let const_ty = self.ctx.get_ast_type(case_const.id()).unwrap();
-                if !self.ctx.type_system.same_type(const_ty, expr_ty) && !case_expr_err {
-                    self.diagnostics.add_with_extra(
-                        DiagnosticKind::Error,
-                        *case_const.loc(),
-                        format!("constant of case must be of same ordinal type as case expression"),
-                        vec![*case_expr.loc()],
-                        vec![],
-                    );
-                }
-                match self.ctx.get_ast_value(case_const.id()).unwrap() {
-                    Constant::Integer(x) => {
-                        if let Some(prev_loc) = const_set.insert(x, case_const.loc()) {
-                            let previous_const = Diagnostic::new(
-                                DiagnosticKind::Info,
-                                *prev_loc,
-                                format!("previous case"),
-                            );
-                            self.diagnostics.add_with_extra(
-                                DiagnosticKind::Error,
-                                *case_const.loc(),
-                                format!("case repeated"),
-                                vec![],
-                                vec![previous_const],
-                            );
-                        }
-                    }
-                    _ => {
-                        panic!("Unexpected constant");
-                    }
-                }
-            }
-        }
-    }
-
-    fn visit_pre_stmt_with(
-        &mut self,
-        _n: &mut ast::StmtWith,
-        span: &span::SpanLoc,
-        _id: span::SpanId,
-    ) -> bool {
-        self.unimplemented(*span, "with-statements");
-        false
-    }
-
-    fn visit_post_expr_write_parameter(
-        &mut self,
-        node: &mut ast::ExprWriteParameter,
-        _span: &span::SpanLoc,
-        id: span::SpanId,
-    ) {
-        let mut check_parameter = |param_name: &str, id: span::SpanId, loc: span::SpanLoc| {
-            let type_id = self.ctx.get_ast_type(id).unwrap();
-            if self.ctx.type_system.is_error_type(type_id) {
-                return;
-            }
-
-            if !self.ctx.type_system.is_integer_type(type_id) {
-                self.diagnostics.add(
-                    DiagnosticKind::Error,
-                    loc,
-                    format!(
-                        "parameter {} of a write-parameter must be of integer type",
-                        param_name
-                    ),
-                );
-            }
-        };
-
-        let mut must_be_real = false;
-
-        check_parameter("total-width", node.1.id(), *node.1.loc());
-        if let Some(frac_digits) = &node.2 {
-            must_be_real = true;
-            check_parameter("frac-digits", frac_digits.id(), *frac_digits.loc());
-        }
-
-        let ty = self.ctx.get_ast_type(node.0.id()).unwrap();
-        let ty = if must_be_real && !self.ctx.type_system.is_real_type(ty) {
-            self.diagnostics.add(
-                DiagnosticKind::Error,
-                *node.0.loc(),
-                format!("argument must be of real type because frac-width was specified",),
-            );
-            self.ctx.type_system.get_error_type()
-        } else if !self.ctx.type_system.is_real_type(ty)
-            && !self.ctx.type_system.is_bool_type(ty)
-            && !self.ctx.type_system.is_integer_type(ty)
-        {
-            self.diagnostics.add(
-                    DiagnosticKind::Error,
-                    *node.0.loc(),
-                    format!("argument of writeln must be an expression of integer-type, real-type or Boolean-type"),
-                );
-            self.ctx.type_system.get_error_type()
-        } else {
-            ty
-        };
-        self.ctx.set_ast_type(id, ty);
-    }
-
-    fn visit_post_stmt_procedure_call(
-        &mut self,
-        node: &mut ast::StmtProcedureCall,
-        span: &span::SpanLoc,
-        _id: span::SpanId,
-    ) {
-        let callee = &node.0;
         let args = &mut node.1;
         let procedure_name = callee.get().as_str();
         if is_required_procedure(procedure_name) {
+            // Required procedures may have all the arguments typecheked in a row.
+            if let Some(args) = args {
+                args.iter_mut().for_each(|arg| {
+                    let loc = *arg.loc();
+                    let id = arg.id();
+                    arg.get_mut().mutating_walk_mut(self, &loc, id);
+                });
+            }
             match procedure_name {
                 "read" | "readln" => {
                     let is_readln = procedure_name == "readln";
@@ -4262,12 +4421,6 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 match callee_symbol_kind {
                     SymbolKind::Procedure => {
                         if let Some(args) = args {
-                            args.iter_mut().for_each(|arg| {
-                                let loc = *arg.loc();
-                                let id = arg.id();
-                                arg.get_mut().mutating_walk_mut(self, &loc, id);
-                            });
-
                             self.common_check_parameters(
                                 false,
                                 &callee.get(),
@@ -4302,6 +4455,212 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 }
             }
         }
+
+        false
+    }
+
+    fn visit_post_stmt_case(
+        &mut self,
+        n: &mut ast::StmtCase,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) {
+        let case_expr = &n.0;
+        let cases = &n.1;
+
+        let mut case_expr_err = false;
+
+        let expr_ty = self.ctx.get_ast_type(case_expr.id()).unwrap();
+        if !self.ctx.type_system.is_ordinal_type(expr_ty) {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *case_expr.loc(),
+                format!("expression must be of ordinal type",),
+            );
+            case_expr_err = true;
+        }
+
+        let mut const_set = HashMap::new();
+
+        for case in cases {
+            let case_ast = case.get();
+            let case_consts = &case_ast.0;
+            for case_const in case_consts {
+                let const_ty = self.ctx.get_ast_type(case_const.id()).unwrap();
+                if !self.ctx.type_system.same_type(const_ty, expr_ty) && !case_expr_err {
+                    self.diagnostics.add_with_extra(
+                        DiagnosticKind::Error,
+                        *case_const.loc(),
+                        format!("constant of case must be of same ordinal type as case expression"),
+                        vec![*case_expr.loc()],
+                        vec![],
+                    );
+                }
+                match self.ctx.get_ast_value(case_const.id()).unwrap() {
+                    Constant::Integer(x) => {
+                        if let Some(prev_loc) = const_set.insert(x, case_const.loc()) {
+                            let previous_const = Diagnostic::new(
+                                DiagnosticKind::Info,
+                                *prev_loc,
+                                format!("previous case"),
+                            );
+                            self.diagnostics.add_with_extra(
+                                DiagnosticKind::Error,
+                                *case_const.loc(),
+                                format!("case repeated"),
+                                vec![],
+                                vec![previous_const],
+                            );
+                        }
+                    }
+                    _ => {
+                        panic!("Unexpected constant");
+                    }
+                }
+            }
+        }
+    }
+
+    fn visit_pre_stmt_with(
+        &mut self,
+        _n: &mut ast::StmtWith,
+        span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        self.unimplemented(*span, "with-statements");
+        false
+    }
+
+    fn visit_post_expr_write_parameter(
+        &mut self,
+        node: &mut ast::ExprWriteParameter,
+        _span: &span::SpanLoc,
+        id: span::SpanId,
+    ) {
+        let mut check_parameter = |param_name: &str, id: span::SpanId, loc: span::SpanLoc| {
+            let type_id = self.ctx.get_ast_type(id).unwrap();
+            if self.ctx.type_system.is_error_type(type_id) {
+                return;
+            }
+
+            if !self.ctx.type_system.is_integer_type(type_id) {
+                self.diagnostics.add(
+                    DiagnosticKind::Error,
+                    loc,
+                    format!(
+                        "parameter {} of a write-parameter must be of integer type",
+                        param_name
+                    ),
+                );
+            }
+        };
+
+        let mut must_be_real = false;
+
+        check_parameter("total-width", node.1.id(), *node.1.loc());
+        if let Some(frac_digits) = &node.2 {
+            must_be_real = true;
+            check_parameter("frac-digits", frac_digits.id(), *frac_digits.loc());
+        }
+
+        let ty = self.ctx.get_ast_type(node.0.id()).unwrap();
+        let ty = if must_be_real && !self.ctx.type_system.is_real_type(ty) {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *node.0.loc(),
+                format!("argument must be of real type because frac-width was specified",),
+            );
+            self.ctx.type_system.get_error_type()
+        } else if !self.ctx.type_system.is_real_type(ty)
+            && !self.ctx.type_system.is_bool_type(ty)
+            && !self.ctx.type_system.is_integer_type(ty)
+        {
+            self.diagnostics.add(
+                    DiagnosticKind::Error,
+                    *node.0.loc(),
+                    format!("argument of writeln must be an expression of integer-type, real-type or Boolean-type"),
+                );
+            self.ctx.type_system.get_error_type()
+        } else {
+            ty
+        };
+        self.ctx.set_ast_type(id, ty);
+    }
+
+    fn visit_post_procedure_and_function_declaration_part(
+        &mut self,
+        n: &mut ast::ProcedureAndFunctionDeclarationPart,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) {
+        // Propagate the required symbols to the enclosing procedure/function (if any).
+        let current_scope_symbol = self
+            .ctx
+            .scope
+            .get_innermost_scope_symbol(self.ctx.scope.get_current_scope_id());
+        if current_scope_symbol.is_none() {
+            return;
+        }
+        let current_scope_symbol = current_scope_symbol.unwrap();
+
+        let mut items: HashSet<SymbolId> = HashSet::new();
+
+        for decl in &n.0 {
+            let decl = decl.get();
+            match decl {
+                ast::ProcedureAndFunctionDeclaration::Procedure(proc) => {
+                    let proc = proc.0.get();
+                    match proc {
+                        ast::ProcedureDeclaration::Definition(proc) => {
+                            let proc_sym = self.ctx.get_ast_symbol(proc.0.id()).unwrap();
+                            let proc_sym = self.ctx.get_symbol(proc_sym);
+                            let proc_sym = proc_sym.borrow();
+                            proc_sym.get_required_environment().iter().for_each(|item| {
+                                items.insert(*item);
+                            });
+                        }
+                        ast::ProcedureDeclaration::Forward(_) => {}
+                    }
+                }
+                ast::ProcedureAndFunctionDeclaration::Function(func) => {
+                    let func = func.0.get();
+                    match func {
+                        ast::FunctionDeclaration::Definition(func) => {
+                            let func_sym = self.ctx.get_ast_symbol(func.0.id()).unwrap();
+                            let func_sym = self.ctx.get_symbol(func_sym);
+                            let func_sym = func_sym.borrow();
+                            func_sym.get_required_environment().iter().for_each(|item| {
+                                items.insert(*item);
+                            });
+                        }
+                        ast::FunctionDeclaration::LateDefinition(func) => {
+                            let func_sym = self.ctx.get_ast_symbol(func.0.id()).unwrap();
+                            let func_sym = self.ctx.get_symbol(func_sym);
+                            let func_sym = func_sym.borrow();
+                            func_sym.get_required_environment().iter().for_each(|item| {
+                                items.insert(*item);
+                            });
+                        }
+                        ast::FunctionDeclaration::Forward(_) => {}
+                    }
+                }
+            }
+        }
+
+        let current_scope_symbol = self.ctx.get_symbol(current_scope_symbol);
+        let mut current_scope_symbol = current_scope_symbol.borrow_mut();
+        items.iter().for_each(|sym_id| {
+            let sym = self.ctx.get_symbol(*sym_id);
+            let sym = sym.borrow();
+            let sym_scope = sym.get_scope().unwrap();
+            if self
+                .ctx
+                .scope
+                .scope_is_same_or_nested_in(self.ctx.scope.get_current_scope_id(), sym_scope)
+            {
+                current_scope_symbol.add_to_required_environment(*sym_id);
+            }
+        });
     }
 
     fn visit_pre_function_definition(
@@ -4345,15 +4704,15 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             return false;
         }
 
-        let function_decl_scope_id = self.scope.get_current_scope_id();
-        self.scope.push_scope(None);
+        let function_decl_scope_id = self.ctx.scope.get_current_scope_id();
+        self.ctx.scope.push_scope(None);
 
         let formal_parameters = self.gather_formal_parameters(&mut n.1);
         // Function definitions always must have parameters. Late ones may not, but these are handled elsewhere.
         let formal_parameters = formal_parameters.unwrap_or_else(|| vec![]);
         let result_type = self.gather_return_type(&mut n.2);
 
-        match redeclaration_status {
+        let function_sym_id = match redeclaration_status {
             FunctionProcedureDeclarationStatus::ForwardDeclared(prev_sym_id) => {
                 if !self.equivalent_function_declarations(
                     prev_sym_id,
@@ -4366,28 +4725,47 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     format!("function definition is incompatible with a previous function declaration"),
                      vec![],
                      vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), format!("previous declaration"))]);
-                    // Nothing else to do here.
-                    self.scope.pop_scope();
-                    return false;
+                    None
+                } else {
+                    let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                    let mut prev_sym = prev_sym.borrow_mut();
+                    prev_sym.set_defined(true);
+                    prev_sym.set_defining_point(*n.0.loc());
+                    prev_sym.set_formal_parameters(formal_parameters);
+
+                    let return_sym_id = prev_sym.get_return_symbol().unwrap();
+                    let return_sym = self.ctx.get_symbol(return_sym_id);
+                    let mut return_sym = return_sym.borrow_mut();
+                    return_sym.set_defined(true);
+                    return_sym.set_defining_point(*n.0.loc());
+
+                    Some(prev_sym_id)
                 }
             }
             FunctionProcedureDeclarationStatus::NotDeclared => {
                 // Fine
+                Some(self.create_new_function_symbol(
+                    function_decl_scope_id,
+                    function_name,
+                    formal_parameters,
+                    result_type,
+                    /* is_definition */ true,
+                    *n.0.loc(),
+                ))
             }
             _ => {
                 unreachable!();
             }
+        };
+
+        if function_sym_id.is_none() {
+            self.ctx.scope.pop_scope();
+            return false;
         }
 
-        let function_sym_id = self.create_new_function_symbol(
-            function_decl_scope_id,
-            function_name,
-            formal_parameters,
-            result_type,
-            /* is_definition */ true,
-            *n.0.loc(),
-        );
-        self.scope.set_scope_symbol(Some(function_sym_id));
+        let function_sym_id = function_sym_id.unwrap();
+
+        self.ctx.scope.set_scope_symbol(Some(function_sym_id));
         self.ctx.set_ast_symbol(n.0.id(), function_sym_id);
 
         let function_block = &mut n.3;
@@ -4395,7 +4773,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let id = function_block.id();
         function_block.get_mut().mutating_walk_mut(self, &loc, id);
 
-        self.scope.pop_scope();
+        self.ctx.scope.pop_scope();
 
         false
     }
@@ -4440,65 +4818,79 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             return false;
         }
 
-        let proc_decl_scope_id = self.scope.get_current_scope_id();
+        let proc_decl_scope_id = self.ctx.scope.get_current_scope_id();
 
-        self.scope.push_scope(None);
+        // We will set the scope type later, once we know the exact symbol we want to use.
+        self.ctx.scope.push_scope(None);
 
-        let mut formal_parameters = self.gather_formal_parameters(&mut n.1);
+        // This registers the parameters (if any) in the current scope.
+        let formal_parameters = self.gather_formal_parameters(&mut n.1);
 
-        match redeclaration_status {
+        let proc_sym_id = match redeclaration_status {
             FunctionProcedureDeclarationStatus::ForwardDeclared(prev_sym_id) => {
                 // If there are no formal parameters at all we will use those of the prev_sym.
-                if formal_parameters.is_some()
-                    && !self
-                        .equivalent_procedure_declarations(prev_sym_id, &formal_parameters.unwrap())
-                {
-                    let prev_sym = self.ctx.get_symbol(prev_sym_id);
-                    let prev_sym = prev_sym.borrow();
-                    self.diagnostics.add_with_extra(DiagnosticKind::Error, *n.0.loc(),
+                if let Some(formal_parameters) = formal_parameters {
+                    if !self.equivalent_procedure_declarations(prev_sym_id, &formal_parameters) {
+                        let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                        let prev_sym = prev_sym.borrow();
+                        self.diagnostics.add_with_extra(DiagnosticKind::Error, *n.0.loc(),
                     format!("procedure definition is incompatible with a previous procedure declaration"),
                      vec![],
                      vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), format!("previous declaration"))]);
-
-                    self.scope.pop_scope();
-                    return false;
+                        None
+                    } else {
+                        let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                        let mut prev_sym = prev_sym.borrow_mut();
+                        prev_sym.set_formal_parameters(formal_parameters);
+                        Some(prev_sym_id)
+                    }
                 } else {
                     let prev_sym = self.ctx.get_symbol(prev_sym_id);
                     let prev_sym = prev_sym.borrow();
 
                     let prev_formal_parameters = prev_sym.get_formal_parameters();
-                    formal_parameters = prev_formal_parameters;
-                    // We also need to insert the formal parameters in the scope, so name resolution works.
-                    if let Some(prev_formal_parameters) = &formal_parameters {
+                    // Insert the formal parameters in the scope, so name resolution works.
+                    if let Some(prev_formal_parameters) = prev_formal_parameters {
                         for prev_formal_param_sym_id in prev_formal_parameters {
-                            let prev_formal_param = self.ctx.get_symbol(*prev_formal_param_sym_id);
-                            let prev_formal_param = prev_formal_param.borrow();
-                            self.scope.add_entry(
-                                &prev_formal_param.get_name(),
-                                *prev_formal_param_sym_id,
-                            );
+                            let prev_formal_param = self.ctx.get_symbol(prev_formal_param_sym_id);
+                            let mut prev_formal_param = prev_formal_param.borrow_mut();
+                            prev_formal_param.set_scope(self.ctx.scope.get_current_scope_id());
+                            self.ctx.scope
+                                .add_entry(&prev_formal_param.get_name(), prev_formal_param_sym_id);
                         }
                     }
-                }
+                    Some(prev_sym_id)
+                }.map(|prev_sym_id| {
+                    let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                    let mut prev_sym = prev_sym.borrow_mut();
+                    prev_sym.set_defined(true);
+                    prev_sym.set_defining_point(*n.0.loc());
+                    prev_sym_id
+                })
             }
             FunctionProcedureDeclarationStatus::NotDeclared => {
-                // Register symbol as usual. Happens later.
+                let formal_parameters = formal_parameters.unwrap_or_else(|| vec![]);
+                Some(self.create_new_procedure_symbol(
+                    proc_decl_scope_id,
+                    proc_name,
+                    formal_parameters,
+                    /* is_definition */ true,
+                    *n.0.loc(),
+                ))
             }
             _ => {
                 panic!("Unexpected case");
             }
+        };
+
+        if proc_sym_id.is_none() {
+            self.ctx.scope.pop_scope();
+            return false;
         }
 
-        let formal_parameters = formal_parameters.unwrap_or_else(|| vec![]);
+        let proc_sym_id = proc_sym_id.unwrap();
 
-        let proc_sym_id = self.create_new_procedure_symbol(
-            proc_decl_scope_id,
-            proc_name,
-            formal_parameters,
-            /* is_definition */ true,
-            *n.0.loc(),
-        );
-        self.scope.set_scope_symbol(Some(proc_sym_id));
+        self.ctx.scope.set_scope_symbol(Some(proc_sym_id));
         self.ctx.set_ast_symbol(n.0.id(), proc_sym_id);
 
         let proc_block = &mut n.2;
@@ -4506,7 +4898,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let id = proc_block.id();
         proc_block.get_mut().mutating_walk_mut(self, &loc, id);
 
-        self.scope.pop_scope();
+        self.ctx.scope.pop_scope();
 
         false
     }
@@ -4564,90 +4956,76 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     fn visit_pre_formal_parameter_function(
         &mut self,
         _n: &mut ast::FormalParameterFunction,
-        span: &span::SpanLoc,
+        _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
-        self.unimplemented(*span, "function formal parameters");
-        false
+        self.ctx.scope.push_scope(None);
+        true
+    }
+
+    fn visit_post_formal_parameter_function(
+        &mut self,
+        n: &mut ast::FormalParameterFunction,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) {
+        self.ctx.scope.pop_scope();
+
+        let name = &n.0;
+        let formal_parameters =
+            n.1.as_ref()
+                .unwrap_or(&vec![])
+                .iter()
+                .map(|x| self.get_symbols_formal_parameter(x))
+                .flatten()
+                .collect::<Vec<_>>();
+        let result_type = self.ctx.get_ast_type(n.2.id()).unwrap();
+
+        self.declare_function_parameter(name, formal_parameters, result_type);
     }
 
     fn visit_pre_formal_parameter_procedure(
         &mut self,
         _n: &mut ast::FormalParameterProcedure,
-        span: &span::SpanLoc,
+        _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
-        self.unimplemented(*span, "procedure formal parameters");
-        false
+        self.ctx.scope.push_scope(None);
+        true
     }
-}
 
-fn init_global_scope(scope: &mut scope::Scope, semantic_context: &mut SemanticContext) {
-    let mut new_sym = Symbol::new();
-    new_sym.set_name("integer");
-    new_sym.set_kind(SymbolKind::Type);
-    new_sym.set_type(semantic_context.type_system.get_integer_type());
-    let new_sym = semantic_context.new_symbol(new_sym);
-    scope.add_entry("integer", new_sym);
+    fn visit_post_formal_parameter_procedure(
+        &mut self,
+        n: &mut ast::FormalParameterProcedure,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) {
+        self.ctx.scope.pop_scope();
 
-    let mut new_sym = Symbol::new();
-    new_sym.set_name("real");
-    new_sym.set_kind(SymbolKind::Type);
-    new_sym.set_type(semantic_context.type_system.get_real_type());
-    let new_sym = semantic_context.new_symbol(new_sym);
-    scope.add_entry("real", new_sym);
+        let name = &n.0;
+        let formal_parameters =
+            n.1.as_ref()
+                .unwrap_or(&vec![])
+                .iter()
+                .map(|x| self.get_symbols_formal_parameter(x))
+                .flatten()
+                .collect::<Vec<_>>();
 
-    let mut new_sym = Symbol::new();
-    new_sym.set_name("boolean");
-    new_sym.set_kind(SymbolKind::Type);
-    new_sym.set_type(semantic_context.type_system.get_bool_type());
-    let new_sym = semantic_context.new_symbol(new_sym);
-    scope.add_entry("boolean", new_sym);
-
-    let mut new_sym = Symbol::new();
-    new_sym.set_name("char");
-    new_sym.set_kind(SymbolKind::Type);
-    new_sym.set_type(semantic_context.type_system.get_char_type());
-    let new_sym = semantic_context.new_symbol(new_sym);
-    scope.add_entry("char", new_sym);
-
-    let mut new_sym = Symbol::new();
-    new_sym.set_name("true");
-    new_sym.set_kind(SymbolKind::Const);
-    new_sym.set_type(semantic_context.type_system.get_bool_type());
-    new_sym.set_const(Constant::Bool(true));
-    let new_sym = semantic_context.new_symbol(new_sym);
-    scope.add_entry("true", new_sym);
-
-    let mut new_sym = Symbol::new();
-    new_sym.set_name("false");
-    new_sym.set_kind(SymbolKind::Const);
-    new_sym.set_type(semantic_context.type_system.get_bool_type());
-    new_sym.set_const(Constant::Bool(false));
-    let new_sym = semantic_context.new_symbol(new_sym);
-    scope.add_entry("false", new_sym);
-
-    let mut new_sym = Symbol::new();
-    new_sym.set_name("text");
-    new_sym.set_kind(SymbolKind::Type);
-    new_sym.set_type(semantic_context.type_system.get_textfile_type());
-    let new_sym = semantic_context.new_symbol(new_sym);
-    scope.add_entry("text", new_sym);
+        self.declare_procedure_parameter(name, formal_parameters);
+    }
 }
 
 pub fn check_program(
     program: &mut span::SpannedBox<ast::Program>,
     semantic_context: &mut SemanticContext,
     diagnostics: &mut Diagnostics,
-    scope: &mut scope::Scope,
 ) {
     // Init global scope.
-    init_global_scope(scope, semantic_context);
+    semantic_context.init_global_scope();
 
     let mut checker_visitor = SemanticCheckerVisitor {
         ctx: semantic_context,
         diagnostics,
-        scope,
         in_type_definition_part: false,
         in_pointer_type: false,
         program_heading_loc: None,

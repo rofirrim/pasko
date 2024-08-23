@@ -33,6 +33,7 @@ use std::io::BufWriter;
 use std::io::Write;
 
 use std::cell::RefCell;
+use std::thread::current;
 
 use crate::datalocation::DataLocation;
 use crate::function::FunctionCodegenVisitor;
@@ -53,6 +54,7 @@ pub struct CodegenVisitor<'a> {
 
     pub data_location: HashMap<SymbolId, DataLocation>,
     pub function_identifiers: HashMap<SymbolId, cranelift_module::FuncId>,
+    pub function_signatures: HashMap<SymbolId, Signature>,
     pub function_names: HashMap<cranelift_module::FuncId, String>,
     pub global_names: HashMap<cranelift_module::DataId, String>,
     pub offset_cache: RefCell<HashMap<SymbolId, usize>>,
@@ -84,17 +86,17 @@ impl EntityAnnotations {
     }
 
     fn clear_temporary(&mut self) {
-        let stack_slots: HashMap<_, _> = self
+        let global_values: HashMap<_, _> = self
             .annotations
             .iter()
             .filter(|(&e, _)| match e {
-                cranelift_codegen::ir::entities::AnyEntity::StackSlot { .. } => false,
-                _ => true,
+                cranelift_codegen::ir::entities::AnyEntity::GlobalValue (..) => true,
+                _ => false,
             })
             .map(|(a, b)| (*a, b.clone()))
             .collect();
 
-        self.annotations = stack_slots;
+        self.annotations = global_values;
     }
 
     pub fn new_function_ref(&mut self, func_ref: cranelift_codegen::ir::FuncRef, text: &str) {
@@ -212,6 +214,7 @@ impl<'a> CodegenVisitor<'a> {
             string_table: HashMap::new(),
             data_location: HashMap::new(),
             function_identifiers: HashMap::new(),
+            function_signatures: HashMap::new(),
             function_names: HashMap::new(),
             global_names: HashMap::new(),
             offset_cache: RefCell::new(HashMap::new()),
@@ -792,20 +795,80 @@ impl<'a> CodegenVisitor<'a> {
         self.size_and_align_in_bytes(ty).align
     }
 
-    fn common_function_emission(
+    fn compute_function_mangled_name(&self, function_symbol_id: SymbolId) -> String {
+        let get_symbol_of_scope = |symbol_id: SymbolId| {
+            let symbol = self.semantic_context.get_symbol(symbol_id);
+            let symbol = symbol.borrow();
+            let scope_of_symbol = symbol.get_scope();
+
+            scope_of_symbol.map_or(None, |scope_of_symbol| {
+                let symbol_of_scope = self
+                    .semantic_context
+                    .scope
+                    .get_innermost_scope_symbol(scope_of_symbol);
+                symbol_of_scope
+            })
+        };
+
+        let get_name_of_symbol = |symbol_id: SymbolId| {
+            let symbol = self.semantic_context.get_symbol(symbol_id);
+            let symbol = symbol.borrow();
+            symbol.get_name().clone()
+        };
+
+        let mut current_symbol_of_scope = get_symbol_of_scope(function_symbol_id);
+
+        let mut nesting_path = vec![];
+        while current_symbol_of_scope.is_some() {
+            let current_symbol_id_of_scope = current_symbol_of_scope.unwrap();
+            nesting_path.push(get_name_of_symbol(current_symbol_id_of_scope));
+            current_symbol_of_scope = get_symbol_of_scope(current_symbol_id_of_scope);
+        }
+
+        let function_name = get_name_of_symbol(function_symbol_id);
+        let mangled_name = if nesting_path.is_empty() {
+            function_name
+        } else {
+            let result = format!(
+                "_{}_{}",
+                nesting_path
+                    .iter()
+                    .rev()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("_"),
+                function_name
+            );
+            result
+        };
+
+        mangled_name
+    }
+
+    fn common_signature_emission_for_functional_symbol(
         &mut self,
-        function_name: &String,
         function_symbol_id: SymbolId,
         return_symbol_id: Option<SymbolId>,
-        block: &span::SpannedBox<ast::Block>,
-    ) {
+    ) -> Signature {
         let mut sig = Signature::new(CallConv::SystemV);
 
-        let mut return_type_id_not_simple = None;
-        let mut return_symbol_info = None;
+        // Nested functions always receive an environment as their first parameter.
+        // FIXME: a nested function may be free (i.e. a combinator) and not need it.
+        let needs_environment = {
+            if self.is_nested_function(function_symbol_id) {
+                true
+            } else {
+                let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
+                let function_symbol = function_symbol.borrow();
+                function_symbol.get_parameter().is_some()
+            }
+        };
+        if needs_environment {
+            sig.params.push(AbiParam::new(self.pointer_type));
+        }
+
         if let Some(return_symbol_id) = return_symbol_id {
             let return_symbol = self.semantic_context.get_symbol(return_symbol_id);
-            return_symbol_info = Some((return_symbol_id, return_symbol.clone()));
             let return_symbol = return_symbol.borrow();
             let return_symbol_type_id = return_symbol.get_type().unwrap();
             if self
@@ -835,7 +898,6 @@ impl<'a> CodegenVisitor<'a> {
             {
                 // We pass it as a pointer parameter.
                 sig.params.push(AbiParam::new(self.pointer_type));
-                return_type_id_not_simple = Some(return_symbol_type_id);
             } else {
                 panic!(
                     "Unexpected return type {} while lowering to cranelift",
@@ -846,11 +908,6 @@ impl<'a> CodegenVisitor<'a> {
             }
         }
 
-        // Remove mutability.
-        let return_symbol_info = return_symbol_info;
-        let return_type_id_not_simple = return_type_id_not_simple;
-        let return_type_is_simple = return_type_id_not_simple.is_none();
-
         let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
         let function_symbol = function_symbol.borrow();
         let params: Vec<_> = function_symbol
@@ -860,16 +917,14 @@ impl<'a> CodegenVisitor<'a> {
             .map(|sym_id| {
                 let sym_id = *sym_id;
                 let sym = self.semantic_context.get_symbol(sym_id);
-                let sym_type = sym.borrow().get_type().unwrap();
-                (sym_id, sym, sym_type)
+                (sym_id, sym)
             })
             .collect();
 
-        let mut parameters_to_dispose = vec![];
         for (param_symbol_id, param_symbol, ..) in params.iter() {
             let param_symbol = param_symbol.borrow();
             match param_symbol.get_parameter().unwrap() {
-                pasko_frontend::symbol::ParameterKind::Value => {
+                ParameterKind::Value => {
                     let param_symbol_type_id = param_symbol.get_type().unwrap();
                     if self
                         .semantic_context
@@ -897,6 +952,191 @@ impl<'a> CodegenVisitor<'a> {
                             .is_pointer_type(param_symbol_type_id)
                     {
                         sig.params.push(AbiParam::new(self.pointer_type));
+                    } else {
+                        panic!(
+                            "Unexpected parameter type {} while lowering to cranelift",
+                            self.semantic_context
+                                .type_system
+                                .get_type_name(param_symbol_type_id)
+                        )
+                    }
+                }
+                ParameterKind::Variable => {
+                    sig.params.push(AbiParam::new(self.pointer_type));
+                }
+                ParameterKind::Function | ParameterKind::Procedure => {
+                    // The address.
+                    sig.params.push(AbiParam::new(self.pointer_type));
+                    // The environment.
+                    sig.params.push(AbiParam::new(self.pointer_type));
+
+                    // Also compute the signature for this parameter.
+                    let param_symbol_return_symbol_id = param_symbol.get_return_symbol();
+                    let functional_signature = self
+                        .common_signature_emission_for_functional_symbol(
+                            *param_symbol_id,
+                            param_symbol_return_symbol_id,
+                        );
+                    self.function_signatures
+                        .insert(*param_symbol_id, functional_signature);
+                }
+            }
+        }
+
+        sig
+    }
+
+    fn common_signature_emission_for_global_function(
+        &mut self,
+        function_name: &String,
+        function_symbol_id: SymbolId,
+        return_symbol_id: Option<SymbolId>,
+    ) -> (cranelift_module::FuncId, Signature) {
+        if let Some(item) = self.function_identifiers.get(&function_symbol_id) {
+            return (
+                item.clone(),
+                self.function_signatures
+                    .get(&function_symbol_id)
+                    .unwrap()
+                    .clone(),
+            );
+        }
+
+        let sig = self
+            .common_signature_emission_for_functional_symbol(function_symbol_id, return_symbol_id);
+
+        let func_id = self
+            .object_module
+            .as_mut()
+            .unwrap()
+            .declare_function(function_name, Linkage::Local, &sig)
+            .unwrap();
+
+        self.function_identifiers
+            .insert(function_symbol_id, func_id);
+        self.function_signatures
+            .insert(function_symbol_id, sig.clone());
+        self.function_names.insert(func_id, function_name.clone());
+        (func_id, sig)
+    }
+
+    fn common_function_emission(
+        &mut self,
+        function_name: &String,
+        function_symbol_id: SymbolId,
+        block: &span::SpannedBox<ast::Block>,
+    ) {
+        let block = block.get();
+
+        // Emit nested functions before the body of the current function.
+        let procedures = &block.4;
+        if let Some(procedures) = procedures {
+            procedures
+                .get()
+                .walk_mut(self, procedures.loc(), procedures.id());
+        }
+
+        let is_nested_function = self.is_nested_function(function_symbol_id);
+
+        let return_symbol_id = {
+            let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
+            let function_symbol = function_symbol.borrow();
+            function_symbol.get_return_symbol()
+        };
+        let (func_id, sig) = self.common_signature_emission_for_global_function(
+            function_name,
+            function_symbol_id,
+            return_symbol_id,
+        );
+
+        let mut return_type_id_not_simple = None;
+        let mut return_symbol_info = None;
+        if let Some(return_symbol_id) = return_symbol_id {
+            let return_symbol = self.semantic_context.get_symbol(return_symbol_id);
+            return_symbol_info = Some((return_symbol_id, return_symbol.clone()));
+            let return_symbol = return_symbol.borrow();
+            let return_symbol_type_id = return_symbol.get_type().unwrap();
+            if self
+                .semantic_context
+                .type_system
+                .is_simple_type(return_symbol_type_id)
+                || self
+                    .semantic_context
+                    .type_system
+                    .is_pointer_type(return_symbol_type_id)
+            {
+            } else if self
+                .semantic_context
+                .type_system
+                .is_array_type(return_symbol_type_id)
+                || self
+                    .semantic_context
+                    .type_system
+                    .is_record_type(return_symbol_type_id)
+                || self
+                    .semantic_context
+                    .type_system
+                    .is_set_type(return_symbol_type_id)
+            {
+                // We pass it as a pointer parameter.
+                return_type_id_not_simple = Some(return_symbol_type_id);
+            } else {
+                panic!(
+                    "Unexpected return type {} while lowering to cranelift",
+                    self.semantic_context
+                        .type_system
+                        .get_type_name(return_symbol_type_id)
+                )
+            }
+        }
+
+        // Remove mutability.
+        let return_symbol_info = return_symbol_info;
+        let return_type_id_not_simple = return_type_id_not_simple;
+        let return_type_is_simple = return_type_id_not_simple.is_none();
+
+        let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
+        let function_symbol = function_symbol.borrow();
+        let params: Vec<_> = function_symbol
+            .get_formal_parameters()
+            .unwrap()
+            .iter()
+            .map(|sym_id| {
+                let sym_id = *sym_id;
+                let sym = self.semantic_context.get_symbol(sym_id);
+                let sym_type = sym.borrow().get_type();
+                (sym_id, sym, sym_type)
+            })
+            .collect();
+
+        let mut parameters_to_dispose = vec![];
+        for (param_symbol_id, param_symbol, ..) in params.iter() {
+            let param_symbol = param_symbol.borrow();
+            match param_symbol.get_parameter().unwrap() {
+                ParameterKind::Value => {
+                    let param_symbol_type_id = param_symbol.get_type().unwrap();
+                    if self
+                        .semantic_context
+                        .type_system
+                        .is_simple_type(param_symbol_type_id)
+                    {
+                    } else if self
+                        .semantic_context
+                        .type_system
+                        .is_array_type(param_symbol_type_id)
+                        || self
+                            .semantic_context
+                            .type_system
+                            .is_record_type(param_symbol_type_id)
+                        || self
+                            .semantic_context
+                            .type_system
+                            .is_set_type(param_symbol_type_id)
+                        || self
+                            .semantic_context
+                            .type_system
+                            .is_pointer_type(param_symbol_type_id)
+                    {
                         if self.type_contains_set_types(param_symbol_type_id) {
                             parameters_to_dispose.push(*param_symbol_id);
                         }
@@ -909,24 +1149,11 @@ impl<'a> CodegenVisitor<'a> {
                         )
                     }
                 }
-                pasko_frontend::symbol::ParameterKind::Variable => {
-                    sig.params.push(AbiParam::new(self.pointer_type));
-                }
+                ParameterKind::Variable | ParameterKind::Function | ParameterKind::Procedure => {}
             }
         }
         // Remove mutability;
         let parameters_to_dispose = parameters_to_dispose;
-
-        let func_id = self
-            .object_module
-            .as_mut()
-            .unwrap()
-            .declare_function(function_name, Linkage::Local, &sig)
-            .unwrap();
-
-        self.function_identifiers
-            .insert(function_symbol_id, func_id);
-        self.function_names.insert(func_id, function_name.clone());
 
         let mut func = Function::with_name_signature(UserFuncName::user(0, func_id.as_u32()), sig);
         let mut func_builder_ctx = FunctionBuilderContext::new();
@@ -934,7 +1161,7 @@ impl<'a> CodegenVisitor<'a> {
 
         let mut function_codegen = FunctionCodegenVisitor::new(self, Some(builder));
 
-        function_codegen.init_function();
+        function_codegen.init_function(Some(function_symbol_id));
         // We are now in the entry block and we have access to the parameters.
 
         // Allocate the return value in the stack only if simple.
@@ -952,7 +1179,7 @@ impl<'a> CodegenVisitor<'a> {
             vec![(
                 return_symbol_info.0,
                 return_symbol_info.1,
-                return_type_id_not_simple.unwrap(),
+                return_type_id_not_simple,
                 true,
             )]
             .into_iter()
@@ -964,24 +1191,29 @@ impl<'a> CodegenVisitor<'a> {
         effective_params
             .iter()
             .for_each(|(param_sym_id, param_sym, param_type_id, is_return)| {
-                let is_simple_type = function_codegen
-                    .get_codegen()
-                    .semantic_context
-                    .type_system
-                    .is_simple_type(*param_type_id);
+                let (is_simple_type, is_set_type, is_pointer_type) =
+                    param_type_id.map_or((false, false, false), |ty| {
+                        (
+                            function_codegen
+                                .get_codegen()
+                                .semantic_context
+                                .type_system
+                                .is_simple_type(ty),
+                            function_codegen
+                                .get_codegen()
+                                .semantic_context
+                                .type_system
+                                .is_set_type(ty),
+                            function_codegen
+                                .get_codegen()
+                                .semantic_context
+                                .type_system
+                                .is_pointer_type(ty),
+                        )
+                    });
                 let param_sym = param_sym.borrow();
                 if let Some(parameter_kind) = param_sym.get_parameter() {
                     assert!(!is_return);
-                    let is_set_type = function_codegen
-                        .get_codegen()
-                        .semantic_context
-                        .type_system
-                        .is_set_type(*param_type_id);
-                    let is_pointer_type = function_codegen
-                        .get_codegen()
-                        .semantic_context
-                        .type_system
-                        .is_pointer_type(*param_type_id);
                     match parameter_kind {
                         ParameterKind::Value => {
                             if is_simple_type || is_set_type || is_pointer_type {
@@ -1008,6 +1240,9 @@ impl<'a> CodegenVisitor<'a> {
                             // Variable parameters are always passed as pointer to variable itself.
                             function_codegen.allocate_address_in_stack(*param_sym_id);
                         }
+                        ParameterKind::Function | ParameterKind::Procedure => {
+                            function_codegen.allocate_function_address_in_stack(*param_sym_id)
+                        }
                     }
                 } else {
                     assert!(is_return);
@@ -1016,21 +1251,49 @@ impl<'a> CodegenVisitor<'a> {
                 }
             });
         // Copy them in.
+        // current_param_index is the index of the block value that represents the param. Some
+        // parameters use more than one value.
+        // Skip the environment parameter if this is a nested function.
+        let mut current_param_index = if is_nested_function { 1 } else { 0 };
         effective_params
             .iter()
-            .enumerate()
-            .for_each(|(idx, (param_sym_id, ..))| {
-                function_codegen.copy_in_function_parameter(idx, *param_sym_id);
+            .for_each(|(param_sym_id, param_sym, ..)| {
+                let param_sym = param_sym.borrow();
+                let is_function_parameter = param_sym.get_parameter().map_or(false, |k| {
+                    k == ParameterKind::Function || k == ParameterKind::Procedure
+                });
+                if is_function_parameter {
+                    function_codegen
+                        .copy_in_function_functional_parameter(current_param_index, *param_sym_id);
+                    current_param_index += 2;
+                } else {
+                    function_codegen.copy_in_function_parameter(current_param_index, *param_sym_id);
+                    current_param_index += 1;
+                }
             });
         // Notify about parameters that require disposing.
         parameters_to_dispose
             .iter()
             .for_each(|sym| function_codegen.add_symbol_to_dispose(*sym));
 
-        // Generate code for the block of the function.
-        block
+        function_codegen.init_enclosing_environment(function_symbol_id);
+
+        // TODO: labels.
+        let _labels = &block.0;
+        let _constants = &block.1;
+        let _types = &block.2;
+        // Generate code for the variables of the function.
+        let variables = &block.3;
+        if let Some(variables) = variables {
+            variables
+                .get()
+                .walk_mut(&mut function_codegen, variables.loc(), variables.id());
+        }
+        // Generate code for the statements of the function.
+        let statements = &block.5;
+        statements
             .get()
-            .walk_mut(&mut function_codegen, block.loc(), block.id());
+            .walk_mut(&mut function_codegen, statements.loc(), statements.id());
 
         // Now free the local stuff that needs to be freed.
         function_codegen.dispose_symbols();
@@ -1180,6 +1443,26 @@ impl<'a> CodegenVisitor<'a> {
             println!("*** IR for '{}' seems OK\n", function_name);
         }
     }
+
+    pub fn is_nested_function(&self, function_symbol_id: SymbolId) -> bool {
+        let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
+        let function_symbol = function_symbol.borrow();
+
+        function_symbol.get_parameter().is_none()
+            && self.get_enclosing_function(function_symbol_id).is_some()
+    }
+
+    pub fn get_enclosing_function(&self, function_symbol_id: SymbolId) -> Option<SymbolId> {
+        let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
+        let function_symbol = function_symbol.borrow();
+
+        let function_symbol_scope = function_symbol.get_scope().unwrap();
+        let enclosing_symbol_id = self
+            .semantic_context
+            .scope
+            .get_innermost_scope_symbol(function_symbol_scope);
+        enclosing_symbol_id
+    }
 }
 
 impl<'a> VisitorMut for CodegenVisitor<'a> {
@@ -1203,6 +1486,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
     ) -> bool {
         let block = n.0.get(); // Block
 
+        // TODO: labels.
         let _labels = &block.0;
         let _constants = &block.1;
         let _types = &block.2;
@@ -1294,7 +1578,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
 
         let mut function_codegen = FunctionCodegenVisitor::new(self, Some(builder));
 
-        function_codegen.init_function();
+        function_codegen.init_function(None);
         globals_to_dispose
             .iter()
             .for_each(|&sym| function_codegen.add_symbol_to_dispose(sym));
@@ -1432,12 +1716,21 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
-        self.common_function_emission(
-            n.0.get(),
-            self.semantic_context.get_ast_symbol(n.0.id()).unwrap(),
-            None,
-            &n.2,
-        );
+        let procedure_id = self.semantic_context.get_ast_symbol(n.0.id()).unwrap();
+        let mangled_name = self.compute_function_mangled_name(procedure_id);
+        self.common_function_emission(&mangled_name, procedure_id, &n.2);
+        false
+    }
+
+    fn visit_pre_procedure_forward(
+        &mut self,
+        n: &ast::ProcedureForward,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        let procedure_id = self.semantic_context.get_ast_symbol(n.0.id()).unwrap();
+        let mangled_name = self.compute_function_mangled_name(procedure_id);
+        self.common_signature_emission_for_global_function(&mangled_name, procedure_id, None);
         false
     }
 
@@ -1447,17 +1740,52 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
+        let function_id = self.semantic_context.get_ast_symbol(n.0.id()).unwrap();
+        let mangled_name = self.compute_function_mangled_name(function_id);
+        self.common_function_emission(&mangled_name, function_id, &n.3);
+        false
+    }
+
+    fn visit_pre_function_forward(
+        &mut self,
+        n: &ast::FunctionForward,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        let function_id = self.semantic_context.get_ast_symbol(n.0.id()).unwrap();
+        let mangled_name = self.compute_function_mangled_name(function_id);
         let return_symbol_id = {
             let function_symbol_id = self.semantic_context.get_ast_symbol(n.0.id()).unwrap();
             let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
             let function_symbol = function_symbol.borrow();
             function_symbol.get_return_symbol().unwrap()
         };
-        self.common_function_emission(
-            n.0.get(),
-            self.semantic_context.get_ast_symbol(n.0.id()).unwrap(),
+        self.common_signature_emission_for_global_function(
+            &mangled_name,
+            function_id,
             Some(return_symbol_id),
-            &n.3,
+        );
+        false
+    }
+
+    fn visit_pre_function_late_definition(
+        &mut self,
+        n: &ast::FunctionLateDefinition,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        let function_id = self.semantic_context.get_ast_symbol(n.0.id()).unwrap();
+        let mangled_name = self.compute_function_mangled_name(function_id);
+        let return_symbol_id = {
+            let function_symbol_id = self.semantic_context.get_ast_symbol(n.0.id()).unwrap();
+            let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
+            let function_symbol = function_symbol.borrow();
+            function_symbol.get_return_symbol().unwrap()
+        };
+        self.common_signature_emission_for_global_function(
+            &mangled_name,
+            function_id,
+            Some(return_symbol_id),
         );
         false
     }

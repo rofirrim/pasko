@@ -81,7 +81,6 @@ From inside the build-directory
 | Feature                                                | State | Notes                                                       |
 | ------------------------------------------------------ | ----- | ----------------------------------------------------------- |
 | Conformable arrays in functions and procedures         | ❌    |                                                             |
-| Nested procedures and functions                        | ❌    |                                                             |
 | pack/unpack required procedures                        | ❌    |                                                             |
 | Variant types                                          | ⚠️     | Variant types including non-trivial types types are not supported  |
 
@@ -89,7 +88,6 @@ From inside the build-directory
 
 - The required functions could be represented using a table.
 - We could be using a more idiomatic representation for types.
-- Forward declarations may create unneeded symbols and scopes. The scope mechanism could be made more sophisticated.
 
 ##### I found a bug / I want to contribute
 

@@ -35,13 +35,13 @@ end.
 
 CHECK: *** IR for 'sink_2'
 CHECK-NEXT: function u0:0(i64) system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 24
-CHECK-NEXT:     ss2 = explicit_slot 24
+CHECK-NEXT:     ss0 = explicit_slot 8 ; [indirect] a
+CHECK-NEXT:     ss1 = explicit_slot 24 ; x
+CHECK-NEXT:     ss2 = explicit_slot 24 ; [set-constructor]
 CHECK-NEXT:     sig0 = (i64, i64) -> i64 system_v
 CHECK-NEXT:     sig1 = (i64) system_v
-CHECK-NEXT:     fn0 = u0:1 sig0
-CHECK-NEXT:     fn1 = u0:2 sig1
+CHECK-NEXT:     fn0 = u0:1 sig0 ; __pasko_set_new
+CHECK-NEXT:     fn1 = u0:2 sig1 ; __pasko_set_dispose
 CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i64):
 CHECK-NEXT:     v1 = stack_addr.i64 ss0
@@ -91,14 +91,14 @@ CHECK-NEXT: *** IR for 'sink_2' seems OK
 
 CHECK: *** IR for 'source_2'
 CHECK-NEXT: function u0:3() system_v {
-CHECK-NEXT:     ss0 = explicit_slot 24
-CHECK-NEXT:     ss1 = explicit_slot 24
-CHECK-NEXT:     sig0 = (i64) system_v
-CHECK-NEXT:     sig1 = (i64) -> i64 system_v
+CHECK-NEXT:     ss0 = explicit_slot 24 ; x
+CHECK-NEXT:     ss1 = explicit_slot 24 ; [copy-in]
+CHECK-NEXT:     sig0 = (i64) -> i64 system_v
+CHECK-NEXT:     sig1 = (i64) system_v
 CHECK-NEXT:     sig2 = (i64) system_v
-CHECK-NEXT:     fn0 = colocated u0:0 sig0
-CHECK-NEXT:     fn1 = u0:4 sig1
-CHECK-NEXT:     fn2 = u0:2 sig2
+CHECK-NEXT:     fn0 = u0:4 sig0 ; __pasko_set_copy
+CHECK-NEXT:     fn1 = colocated u0:0 sig1 ; sink_2
+CHECK-NEXT:     fn2 = u0:2 sig2 ; __pasko_set_dispose
 CHECK-EMPTY:
 CHECK-NEXT: block0:
 CHECK-NEXT:     v0 = stack_addr.i64 ss0
@@ -123,9 +123,9 @@ CHECK-NEXT:     v15 = iadd v10, v14  ; v14 = 8
 CHECK-NEXT:     v16 = iconst.i64 8
 CHECK-NEXT:     v17 = iadd v12, v16  ; v16 = 8
 CHECK-NEXT:     v18 = load.i64 v17
-CHECK-NEXT:     v19 = call fn1(v18)
+CHECK-NEXT:     v19 = call fn0(v18)
 CHECK-NEXT:     store v19, v15
-CHECK-NEXT:     call fn0(v7)
+CHECK-NEXT:     call fn1(v7)
 CHECK-NEXT:     v20 = stack_addr.i64 ss0
 CHECK-NEXT:     v21 = iconst.i64 8
 CHECK-NEXT:     v22 = iadd v20, v21  ; v21 = 8

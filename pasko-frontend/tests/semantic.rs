@@ -1,7 +1,6 @@
 use pasko_frontend::diagnostics;
 use pasko_frontend::dump;
 use pasko_frontend::parser;
-use pasko_frontend::scope;
 use pasko_frontend::semantic;
 use pasko_frontend::visitor::Visitable;
 
@@ -14,11 +13,10 @@ fn semantic_check_diags(input: &str, errors: Vec<String>) {
     let mut p = parser::parse_pasko_program(input, &mut diags);
 
     let mut semantic_context = semantic::SemanticContext::new();
-    let mut scope = scope::Scope::new();
 
     match p.as_mut() {
         Some(parse) => {
-            semantic::check_program(parse, &mut semantic_context, &mut diags, &mut scope);
+            semantic::check_program(parse, &mut semantic_context, &mut diags);
         }
         None => {
             panic!("no AST was created?");
@@ -41,11 +39,10 @@ fn do_ast_dump(input: &str) -> String {
     let mut p = parser::parse_pasko_program(input, &mut diags);
 
     let mut semantic_context = semantic::SemanticContext::new();
-    let mut scope = scope::Scope::new();
 
     match p.as_mut() {
         Some(parse) => {
-            semantic::check_program(parse, &mut semantic_context, &mut diags, &mut scope);
+            semantic::check_program(parse, &mut semantic_context, &mut diags);
 
             let mut dumper = dump::ASTDumper::new(&input, &semantic_context);
             dumper.set_no_ids();

@@ -1,12 +1,13 @@
 use crate::constant::Constant;
+use crate::scope;
 use crate::span;
 use crate::typesystem::TypeId;
 use crate::utils;
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-#[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
+#[derive(Debug, Hash, Eq, PartialEq, Clone, Copy, Ord, PartialOrd)]
 pub struct SymbolId(utils::Identifier);
 
 impl From<SymbolId> for utils::Identifier {
@@ -39,6 +40,8 @@ pub enum SymbolKind {
 pub enum ParameterKind {
     Value,
     Variable,
+    Procedure,
+    Function,
 }
 
 #[derive(Debug, Default)]
@@ -47,6 +50,7 @@ struct SymbolInfo {
     kind: SymbolKind,
     ty: Option<TypeId>,
     def_loc: Option<span::SpanLoc>,
+    scope: Option<scope::ScopeId>,
     val: Option<Constant>,
     defined: bool,
     required: bool,
@@ -55,6 +59,7 @@ struct SymbolInfo {
     parameter: Option<ParameterKind>,
     formal_parameters: Option<Vec<SymbolId>>,
     return_symbol: Option<SymbolId>,
+    required_environment: HashSet<SymbolId>,
 }
 
 #[derive(Debug)]
@@ -104,6 +109,14 @@ impl Symbol {
 
     pub fn set_type(&mut self, ty: TypeId) {
         self.info.ty = Some(ty);
+    }
+
+    pub fn set_scope(&mut self, scope_id: scope::ScopeId) {
+        self.info.scope = Some(scope_id)
+    }
+
+    pub fn get_scope(&self) -> Option<scope::ScopeId> {
+        self.info.scope
     }
 
     pub fn get_defining_point(&self) -> Option<span::SpanLoc> {
@@ -184,6 +197,14 @@ impl Symbol {
 
     pub fn is_required(&self) -> bool {
         self.info.required
+    }
+
+    pub fn add_to_required_environment(&mut self, symbol_id: SymbolId) {
+        self.info.required_environment.insert(symbol_id);
+    }
+
+    pub fn get_required_environment(&self) -> &HashSet<SymbolId> {
+        &self.info.required_environment
     }
 }
 

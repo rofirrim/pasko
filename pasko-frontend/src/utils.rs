@@ -5,7 +5,7 @@ lazy_static! {
     static ref GLOBAL_ID: Mutex<usize> = Mutex::new(0usize);
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct Identifier(usize);
 
 fn next_id() -> usize {

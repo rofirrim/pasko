@@ -20,4 +20,14 @@ pub enum DataLocation {
     // pointer in the calleE that points to temporary storage created in the calleR
     // for array or record value).
     StackVarAddress(cranelift_codegen::ir::entities::StackSlot),
+    // Nested variables (including value parameters) will be this case.
+    NestedVarValue {
+        env_levels_up: usize,
+        env_var_index: usize,
+    },
+    // Nested parameters by reference will be this case.
+    NestedVarAddress {
+        env_levels_up: usize,
+        env_var_index: usize,
+    },
 }

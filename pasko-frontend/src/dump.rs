@@ -994,7 +994,12 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         false
     }
 
-    fn visit_pre_expr_range(&mut self, n: &ast::ExprRange,span: &span::SpanLoc,id:span::SpanId) -> bool {
+    fn visit_pre_expr_range(
+        &mut self,
+        n: &ast::ExprRange,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
         self.emit_line_payload(
             "ExprRange",
             span,

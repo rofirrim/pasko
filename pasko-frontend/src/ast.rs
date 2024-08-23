@@ -162,34 +162,25 @@ pub struct ArrayType(
 );
 
 #[derive(Debug)]
-pub struct FieldList (
+pub struct FieldList(
     pub Option<Vec<SpannedBox<RecordSection>>>,
     pub Option<SpannedBox<VariantPart>>,
 );
 
 #[derive(Debug)]
-pub struct VariantPart (
+pub struct VariantPart(
     pub SpannedBox<VariantSelector>,
     pub Vec<SpannedBox<Variant>>,
 );
 
 #[derive(Debug)]
-pub struct VariantSelector (
-    pub Option<Spanned<String>>,
-    pub SpannedBox<TypeDenoter>,
-);
+pub struct VariantSelector(pub Option<Spanned<String>>, pub SpannedBox<TypeDenoter>);
 
 #[derive(Debug)]
-pub struct Variant (
-    pub Vec<SpannedBox<Const>>,
-    pub SpannedBox<FieldList>,
-);
+pub struct Variant(pub Vec<SpannedBox<Const>>, pub SpannedBox<FieldList>);
 
 #[derive(Debug)]
-pub struct RecordType(
-    pub Option<Spanned<String>>,
-    pub SpannedBox<FieldList>,
-);
+pub struct RecordType(pub Option<Spanned<String>>, pub SpannedBox<FieldList>);
 #[derive(Debug)]
 pub struct SetType(pub Option<Spanned<String>>, pub SpannedBox<TypeDenoter>);
 #[derive(Debug)]

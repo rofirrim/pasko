@@ -149,19 +149,11 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    // Semantic processing.
-    let mut scope = pasko_frontend::scope::Scope::new();
-
     if cli.verbose {
         eprintln!("Semantic checking '{}'", input_filename);
     }
 
-    pasko_frontend::semantic::check_program(
-        &mut program,
-        &mut semantic_context,
-        &mut diagnostics,
-        &mut scope,
-    );
+    pasko_frontend::semantic::check_program(&mut program, &mut semantic_context, &mut diagnostics);
 
     diagnostics.report(&simple_emitter);
 
