@@ -370,18 +370,17 @@ void __pasko_write_textfile_f64(pasko_file_t *f, double num,
   }
 }
 
-void __pasko_write_textfile_str(pasko_file_t *f, const uint32_t *str) {
+void __pasko_write_textfile_str(pasko_file_t *f, const uint32_t *str, uint64_t num_chars) {
   __pasko_check_write(f);
   // FIXME: Assuming the environment is UTF-8.
   uint8_t *c = NULL;
-  __pasko_utf32_to_utf8(str, &c);
+  __pasko_utf32_to_utf8_n(str, &c, num_chars);
   fprintf(f->file, "%s", (char *)c);
   __pasko_deallocate(c);
 }
 
 void __pasko_write_textfile_char(pasko_file_t *f, uint32_t c) {
-  uint32_t str[2] = {c, 0};
-  __pasko_write_textfile_str(f, str);
+  __pasko_write_textfile_str(f, &c, 1);
 }
 
 void __pasko_write_textfile_bool(pasko_file_t *f, uint8_t b) {

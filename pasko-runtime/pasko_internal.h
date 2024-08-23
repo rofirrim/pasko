@@ -13,6 +13,9 @@ void* __pasko_reallocate(void *p, size_t new_size);
 char* __pasko_strdup(const char *p);
 void __pasko_utf32_to_utf8(const uint32_t *input_buffer,
                            uint8_t **ref_out_buffer);
+void __pasko_utf32_to_utf8_n(const uint32_t *input_buffer,
+                           uint8_t **ref_out_buffer,
+                           uint64_t num_chars);
 
 void __pasko_init_io(int argc, char *argv[], int num_program_params,
                      char *program_params[], int num_global_files,

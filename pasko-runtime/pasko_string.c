@@ -1,8 +1,9 @@
 #include <pasko_internal.h>
 #include <pasko_runtime.h>
+#include <stdint.h>
 
-void __pasko_utf32_to_utf8(const uint32_t *input_buffer,
-                           uint8_t **ref_out_buffer) {
+void __pasko_utf32_to_utf8_n(const uint32_t *input_buffer,
+                             uint8_t **ref_out_buffer, const uint64_t num_chars) {
   if (!input_buffer) {
     __pasko_runtime_error("when converting UTF-32 to UTF-8: null input buffer");
   }
@@ -12,10 +13,11 @@ void __pasko_utf32_to_utf8(const uint32_t *input_buffer,
   }
 
   // Count bytes.
+  uint64_t remaining_chars = num_chars;
   size_t bytes_out = 1;
   {
     const uint32_t *p = input_buffer;
-    while (*p != 0) {
+    while (remaining_chars > 0) {
       uint32_t cp = *p;
       if (cp < 0x80) {
         bytes_out += 1;
@@ -30,14 +32,16 @@ void __pasko_utf32_to_utf8(const uint32_t *input_buffer,
             "when converting UTF-32 to UTF-8: invalid codepoint");
       }
       p++;
+      remaining_chars--;
     }
   }
 
   uint8_t *out_buffer = __pasko_allocate(bytes_out);
 
+  remaining_chars = num_chars;
   const uint32_t *p = input_buffer;
   uint8_t *q = out_buffer;
-  while (*p != 0) {
+  while (remaining_chars > 0) {
     uint32_t cp = *p;
     if (cp < 0x80) {
       *q = cp & 0xff;
@@ -66,8 +70,20 @@ void __pasko_utf32_to_utf8(const uint32_t *input_buffer,
     }
     p++;
     q++;
+    remaining_chars--;
   }
   *q = 0;
 
   *ref_out_buffer = out_buffer;
+}
+
+void __pasko_utf32_to_utf8(const uint32_t *input_buffer,
+                           uint8_t **ref_out_buffer) {
+  uint64_t num_chars;
+  const uint32_t *p = input_buffer;
+  while (*p != 0) {
+    p++;
+  }
+  num_chars = p - input_buffer;
+  __pasko_utf32_to_utf8_n(input_buffer, ref_out_buffer, num_chars);
 }

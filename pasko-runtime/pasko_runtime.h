@@ -29,14 +29,16 @@ PASKO_RUNTIME_PUBLIC void __pasko_finish(int num_global_files,
 
 // I/O
 // textfile output
-PASKO_RUNTIME_PUBLIC void
-__pasko_write_textfile_i64(pasko_file_t *file, int64_t num, int64_t total_width);
+PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_i64(pasko_file_t *file,
+                                                     int64_t num,
+                                                     int64_t total_width);
 PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_f64(pasko_file_t *file,
                                                      double num,
                                                      int64_t total_width,
                                                      int64_t frac_digits);
 PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_str(pasko_file_t *file,
-                                                     const uint32_t *);
+                                                     const uint32_t *buffer,
+                                                     uint64_t num_chars);
 PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_char(pasko_file_t *file,
                                                       uint32_t);
 PASKO_RUNTIME_PUBLIC void __pasko_write_textfile_bool(pasko_file_t *file,
@@ -65,14 +67,15 @@ PASKO_RUNTIME_PUBLIC void __pasko_put_file(pasko_file_t *f, uint64_t bytes);
 PASKO_RUNTIME_PUBLIC void __pasko_get_textfile(pasko_file_t *f);
 PASKO_RUNTIME_PUBLIC void __pasko_put_textfile(pasko_file_t *f);
 
-PASKO_RUNTIME_PUBLIC void *__pasko_buffer_var_file(pasko_file_t *f, uint64_t bytes);
+PASKO_RUNTIME_PUBLIC void *__pasko_buffer_var_file(pasko_file_t *f,
+                                                   uint64_t bytes);
 PASKO_RUNTIME_PUBLIC uint32_t *__pasko_buffer_var_textfile(pasko_file_t *f);
 
 // files inquiry
-PASKO_RUNTIME_PUBLIC uint8_t __pasko_eof_file(pasko_file_t* f);
-PASKO_RUNTIME_PUBLIC uint8_t __pasko_eof_textfile(pasko_file_t* f);
+PASKO_RUNTIME_PUBLIC uint8_t __pasko_eof_file(pasko_file_t *f);
+PASKO_RUNTIME_PUBLIC uint8_t __pasko_eof_textfile(pasko_file_t *f);
 
-PASKO_RUNTIME_PUBLIC uint8_t __pasko_eoln_textfile(pasko_file_t* f);
+PASKO_RUNTIME_PUBLIC uint8_t __pasko_eoln_textfile(pasko_file_t *f);
 
 // Set type
 typedef struct pasko_set_t pasko_set_t;

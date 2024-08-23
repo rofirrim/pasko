@@ -259,6 +259,7 @@ impl<'a> CodegenVisitor<'a> {
                 let mut sig = Signature::new(CallConv::SystemV);
                 sig.params.push(AbiParam::new(self.pointer_type)); // file
                 sig.params.push(AbiParam::new(self.pointer_type)); // string
+                sig.params.push(AbiParam::new(I64)); // number of chars
                 self.register_import("__pasko_write_textfile_str", sig)
             }
             RuntimeFunctionId::WriteTextfileI64 => {

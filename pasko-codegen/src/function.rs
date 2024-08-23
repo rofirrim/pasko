@@ -198,6 +198,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
                 let mut data_desc = cranelift_module::DataDescription::new();
                 let mut unicode_points = s.chars().map(|x| u32::from(x)).collect::<Vec<_>>();
+                // FIXME: We should not need to emit a NULL byte anymore.
                 unicode_points.push(0); // NULL.
                 let bytes = unicode_points
                     .iter()
@@ -1626,7 +1627,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                     .codegen
                                     .get_runtime_function(RuntimeFunctionId::WriteTextfileStr);
                                 let func_ref = self.get_function_reference(func_id);
-                                self.builder().ins().call(func_ref, &[file_argument, v]);
+                                let index_type  = self.codegen.semantic_context.type_system.array_type_get_index_type(type_id);
+                                let extent = self.codegen.semantic_context.type_system.ordinal_type_extent(index_type);
+                                let number_of_chars = self.emit_const_integer(extent);
+                                self.builder().ins().call(func_ref, &[file_argument, v, number_of_chars]);
                             } else if self
                                 .codegen
                                 .semantic_context
