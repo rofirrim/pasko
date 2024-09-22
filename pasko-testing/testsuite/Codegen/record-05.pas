@@ -27,7 +27,7 @@ end.
 
 CHECK: *** IR for 'foo_2'
 CHECK-NEXT: function u0:0() system_v {
-CHECK-NEXT:     ss0 = explicit_slot 88
+CHECK-NEXT:     ss0 = explicit_slot 88 ; r
 CHECK-EMPTY:
 CHECK-NEXT: block0:
 CHECK-NEXT:     v0 = iconst.i8 1
@@ -38,10 +38,10 @@ CHECK-NEXT:     v3 = stack_addr.i64 ss0
 CHECK-NEXT:     v4 = iconst.i64 8
 CHECK-NEXT:     v5 = iadd v3, v4  ; v4 = 8
 CHECK-NEXT:     v6 = iconst.i64 1
-CHECK-NEXT:     v7 = iconst.i64 1
-CHECK-NEXT:     v8 = isub v6, v7  ; v6 = 1, v7 = 1
-CHECK-NEXT:     v9 = iconst.i64 8
-CHECK-NEXT:     v10 = imul v8, v9  ; v9 = 8
+CHECK-NEXT:     v7 = iconst.i64 8
+CHECK-NEXT:     v8 = iconst.i64 1
+CHECK-NEXT:     v9 = isub v8, v6  ; v8 = 1, v6 = 1
+CHECK-NEXT:     v10 = imul v9, v7  ; v7 = 8
 CHECK-NEXT:     v11 = iadd v5, v10
 CHECK-NEXT:     store v2, v11  ; v2 = 3
 CHECK-NEXT:     return

@@ -18,6 +18,7 @@ use pasko_frontend::semantic::SemanticContext;
 use pasko_frontend::span;
 use pasko_frontend::symbol;
 use pasko_frontend::symbol::ParameterKind;
+use pasko_frontend::symbol::SymbolId;
 use pasko_frontend::typesystem::TypeId;
 use pasko_frontend::visitor::{Visitable, VisitorMut};
 
@@ -766,6 +767,11 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 .codegen
                 .semantic_context
                 .type_system
+                .is_conformable_array_type(addr_ty)
+            || self
+                .codegen
+                .semantic_context
+                .type_system
                 .is_record_type(addr_ty)
         {
             // Structured types cannot have value semantics in the cranelift IR.
@@ -848,6 +854,19 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     .get_type_name(dest_ty)
             );
         }
+    }
+
+    pub fn link_bound_identifier(
+        &mut self,
+        param_idx: usize,
+        sym_id: pasko_frontend::symbol::SymbolId,
+    ) {
+        let builder = self.builder_obj.as_mut().unwrap();
+        let param_value = builder.block_params(self.entry_block.unwrap())[param_idx];
+
+        self.codegen
+            .data_location
+            .insert(sym_id, DataLocation::Value(param_value));
     }
 
     pub fn copy_in_function_parameter(
@@ -1102,7 +1121,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
     fn call_pass_arguments<F>(
         &mut self,
         callee_sym_id: pasko_frontend::symbol::SymbolId,
-        args: &Vec<(&span::SpannedBox<ast::Expr>, ParameterKind)>,
+        args: &Vec<(
+            &span::SpannedBox<ast::Expr>,
+            pasko_frontend::symbol::SymbolId,
+        )>,
         environment: Option<F>,
         arg_return: Option<cranelift_codegen::ir::Value>,
     ) -> Vec<cranelift_codegen::ir::Value>
@@ -1126,10 +1148,14 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         if let Some(arg_return) = arg_return {
             result.push(arg_return);
         }
-        let mut args: Vec<_> = args
+        let mut passed_args: Vec<_> = args
             .iter()
             .map(|item| {
-                let (arg, param_kind) = item;
+                let (arg, param) = item;
+
+                let param_sym = self.codegen.semantic_context.get_symbol(*param);
+                let param_sym = param_sym.borrow();
+                let param_kind = param_sym.get_parameter().unwrap();
 
                 match param_kind {
                     ParameterKind::Variable => {
@@ -1230,12 +1256,139 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
                         vec![function_address, arg_environment]
                     }
+                    ParameterKind::ValueConformableArray => {
+                        // We need to do a copy in.
+                        let arg_ty = self
+                            .codegen
+                            .semantic_context
+                            .get_ast_type(arg.id())
+                            .unwrap();
+                        let arg_type_size = self.codegen.size_in_bytes(arg_ty);
+                        let stack_slot = self.allocate_storage_in_stack(arg_type_size as u32);
+                        self.codegen
+                            .annotations
+                            .new_stack_slot(stack_slot, "[copy-in]");
+                        let pointer = self.codegen.pointer_type;
+                        let stack_addr = self.builder().ins().stack_addr(pointer, stack_slot, 0);
+
+                        self.store_expr_into_address_for_initialization(stack_addr, arg_ty, arg);
+                        vec![stack_addr]
+                    }
+                    ParameterKind::VariableConformableArray => {
+                        let arg_value = *self.value_map.get(&arg.id()).unwrap();
+                        vec![arg_value]
+                    }
                 }
             })
             .flatten()
             .collect();
 
-        result.append(&mut args);
+        result.append(&mut passed_args);
+
+        // Now pass the bound identifiers, if any.
+        let mut bound_args: Vec<_> = args
+            .iter()
+            .map(|item| {
+                let (arg, param) = item;
+
+                let param_sym = self.codegen.semantic_context.get_symbol(*param);
+                let param_sym = param_sym.borrow();
+                let param_kind = param_sym.get_parameter().unwrap();
+
+                match param_kind {
+                    ParameterKind::ValueConformableArray
+                    | ParameterKind::VariableConformableArray => {
+                        let mut param_ty = param_sym.get_type().unwrap();
+                        let mut arg_ty = self
+                            .codegen
+                            .semantic_context
+                            .get_ast_type(arg.id())
+                            .unwrap();
+                        let mut result = vec![];
+                        while self
+                            .codegen
+                            .semantic_context
+                            .type_system
+                            .is_conformable_array_type(param_ty)
+                        {
+                            if self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .is_array_type(arg_ty)
+                            {
+                                let index_type = self
+                                    .codegen
+                                    .semantic_context
+                                    .type_system
+                                    .array_type_get_index_type(arg_ty);
+                                let lower_bound = self
+                                    .codegen
+                                    .semantic_context
+                                    .type_system
+                                    .ordinal_type_lower_bound(index_type);
+                                let lower_bound = self.emit_const_integer(lower_bound);
+                                let upper_bound = self
+                                    .codegen
+                                    .semantic_context
+                                    .type_system
+                                    .ordinal_type_upper_bound(index_type);
+                                let upper_bound = self.emit_const_integer(upper_bound);
+                                result.push(lower_bound);
+                                result.push(upper_bound);
+                            } else if self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .is_conformable_array_type(arg_ty)
+                            {
+                                match param_kind {
+                                    ParameterKind::ValueConformableArray => {
+                                        unreachable!(
+                                            "conformable arrays cannot be passed by value!"
+                                        );
+                                    }
+                                    _ => {}
+                                }
+                                let lower_bound = self
+                                    .codegen
+                                    .semantic_context
+                                    .type_system
+                                    .conformable_array_type_get_lower(arg_ty);
+                                let lower_bound = self.get_value_of_bound_identifier(lower_bound);
+                                let upper_bound = self
+                                    .codegen
+                                    .semantic_context
+                                    .type_system
+                                    .conformable_array_type_get_upper(arg_ty);
+                                let upper_bound = self.get_value_of_bound_identifier(upper_bound);
+                                result.push(lower_bound);
+                                result.push(upper_bound);
+                            } else {
+                                unreachable!("invalid type");
+                            }
+                            param_ty = self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .conformable_array_type_get_component_type(param_ty);
+                            arg_ty = self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .array_or_conformable_array_type_get_component_type(arg_ty);
+                        }
+                        result
+                    }
+                    _ => {
+                        vec![]
+                    }
+                }
+            })
+            .flatten()
+            .collect();
+
+        result.append(&mut bound_args);
 
         result
     }
@@ -1287,7 +1440,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
     fn emit_call(
         &mut self,
         callee_sym_id: pasko_frontend::symbol::SymbolId,
-        args: Vec<(&span::SpannedBox<ast::Expr>, ParameterKind)>,
+        args: Vec<(
+            &span::SpannedBox<ast::Expr>,
+            pasko_frontend::symbol::SymbolId,
+        )>,
         arg_return: Option<cranelift_codegen::ir::Value>,
         wants_return_value: bool,
     ) -> Option<cranelift_codegen::ir::Value> {
@@ -1452,7 +1608,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
     fn emit_procedure_call(
         &mut self,
         callee_sym_id: pasko_frontend::symbol::SymbolId,
-        args: Vec<(&span::SpannedBox<ast::Expr>, ParameterKind)>,
+        args: Vec<(
+            &span::SpannedBox<ast::Expr>,
+            pasko_frontend::symbol::SymbolId,
+        )>,
     ) {
         self.emit_call(
             callee_sym_id,
@@ -1556,7 +1715,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 addr
             }
             _ => {
-                unimplemented!()
+                panic!("Cannot get the address of {:?}", storage)
             }
         }
     }
@@ -1986,6 +2145,15 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 .stack_addr(pointer_type, new_environment_ss, 0)
         } else {
             self.emit_const_integer(0)
+        }
+    }
+
+    fn get_value_of_bound_identifier(&self, sym_id: SymbolId) -> Value {
+        match self.codegen.data_location.get(&sym_id).unwrap() {
+            DataLocation::Value(v) => *v,
+            _ => {
+                unreachable!("unexpected data location for a bound identifier");
+            }
         }
     }
 }
@@ -2619,18 +2787,20 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 .unwrap();
             let callee_sym = self.codegen.semantic_context.get_symbol(callee_sym_id);
             let callee_sym = callee_sym.borrow();
-            let callee_parameters = callee_sym.get_formal_parameters().unwrap();
+            let callee_parameters = callee_sym
+                .get_formal_parameters()
+                .unwrap()
+                .iter()
+                .flatten()
+                .cloned()
+                .collect::<Vec<_>>();
 
             let args = {
                 if let Some(args) = args {
                     assert!(args.len() == callee_parameters.len());
                     args.iter()
                         .zip(callee_parameters)
-                        .map(|(value, param)| {
-                            let param_symbol = self.codegen.semantic_context.get_symbol(param);
-                            let param_symbol = param_symbol.borrow();
-                            (value, param_symbol.get_parameter().unwrap())
-                        })
+                        .map(|(value, param)| (value, param))
                         .collect::<Vec<_>>()
                 } else {
                     vec![]
@@ -3004,6 +3174,18 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         self.set_value(id, addr_value);
     }
 
+    fn visit_expr_bound_identifier(
+        &mut self,
+        _n: &ast::ExprBoundIdentifier,
+        _span: &span::SpanLoc,
+        id: span::SpanId,
+    ) {
+        let sym_id = self.codegen.semantic_context.get_ast_symbol(id).unwrap();
+
+        let value = self.get_value_of_bound_identifier(sym_id);
+        self.set_value(id, value);
+    }
+
     fn visit_pre_assig_array_access(
         &mut self,
         n: &ast::AssigArrayAccess,
@@ -3025,26 +3207,50 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             |acc, (current_idx, ..)| {
                 let current_array_type = acc.0;
 
-                let current_array_index_type = self
+                let lower_bound = if self
                     .codegen
                     .semantic_context
                     .type_system
-                    .array_type_get_index_type(current_array_type);
-                let lower_bound = self
+                    .is_array_type(current_array_type)
+                {
+                    let current_array_index_type = self
+                        .codegen
+                        .semantic_context
+                        .type_system
+                        .array_type_get_index_type(current_array_type);
+                    self.emit_const_integer(
+                        self.codegen
+                            .semantic_context
+                            .type_system
+                            .ordinal_type_lower_bound(current_array_index_type),
+                    )
+                } else if self
                     .codegen
                     .semantic_context
                     .type_system
-                    .ordinal_type_lower_bound(current_array_index_type);
+                    .is_conformable_array_type(current_array_type)
+                {
+                    let sym_id = self
+                        .codegen
+                        .semantic_context
+                        .type_system
+                        .conformable_array_type_get_lower(current_array_type);
+                    self.get_value_of_bound_identifier(sym_id)
+                } else {
+                    unreachable!("unexpected type")
+                };
 
                 let current_array_component_type = self
                     .codegen
                     .semantic_context
                     .type_system
-                    .array_type_get_component_type(current_array_type);
+                    .array_or_conformable_array_type_get_component_type(current_array_type);
 
                 let (index_type_size, index_type_lb) = if current_idx + 1 == num_idx {
                     (
-                        self.codegen.size_in_bytes(current_array_component_type) as i64,
+                        self.emit_const_integer(
+                            self.codegen.size_in_bytes(current_array_component_type) as i64,
+                        ),
                         lower_bound,
                     )
                 } else {
@@ -3064,6 +3270,25 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                             .semantic_context
                             .type_system
                             .ordinal_type_extent(index_type);
+                        let extent = self.emit_const_integer(extent);
+                        (extent, lower_bound)
+                    } else if self
+                        .codegen
+                        .semantic_context
+                        .type_system
+                        .is_conformable_array_type(current_array_component_type)
+                    {
+                        let upper_bound = {
+                            let sym_id = self
+                                .codegen
+                                .semantic_context
+                                .type_system
+                                .conformable_array_type_get_upper(current_array_component_type);
+                            self.get_value_of_bound_identifier(sym_id)
+                        };
+                        let extent = self.builder().ins().isub(upper_bound, lower_bound);
+                        let one = self.emit_const_integer(1);
+                        let extent = self.builder().ins().iadd(extent, one);
                         (extent, lower_bound)
                     } else {
                         panic!("Expecting an array type");
@@ -3093,16 +3318,14 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             index.get().walk_mut(self, index.loc(), index.id());
             let index_value = self.get_value(index.id());
 
-            let lb_value = self.emit_const_integer(lb);
-            let offset = self.builder().ins().isub(index_value, lb_value);
+            let offset = self.builder().ins().isub(index_value, lb);
             let offset = if let Some(linear_index_bytes) = linear_index_bytes {
                 self.builder().ins().iadd(index_value, linear_index_bytes)
             } else {
                 offset
             };
 
-            let index_size_value = self.emit_const_integer(index_size);
-            linear_index_bytes = Some(self.builder().ins().imul(offset, index_size_value));
+            linear_index_bytes = Some(self.builder().ins().imul(offset, index_size));
         }
 
         let linear_index_bytes = linear_index_bytes.unwrap();
@@ -3487,6 +3710,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 }
                 ast::BinOperand::LogicalAnd => {
                     let result = self.builder().ins().band(lhs_value, rhs_value);
+                    self.set_value(id, result);
+                }
+                ast::BinOperand::LogicalOr => {
+                    let result = self.builder().ins().bor(lhs_value, rhs_value);
                     self.set_value(id, result);
                 }
                 ast::BinOperand::InSet => {
@@ -4171,7 +4398,13 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 .unwrap();
             let callee_sym = self.codegen.semantic_context.get_symbol(callee_sym_id);
             let callee_sym = callee_sym.borrow();
-            let callee_parameters = callee_sym.get_formal_parameters().unwrap();
+            let callee_parameters = callee_sym
+                .get_formal_parameters()
+                .unwrap()
+                .iter()
+                .flatten()
+                .cloned()
+                .collect::<Vec<_>>();
             let callee_return_sym = callee_sym.get_return_symbol().unwrap();
             let callee_return_sym = self.codegen.semantic_context.get_symbol(callee_return_sym);
             let callee_return_sym = callee_return_sym.borrow();
@@ -4188,15 +4421,11 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     .is_pointer_type(callee_return_type);
 
             assert!(args.len() == callee_parameters.len());
-            let args: Vec<(&span::SpannedBox<ast::Expr>, ParameterKind)> = args
+            let args: Vec<_> = args
                 .iter()
                 .zip(callee_parameters)
-                .map(|(value, param)| {
-                    let param_symbol = self.codegen.semantic_context.get_symbol(param);
-                    let param_symbol = param_symbol.borrow();
-                    (value, param_symbol.get_parameter().unwrap())
-                })
-                .collect::<Vec<_>>();
+                .map(|(value, param)| (value, param))
+                .collect();
 
             let (arg_return, return_stack_addr) = if return_type_is_simple {
                 (None, None)

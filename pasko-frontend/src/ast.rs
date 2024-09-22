@@ -285,11 +285,50 @@ pub struct FormalParameterFunction(
 );
 
 #[derive(Debug)]
+pub struct FormalParameterValueConformableArray(
+    pub Vec<Spanned<String>>,
+    pub SpannedBox<ConformableArraySchema>,
+);
+
+#[derive(Debug)]
+pub struct FormalParameterVariableConformableArray(
+    pub Vec<Spanned<String>>,
+    pub SpannedBox<ConformableArraySchema>,
+);
+
+#[derive(Debug)]
+pub struct ConformableArraySchema (
+    pub Option<String>,
+    pub Vec<SpannedBox<IndexTypeSpecification>>,
+    pub SpannedBox<ConformableArrayElement>,
+);
+
+#[derive(Debug)]
+pub struct IndexTypeSpecification (
+    pub Spanned<String>,
+    pub Spanned<String>,
+    pub SpannedBox<TypeIdentifier>,
+);
+
+#[derive(Debug)]
+pub struct ArraySchema (
+    pub SpannedBox<ConformableArraySchema>
+);
+
+#[derive(Debug)]
+pub enum ConformableArrayElement {
+    TypeIdentifier(TypeIdentifier),
+    ArraySchema(ArraySchema)
+}
+
+#[derive(Debug)]
 pub enum FormalParameter {
     Value(FormalParameterValue),
     Variable(FormalParameterVariable),
     Procedure(FormalParameterProcedure),
     Function(FormalParameterFunction),
+    ValueConformableArray(FormalParameterValueConformableArray),
+    VariableConformableArray(FormalParameterVariableConformableArray),
 }
 
 #[derive(Debug)]
@@ -325,6 +364,9 @@ pub struct ExprWriteParameter(
 pub struct ExprConversion(pub SpannedBox<Expr>);
 
 #[derive(Debug)]
+pub struct ExprBoundIdentifier(pub Spanned<String>);
+
+#[derive(Debug)]
 pub enum Expr {
     Const(ExprConst),
     SetLiteral(ExprSetLiteral),
@@ -337,6 +379,7 @@ pub enum Expr {
     BinOp(ExprBinOp),
     WriteParameter(ExprWriteParameter),
     Conversion(ExprConversion),
+    BoundIdentifier(ExprBoundIdentifier)
 }
 
 #[derive(Debug)]

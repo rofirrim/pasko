@@ -34,6 +34,7 @@ pub enum SymbolKind {
     Procedure,
     Const,
     Field,
+    BoundIdentifier,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +43,8 @@ pub enum ParameterKind {
     Variable,
     Procedure,
     Function,
+    ValueConformableArray,
+    VariableConformableArray
 }
 
 #[derive(Debug, Default)]
@@ -57,7 +60,7 @@ struct SymbolInfo {
     // FIXME: We can reduce the memory used by this by grouping these less
     // common things by the kind of Symbol.
     parameter: Option<ParameterKind>,
-    formal_parameters: Option<Vec<SymbolId>>,
+    formal_parameters: Option<Vec<Vec<SymbolId>>>,
     return_symbol: Option<SymbolId>,
     required_environment: HashSet<SymbolId>,
 }
@@ -135,6 +138,7 @@ impl Symbol {
             SymbolKind::Procedure => Some("procedure"),
             SymbolKind::Const => Some("const"),
             SymbolKind::Field => Some("field"),
+            SymbolKind::BoundIdentifier => Some("bound identifier"),
             _ => None,
         }
     }
@@ -175,11 +179,11 @@ impl Symbol {
         self.info.parameter = Some(kind);
     }
 
-    pub fn set_formal_parameters(&mut self, formal_parameters: Vec<SymbolId>) {
+    pub fn set_formal_parameters(&mut self, formal_parameters: Vec<Vec<SymbolId>>) {
         self.info.formal_parameters = Some(formal_parameters);
     }
 
-    pub fn get_formal_parameters(&self) -> Option<Vec<SymbolId>> {
+    pub fn get_formal_parameters(&self) -> Option<Vec<Vec<SymbolId>>> {
         self.info.formal_parameters.clone()
     }
 

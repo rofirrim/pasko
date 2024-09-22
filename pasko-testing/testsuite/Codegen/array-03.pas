@@ -32,16 +32,16 @@ CHECK-NEXT:     v2 = iconst.i64 42
 CHECK-NEXT:     v3 = stack_addr.i64 ss0
 CHECK-NEXT:     v4 = load.i64 v3
 CHECK-NEXT:     v5 = iconst.i64 1
-CHECK-NEXT:     v6 = iconst.i64 1
-CHECK-NEXT:     v7 = isub v5, v6  ; v5 = 1, v6 = 1
-CHECK-NEXT:     v8 = iconst.i64 80
-CHECK-NEXT:     v9 = imul v7, v8  ; v8 = 80
+CHECK-NEXT:     v6 = iconst.i64 80
+CHECK-NEXT:     v7 = iconst.i64 1
+CHECK-NEXT:     v8 = isub v7, v5  ; v7 = 1, v5 = 1
+CHECK-NEXT:     v9 = imul v8, v6  ; v6 = 80
 CHECK-NEXT:     v10 = iadd v4, v9
 CHECK-NEXT:     v11 = iconst.i64 10
-CHECK-NEXT:     v12 = iconst.i64 10
-CHECK-NEXT:     v13 = isub v11, v12  ; v11 = 10, v12 = 10
-CHECK-NEXT:     v14 = iconst.i64 8
-CHECK-NEXT:     v15 = imul v13, v14  ; v14 = 8
+CHECK-NEXT:     v12 = iconst.i64 8
+CHECK-NEXT:     v13 = iconst.i64 10
+CHECK-NEXT:     v14 = isub v13, v11  ; v13 = 10, v11 = 10
+CHECK-NEXT:     v15 = imul v14, v12  ; v12 = 8
 CHECK-NEXT:     v16 = iadd v10, v15
 CHECK-NEXT:     store v2, v16  ; v2 = 42
 CHECK-NEXT:     return

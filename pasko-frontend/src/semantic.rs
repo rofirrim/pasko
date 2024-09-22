@@ -413,30 +413,39 @@ impl<'a> SemanticCheckerVisitor<'a> {
     fn gather_formal_parameters(
         &mut self,
         params: &mut Option<Vec<span::SpannedBox<ast::FormalParameter>>>,
-    ) -> Option<Vec<SymbolId>> {
-        let mut formal_parameters = vec![];
+    ) -> Option<Vec<Vec<SymbolId>>> {
+        let mut formal_parameters: Vec<Vec<SymbolId>> = vec![];
         if let Some(parameters) = params {
             parameters.iter_mut().for_each(|param| {
                 let loc = *param.loc();
                 let id = param.id();
                 param.get_mut().mutating_walk_mut(self, &loc, id);
 
-                let mut register_parameter = |name: &span::Spanned<String>| {
-                    formal_parameters.push(self.ctx.get_ast_symbol(name.id()).unwrap());
-                };
+                // let mut register_parameter = |name: &span::Spanned<String>| {
+                //     formal_parameters.push(self.ctx.get_ast_symbol(name.id()).unwrap());
+                // };
+
+                let get_symbol =
+                    |name: &span::Spanned<String>| self.ctx.get_ast_symbol(name.id()).unwrap();
 
                 match param.get() {
                     FormalParameter::Value(n) => {
-                        n.0.iter().for_each(|name| register_parameter(name));
+                        formal_parameters.push(n.0.iter().map(get_symbol).collect());
                     }
                     FormalParameter::Variable(n) => {
-                        n.0.iter().for_each(|name| register_parameter(name));
+                        formal_parameters.push(n.0.iter().map(get_symbol).collect());
                     }
                     FormalParameter::Function(n) => {
-                        register_parameter(&n.0);
+                        formal_parameters.push(vec![get_symbol(&n.0)]);
                     }
                     FormalParameter::Procedure(n) => {
-                        register_parameter(&n.0);
+                        formal_parameters.push(vec![get_symbol(&n.0)]);
+                    }
+                    FormalParameter::ValueConformableArray(n) => {
+                        formal_parameters.push(n.0.iter().map(get_symbol).collect());
+                    }
+                    FormalParameter::VariableConformableArray(n) => {
+                        formal_parameters.push(n.0.iter().map(get_symbol).collect());
                     }
                 };
             });
@@ -458,14 +467,14 @@ impl<'a> SemanticCheckerVisitor<'a> {
 
     fn compare_parameter_declarations(
         &self,
-        params_a: &Vec<SymbolId>,
-        params_b: &Vec<SymbolId>,
+        params_a: &Vec<Vec<SymbolId>>,
+        params_b: &Vec<Vec<SymbolId>>,
     ) -> bool {
-        if params_a.len() != params_b.len() {
+        if params_a.iter().flatten().count() != params_b.iter().flatten().count() {
             return false;
         }
 
-        for p in params_a.iter().zip(params_b) {
+        for p in params_a.iter().flatten().zip(params_b.iter().flatten()) {
             let sym_a = self.ctx.get_symbol(*p.0);
             let sym_a = sym_a.borrow();
 
@@ -496,7 +505,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
     fn equivalent_function_declarations(
         &self,
         prev_sym_id: SymbolId,
-        formal_parameters: &Vec<SymbolId>,
+        formal_parameters: &Vec<Vec<SymbolId>>,
         result_type: TypeId,
     ) -> bool {
         let prev_sym = self.ctx.get_symbol(prev_sym_id);
@@ -536,7 +545,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
         &mut self,
         scope_id: scope::ScopeId,
         function_name: &str,
-        formal_parameters: Vec<SymbolId>,
+        formal_parameters: Vec<Vec<SymbolId>>,
         result_type: TypeId,
         is_definition: bool,
         defining_loc: span::SpanLoc,
@@ -573,7 +582,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
     fn equivalent_procedure_declarations(
         &self,
         prev_sym_id: SymbolId,
-        formal_parameters: &Vec<SymbolId>,
+        formal_parameters: &Vec<Vec<SymbolId>>,
     ) -> bool {
         let prev_sym = self.ctx.get_symbol(prev_sym_id);
         let prev_sym = prev_sym.borrow();
@@ -596,7 +605,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
         &mut self,
         scope_id: scope::ScopeId,
         proc_name: &str,
-        formal_parameters: Vec<SymbolId>,
+        formal_parameters: Vec<Vec<SymbolId>>,
         is_definition: bool,
         defining_loc: span::SpanLoc,
     ) -> SymbolId {
@@ -758,6 +767,55 @@ impl<'a> SemanticCheckerVisitor<'a> {
         // s := [];
         if self.is_set_and_generic_set(lhs_type_id, rhs_type_id) {
             return true;
+        }
+
+        false
+    }
+
+    fn type_is_array_or_conformable_array(&self, ty: TypeId) -> bool {
+        self.ctx.type_system.is_array_type(ty) || self.ctx.type_system.is_conformable_array_type(ty)
+    }
+
+    fn type_can_be_conformed_to(&self, source_type: TypeId, target_type: TypeId) -> bool {
+        // Base type.
+        if !self.type_is_array_or_conformable_array(source_type)
+            && !self.type_is_array_or_conformable_array(target_type)
+        {
+            return self.ctx.type_system.same_type(source_type, target_type);
+        }
+        // Neither is a conformable array.
+        if self.ctx.type_system.is_array_type(source_type)
+            && self.ctx.type_system.is_array_type(target_type)
+        {
+            return self.ctx.type_system.same_type(source_type, target_type);
+        }
+
+        if self.ctx.type_system.is_array_type(source_type)
+            && self.ctx.type_system.is_conformable_array_type(target_type)
+        {
+            // FIXME: We should check that the ranges of the indices are compatible.
+            let source_component = self
+                .ctx
+                .type_system
+                .array_type_get_component_type(source_type);
+            let target_component = self
+                .ctx
+                .type_system
+                .conformable_array_type_get_component_type(target_type);
+            return self.type_can_be_conformed_to(source_component, target_component);
+        } else if self.ctx.type_system.is_conformable_array_type(source_type)
+            && self.ctx.type_system.is_conformable_array_type(target_type)
+        {
+            // FIXME: We should check that the ranges of the indices are compatible.
+            let source_component = self
+                .ctx
+                .type_system
+                .conformable_array_type_get_component_type(source_type);
+            let target_component = self
+                .ctx
+                .type_system
+                .conformable_array_type_get_component_type(target_type);
+            return self.type_can_be_conformed_to(source_component, target_component);
         }
 
         false
@@ -1013,7 +1071,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
     fn declare_function_parameter(
         &mut self,
         name: &span::Spanned<String>,
-        formal_parameters: Vec<SymbolId>,
+        formal_parameters: Vec<Vec<SymbolId>>,
         result_type: TypeId,
     ) {
         let mut function_sym = Symbol::new();
@@ -1050,7 +1108,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
     fn declare_procedure_parameter(
         &mut self,
         name: &span::Spanned<String>,
-        formal_parameters: Vec<SymbolId>,
+        formal_parameters: Vec<Vec<SymbolId>>,
     ) {
         let mut proc_sym = Symbol::new();
         proc_sym.set_name(name.get());
@@ -1075,18 +1133,28 @@ impl<'a> SemanticCheckerVisitor<'a> {
         formal_param: &SpannedBox<ast::FormalParameter>,
     ) -> Vec<SymbolId> {
         match formal_param.get() {
-            ast::FormalParameter::Function(param, ..) => {
-                vec![self.ctx.get_ast_symbol(param.0.id()).unwrap()]
-            }
-            ast::FormalParameter::Procedure(param, ..) => {
-                vec![self.ctx.get_ast_symbol(param.0.id()).unwrap()]
-            }
             ast::FormalParameter::Value(param) => param
                 .0
                 .iter()
                 .map(|x| self.ctx.get_ast_symbol(x.id()).unwrap())
                 .collect(),
             ast::FormalParameter::Variable(param) => param
+                .0
+                .iter()
+                .map(|x| self.ctx.get_ast_symbol(x.id()).unwrap())
+                .collect(),
+            ast::FormalParameter::Function(param, ..) => {
+                vec![self.ctx.get_ast_symbol(param.0.id()).unwrap()]
+            }
+            ast::FormalParameter::Procedure(param, ..) => {
+                vec![self.ctx.get_ast_symbol(param.0.id()).unwrap()]
+            }
+            ast::FormalParameter::ValueConformableArray(param) => param
+                .0
+                .iter()
+                .map(|x| self.ctx.get_ast_symbol(x.id()).unwrap())
+                .collect(),
+            ast::FormalParameter::VariableConformableArray(param) => param
                 .0
                 .iter()
                 .map(|x| self.ctx.get_ast_symbol(x.id()).unwrap())
@@ -1108,7 +1176,10 @@ impl<'a> SemanticCheckerVisitor<'a> {
             callee_symbol.get_formal_parameters().unwrap()
         };
 
-        if args.len() != params.len() {
+        let num_params = params.iter().flatten().count();
+        let num_args = args.len();
+
+        if num_args != num_params {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 call_loc,
@@ -1116,14 +1187,14 @@ impl<'a> SemanticCheckerVisitor<'a> {
                     "{} '{}' expects {} {} but {} {} passed",
                     if is_function { "function" } else { "procedure" },
                     function_name,
-                    params.len(),
-                    if params.len() == 1 {
+                    num_params,
+                    if num_params == 1 {
                         "parameter"
                     } else {
                         "parameters"
                     },
-                    args.len(),
-                    if args.len() == 1 {
+                    num_args,
+                    if num_args == 1 {
                         "argument was"
                     } else {
                         "arguments were"
@@ -1133,8 +1204,22 @@ impl<'a> SemanticCheckerVisitor<'a> {
             return false;
         }
 
+        let params_flattened: Vec<_> = params
+            .iter()
+            .enumerate()
+            .map(|(param_pack_idx, param_pack)| {
+                param_pack.iter().map(move |param| (param_pack_idx, *param))
+            })
+            .flatten()
+            .collect();
+
+        assert!(args.len() == params_flattened.len());
+
         let mut argument_error = false;
-        for (arg, param_sym_id) in args.iter_mut().zip(params) {
+        let mut check_argument_consistency: HashMap<usize, Vec<usize>> = HashMap::new();
+        for ((current_arg_idx, arg), (current_param_pack_idx, param_sym_id)) in
+            args.iter_mut().enumerate().zip(params_flattened)
+        {
             let param_sym = self.ctx.get_symbol(param_sym_id);
             let param_sym = param_sym.borrow();
             let param_kind = param_sym.get_parameter().unwrap();
@@ -1321,6 +1406,148 @@ impl<'a> SemanticCheckerVisitor<'a> {
                                 panic!("Unexpected tree");
                             }
                         }
+                    }
+                }
+                ParameterKind::ValueConformableArray => {
+                    let param_type_id = param_sym.get_type().unwrap();
+                    if self.ctx.type_system.is_error_type(param_type_id) {
+                        continue;
+                    }
+                    // Typecheck argument now.
+                    {
+                        let loc = *arg.loc();
+                        let id = arg.id();
+                        arg.get_mut().mutating_walk_mut(self, &loc, id);
+                    }
+                    let arg_type_id = self.ctx.get_ast_type(arg.id()).unwrap();
+                    if self.ctx.type_system.is_error_type(arg_type_id) {
+                        argument_error = true;
+                        continue;
+                    }
+
+                    if self.ctx.type_system.is_conformable_array_type(arg_type_id) {
+                        self.diagnostics.add(
+                            DiagnosticKind::Error,
+                            *arg.loc(),
+                            format!(
+                                "a conformable array cannot be passed to the value conformable array parameter {}",
+                                param_sym.get_name()
+                            ),
+                        );
+                        argument_error = true;
+                        continue;
+                    } else if !self.type_can_be_conformed_to(arg_type_id, param_type_id) {
+                        self.diagnostics.add(
+                            DiagnosticKind::Error,
+                            *arg.loc(),
+                            format!(
+                                "argument is not conformable to the parameter {}",
+                                param_sym.get_name()
+                            ),
+                        );
+                        argument_error = true;
+                        continue;
+                    }
+
+                    check_argument_consistency
+                        .entry(current_param_pack_idx)
+                        .and_modify(|x| x.push(current_arg_idx))
+                        .or_insert(vec![current_arg_idx]);
+                }
+                ParameterKind::VariableConformableArray => {
+                    let param_type_id = param_sym.get_type().unwrap();
+                    if self.ctx.type_system.is_error_type(param_type_id) {
+                        continue;
+                    }
+                    // Typecheck argument now.
+                    {
+                        let loc = *arg.loc();
+                        let id = arg.id();
+                        arg.get_mut().mutating_walk_mut(self, &loc, id);
+                    }
+                    let arg_type_id = self.ctx.get_ast_type(arg.id()).unwrap();
+                    if self.ctx.type_system.is_error_type(arg_type_id) {
+                        argument_error = true;
+                        continue;
+                    }
+
+                    let arg_sym = self.ctx.get_ast_symbol(arg.id());
+                    let expr_is_variable = match arg.get() {
+                        ast::Expr::Variable(_) => true,
+                        _ => false,
+                    };
+
+                    if arg_sym.is_none() || !expr_is_variable {
+                        self.diagnostics.add(
+                                                DiagnosticKind::Error,
+                                                *arg.loc(),
+                                                format!(
+                                                    "argument is not a variable, as required by variable conformable array parameter '{}'",
+                                                    param_sym.get_name()
+                                                ),
+                                            );
+                        argument_error = true;
+                        continue;
+                    } else if !self.type_can_be_conformed_to(arg_type_id, param_type_id) {
+                        self.diagnostics.add(
+                            DiagnosticKind::Error,
+                            *arg.loc(),
+                            format!(
+                                "argument is not conformable to the parameter {}",
+                                param_sym.get_name()
+                            ),
+                        );
+                        argument_error = true;
+                        continue;
+                    } else {
+                        assert!(expr_is_variable);
+                        let argument = arg.get_mut();
+                        match argument {
+                            ast::Expr::Variable(expr_variable) => {
+                                let assig = &mut expr_variable.0;
+                                let assig = assig.take();
+                                let var_reference = ast::Expr::VariableReference(
+                                    ExprVariableReference(span::SpannedBox::from(assig)),
+                                );
+                                *argument = var_reference;
+                            }
+                            _ => {
+                                panic!("Unexpected tree");
+                            }
+                        }
+                    }
+
+                    check_argument_consistency
+                        .entry(current_param_pack_idx)
+                        .and_modify(|x| x.push(current_arg_idx))
+                        .or_insert(vec![current_arg_idx]);
+                }
+            }
+        }
+
+        if !argument_error {
+            // Now check the consistency of the arguments.
+            for (_param_pack_idx, args_to_check) in check_argument_consistency {
+                // Compare first with the rest.
+                let first_arg = &args[args_to_check[0]];
+                let first_arg_type_id = self.ctx.get_ast_type(first_arg.id()).unwrap();
+
+                for i in 1..args_to_check.len() {
+                    let current_arg = &args[args_to_check[i]];
+                    let current_arg_type_id = self.ctx.get_ast_type(current_arg.id()).unwrap();
+                    if !self
+                        .ctx
+                        .type_system
+                        .same_type(first_arg_type_id, current_arg_type_id)
+                    {
+                        self.diagnostics.add_with_extra(
+                            DiagnosticKind::Error,
+                            *current_arg.loc(),
+                            format!("these arguments should have the same type",),
+                            vec![*first_arg.loc()],
+                            vec![],
+                        );
+                        argument_error = true;
                     }
                 }
             }
@@ -2433,7 +2660,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 };
 
                 // We also need to insert the formal parameters in the scope, so name resolution works.
-                for prev_formal_param_sym_id in &prev_formal_parameters {
+                for prev_formal_param_sym_id in prev_formal_parameters.iter().flatten() {
                     let prev_formal_param = self.ctx.get_symbol(*prev_formal_param_sym_id);
                     let mut prev_formal_param = prev_formal_param.borrow_mut();
                     prev_formal_param.set_scope(self.ctx.scope.get_current_scope_id());
@@ -2733,7 +2960,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let mut current_ty = lhs_ty;
         let indices = &n.1;
         for index in indices.iter() {
-            if !self.ctx.type_system.is_array_type(current_ty) {
+            if !self.ctx.type_system.is_array_type(current_ty)
+                && !self.ctx.type_system.is_conformable_array_type(current_ty)
+            {
                 let extra = Diagnostic::new(
                     DiagnosticKind::Info,
                     *index.loc(),
@@ -2756,7 +2985,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             current_ty = self
                 .ctx
                 .type_system
-                .array_type_get_component_type(current_ty);
+                .array_or_conformable_array_type_get_component_type(current_ty);
         }
 
         self.ctx.set_ast_type(id, current_ty);
@@ -2945,6 +3174,20 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                         *n = new_call;
                                         return false;
                                     }
+                                }
+                                SymbolKind::BoundIdentifier => {
+                                    // Bound identifiers are not variables.
+                                    let new_bound_variable = ast::ExprBoundIdentifier(
+                                        span::Spanned::new(*span, x.0.get().clone()),
+                                    );
+
+                                    self.ctx.set_ast_symbol(id, sym_id);
+                                    self.ctx.set_ast_type(id, sym_type.unwrap());
+
+                                    let new_bound_variable =
+                                        ast::Expr::BoundIdentifier(new_bound_variable);
+                                    *n = new_bound_variable;
+                                    return false;
                                 }
                                 _ => {}
                             }
@@ -4851,7 +5094,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     let prev_formal_parameters = prev_sym.get_formal_parameters();
                     // Insert the formal parameters in the scope, so name resolution works.
                     if let Some(prev_formal_parameters) = prev_formal_parameters {
-                        for prev_formal_param_sym_id in prev_formal_parameters {
+                        for prev_formal_param_sym_id in prev_formal_parameters.iter().flatten().cloned() {
                             let prev_formal_param = self.ctx.get_symbol(prev_formal_param_sym_id);
                             let mut prev_formal_param = prev_formal_param.borrow_mut();
                             prev_formal_param.set_scope(self.ctx.scope.get_current_scope_id());
@@ -4953,6 +5196,150 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         });
     }
 
+    fn visit_post_index_type_specification(
+        &mut self,
+        n: &mut ast::IndexTypeSpecification,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) {
+        let lower = &n.0;
+        let upper = &n.1;
+        let type_specifier = &n.2;
+
+        let type_id = self.ctx.get_ast_type(type_specifier.id()).unwrap();
+        let type_id = if !self.ctx.type_system.is_ordinal_type(type_id)
+            && !self.ctx.type_system.is_error_type(type_id)
+        {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *type_specifier.loc(),
+                format!("type must be an ordinal type"),
+            );
+            self.ctx.type_system.get_error_type()
+        } else {
+            type_id
+        };
+
+        let declare_bound = |bound: &span::Spanned<String>, self_: &mut Self| {
+            let name = bound.get();
+            let id = bound.id();
+            let loc = bound.loc();
+
+            let mut new_sym = Symbol::new();
+            new_sym.set_name(name);
+            new_sym.set_kind(SymbolKind::BoundIdentifier);
+            new_sym.set_defining_point(*loc);
+            new_sym.set_type(type_id);
+            new_sym.set_scope(self_.ctx.scope.get_current_scope_id());
+
+            let new_sym = self_.ctx.new_symbol(new_sym);
+            self_.ctx.scope.add_entry(name, new_sym);
+            self_.ctx.set_ast_symbol(id, new_sym);
+        };
+
+        if !self.diagnose_redeclared_symbol(lower.get(), lower.loc()) {
+            declare_bound(lower, self);
+        }
+        if !self.diagnose_redeclared_symbol(upper.get(), upper.loc()) {
+            declare_bound(upper, self);
+        }
+    }
+
+    fn visit_pre_conformable_array_schema(
+        &mut self,
+        n: &mut ast::ConformableArraySchema,
+        _span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        // We visit these in preorder because they are declarations.
+        n.1.iter_mut().for_each(|x| {
+            let loc = *x.loc();
+            let id = x.id();
+            x.get_mut().mutating_walk_mut(self, &loc, id)
+        });
+
+        {
+            let loc = *n.2.loc();
+            let id = n.2.id();
+            n.2.get_mut().mutating_walk_mut(self, &loc, id);
+        }
+
+        // Now synthesise the type.
+        let component_type = &n.2;
+        let component_type_id = self.ctx.get_ast_type(component_type.id()).unwrap();
+
+        let index_type_specs = &n.1;
+        assert!(!index_type_specs.is_empty());
+
+        let packed = n.0.is_some();
+
+        let mut array_type = component_type_id;
+
+        for index_type_spec in index_type_specs.iter().rev() {
+            let lower = &index_type_spec.get().0;
+            let lower = self.ctx.get_ast_symbol(lower.id()).unwrap();
+
+            let upper = &index_type_spec.get().1;
+            let upper = self.ctx.get_ast_symbol(upper.id()).unwrap();
+
+            let mut new_array = Type::default();
+            new_array.set_kind(TypeKind::ConformableArray {
+                packed,
+                lower,
+                upper,
+                component: array_type,
+            });
+
+            array_type = self.ctx.type_system.new_type(new_array);
+        }
+
+        self.ctx.set_ast_type(id, array_type);
+
+        false
+    }
+
+    fn visit_post_array_schema(
+        &mut self,
+        n: &mut ast::ArraySchema,
+        _span: &span::SpanLoc,
+        id: span::SpanId,
+    ) {
+        let ty = self.ctx.get_ast_type(n.0.id()).unwrap();
+        self.ctx.set_ast_type(id, ty);
+    }
+
+    fn visit_post_formal_parameter_value_conformable_array(
+        &mut self,
+        n: &mut ast::FormalParameterValueConformableArray,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) {
+        let names = &n.0;
+        let type_name = &n.1;
+
+        let param_ty = self.ctx.get_ast_type(type_name.id()).unwrap();
+
+        names.iter().for_each(|name| {
+            self.declare_formal_parameter(name, param_ty, ParameterKind::ValueConformableArray);
+        });
+    }
+
+    fn visit_post_formal_parameter_variable_conformable_array(
+        &mut self,
+        n: &mut ast::FormalParameterVariableConformableArray,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) {
+        let names = &n.0;
+        let type_name = &n.1;
+
+        let param_ty = self.ctx.get_ast_type(type_name.id()).unwrap();
+
+        names.iter().for_each(|name| {
+            self.declare_formal_parameter(name, param_ty, ParameterKind::VariableConformableArray);
+        });
+    }
+
     fn visit_pre_formal_parameter_function(
         &mut self,
         _n: &mut ast::FormalParameterFunction,
@@ -4977,8 +5364,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 .unwrap_or(&vec![])
                 .iter()
                 .map(|x| self.get_symbols_formal_parameter(x))
-                .flatten()
-                .collect::<Vec<_>>();
+                .collect::<Vec<Vec<_>>>();
         let result_type = self.ctx.get_ast_type(n.2.id()).unwrap();
 
         self.declare_function_parameter(name, formal_parameters, result_type);
@@ -5008,8 +5394,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 .unwrap_or(&vec![])
                 .iter()
                 .map(|x| self.get_symbols_formal_parameter(x))
-                .flatten()
-                .collect::<Vec<_>>();
+                .collect::<Vec<Vec<_>>>();
 
         self.declare_procedure_parameter(name, formal_parameters);
     }

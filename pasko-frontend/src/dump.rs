@@ -530,7 +530,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             &format!("{}", self.type_to_string(id)),
         );
 
-        self.walk_child(&n.0);
+        self.walk_last_child(&n.0);
 
         false
     }
@@ -691,6 +691,20 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         self.walk_last_child(&n.0);
 
         false
+    }
+
+    fn visit_expr_bound_identifier(
+        &mut self,
+        n: &ast::ExprBoundIdentifier,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) {
+        self.emit_line_payload(
+            "BoundIdentifier",
+            span,
+            id,
+            &format!("{} {}", n.0.get(), self.type_to_string(id)),
+        );
     }
 
     fn visit_pre_variable_declaration_part(
@@ -1269,6 +1283,105 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         false
     }
 
+    fn visit_pre_formal_parameter_value_conformable_array(
+        &mut self,
+        n: &ast::FormalParameterValueConformableArray,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        self.emit_line_payload(
+            "FormalParameterValueConformableArray",
+            span,
+            id,
+            &format!(
+                "{:?}",
+                n.0.iter().map(|x| x.get()).collect::<Vec<&String>>()
+            ),
+        );
+
+        self.walk_last_child(&n.1);
+
+        false
+    }
+
+    fn visit_pre_formal_parameter_variable_conformable_array(
+        &mut self,
+        n: &ast::FormalParameterVariableConformableArray,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        self.emit_line_payload(
+            "FormalParamVariablealueConformableArray",
+            span,
+            id,
+            &format!(
+                "{:?}",
+                n.0.iter().map(|x| x.get()).collect::<Vec<&String>>()
+            ),
+        );
+
+        self.walk_last_child(&n.1);
+
+        false
+    }
+
+    fn visit_pre_conformable_array_schema(
+        &mut self,
+        n: &ast::ConformableArraySchema,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        self.emit_line_payload(
+            "ConformableArraySchema",
+            span,
+            id,
+            &format!(
+                "{}",
+                if n.0.is_some() {
+                    n.0.as_ref().unwrap()
+                } else {
+                    ""
+                }
+            ),
+        );
+
+        self.walk_vec_child_not_last(&n.1);
+        self.walk_last_child(&n.2);
+
+        false
+    }
+
+    fn visit_pre_array_schema(
+        &mut self,
+        n: &ast::ArraySchema,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        self.emit_line("ArraySchema", span, id);
+
+        self.walk_last_child(&n.0);
+
+        false
+    }
+
+    fn visit_pre_index_type_specification(
+        &mut self,
+        n: &ast::IndexTypeSpecification,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        self.emit_line_payload(
+            "IndexTypeSpecification",
+            span,
+            id,
+            &format!("{}..{}", n.0.get(), n.1.get()),
+        );
+
+        self.walk_last_child(&n.2);
+
+        false
+    }
+
     fn visit_pre_type_definition_part(
         &mut self,
         n: &ast::TypeDefinitionPart,
@@ -1345,6 +1458,15 @@ impl<'a> VisitorMut for ASTDumper<'a> {
     fn visit_pre_assig(
         &mut self,
         _n: &ast::Assig,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        true
+    }
+
+    fn visit_pre_conformable_array_element(
+        &mut self,
+        _n: &ast::ConformableArrayElement,
         _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {

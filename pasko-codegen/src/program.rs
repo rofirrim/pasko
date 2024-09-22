@@ -90,7 +90,7 @@ impl EntityAnnotations {
             .annotations
             .iter()
             .filter(|(&e, _)| match e {
-                cranelift_codegen::ir::entities::AnyEntity::GlobalValue (..) => true,
+                cranelift_codegen::ir::entities::AnyEntity::GlobalValue(..) => true,
                 _ => false,
             })
             .map(|(a, b)| (*a, b.clone()))
@@ -914,6 +914,7 @@ impl<'a> CodegenVisitor<'a> {
             .get_formal_parameters()
             .unwrap()
             .iter()
+            .flatten()
             .map(|sym_id| {
                 let sym_id = *sym_id;
                 let sym = self.semantic_context.get_symbol(sym_id);
@@ -980,6 +981,47 @@ impl<'a> CodegenVisitor<'a> {
                     self.function_signatures
                         .insert(*param_symbol_id, functional_signature);
                 }
+                ParameterKind::ValueConformableArray | ParameterKind::VariableConformableArray => {
+                    sig.params.push(AbiParam::new(self.pointer_type));
+                }
+            }
+        }
+
+        // Now handle the extra parameters required by bound identifiers.
+        let params: Vec<_> = function_symbol.get_formal_parameters().unwrap();
+        for param_pack in params {
+            // We only need the first parameter of the pack.
+            let param_sym = self.semantic_context.get_symbol(param_pack[0]);
+            let param_sym = param_sym.borrow();
+            match param_sym.get_parameter().unwrap() {
+                ParameterKind::ValueConformableArray | ParameterKind::VariableConformableArray => {
+                    let mut conformable_array_ty = param_sym.get_type().unwrap();
+                    while self
+                        .semantic_context
+                        .type_system
+                        .is_conformable_array_type(conformable_array_ty)
+                    {
+                        let lower_bound_id = self
+                            .semantic_context
+                            .type_system
+                            .conformable_array_type_get_lower(conformable_array_ty);
+                        let lower_bound = self.semantic_context.get_symbol(lower_bound_id);
+                        let lower_bound = lower_bound.borrow();
+                        // The type is the same for lower and upper, so just push it twice.
+                        let lower_bound_ty = lower_bound.get_type().unwrap();
+                        // lower
+                        sig.params
+                            .push(AbiParam::new(self.type_to_cranelift_type(lower_bound_ty)));
+                        // upper
+                        sig.params
+                            .push(AbiParam::new(self.type_to_cranelift_type(lower_bound_ty)));
+                        conformable_array_ty = self
+                            .semantic_context
+                            .type_system
+                            .conformable_array_type_get_component_type(conformable_array_ty);
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -1101,6 +1143,7 @@ impl<'a> CodegenVisitor<'a> {
             .get_formal_parameters()
             .unwrap()
             .iter()
+            .flatten()
             .map(|sym_id| {
                 let sym_id = *sym_id;
                 let sym = self.semantic_context.get_symbol(sym_id);
@@ -1150,10 +1193,51 @@ impl<'a> CodegenVisitor<'a> {
                     }
                 }
                 ParameterKind::Variable | ParameterKind::Function | ParameterKind::Procedure => {}
+                ParameterKind::ValueConformableArray => {
+                    let param_symbol_type_id = param_symbol.get_type().unwrap();
+                    if self.type_contains_set_types(param_symbol_type_id) {
+                        parameters_to_dispose.push(*param_symbol_id);
+                    }
+                }
+                ParameterKind::VariableConformableArray => {}
             }
         }
         // Remove mutability;
         let parameters_to_dispose = parameters_to_dispose;
+
+        // Gather bound identifiers.
+        let mut bound_identifiers: Vec<SymbolId> = vec![];
+        for param in function_symbol.get_formal_parameters().unwrap() {
+            let param = param[0];
+            let param_sym = self.semantic_context.get_symbol(param);
+            let param_sym = param_sym.borrow();
+            match param_sym.get_parameter().unwrap() {
+                ParameterKind::ValueConformableArray | ParameterKind::VariableConformableArray => {
+                    let mut conformable_array_ty = param_sym.get_type().unwrap();
+                    while self
+                        .semantic_context
+                        .type_system
+                        .is_conformable_array_type(conformable_array_ty)
+                    {
+                        bound_identifiers.push(
+                            self.semantic_context
+                                .type_system
+                                .conformable_array_type_get_lower(conformable_array_ty),
+                        );
+                        bound_identifiers.push(
+                            self.semantic_context
+                                .type_system
+                                .conformable_array_type_get_upper(conformable_array_ty),
+                        );
+                        conformable_array_ty = self
+                            .semantic_context
+                            .type_system
+                            .conformable_array_type_get_component_type(conformable_array_ty);
+                    }
+                }
+                _ => {}
+            }
+        }
 
         let mut func = Function::with_name_signature(UserFuncName::user(0, func_id.as_u32()), sig);
         let mut func_builder_ctx = FunctionBuilderContext::new();
@@ -1243,6 +1327,12 @@ impl<'a> CodegenVisitor<'a> {
                         ParameterKind::Function | ParameterKind::Procedure => {
                             function_codegen.allocate_function_address_in_stack(*param_sym_id)
                         }
+                        ParameterKind::ValueConformableArray
+                        | ParameterKind::VariableConformableArray => {
+                            // These are never simple, so pass a pointer to the actual storage.
+                            // Note: The bounds will be passed as pure values.
+                            function_codegen.allocate_address_in_stack(*param_sym_id);
+                        }
                     }
                 } else {
                     assert!(is_return);
@@ -1271,6 +1361,11 @@ impl<'a> CodegenVisitor<'a> {
                     current_param_index += 1;
                 }
             });
+        // Now link the bound identifiers in the function.
+        bound_identifiers.iter().for_each(|symbol_id| { 
+            function_codegen.link_bound_identifier(current_param_index, *symbol_id);
+            current_param_index += 1 ;
+        });
         // Notify about parameters that require disposing.
         parameters_to_dispose
             .iter()
@@ -1356,6 +1451,8 @@ impl<'a> CodegenVisitor<'a> {
             true
         } else if ts.is_array_type(ty) {
             self.type_contains_set_types(ts.array_type_get_component_type(ty))
+        } else if ts.is_conformable_array_type(ty) {
+            self.type_contains_set_types(ts.conformable_array_type_get_component_type(ty))
         } else if ts.is_record_type(ty) {
             let fields = ts.record_type_get_fixed_fields(ty);
             let fixed_fields = fields.iter().any(|&field| {

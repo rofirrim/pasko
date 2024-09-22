@@ -158,6 +158,12 @@ macro_rules! define_visitor_trait {
             $define_visitor!(FormalParameterVariable);
             $define_visitor!(FormalParameterProcedure);
             $define_visitor!(FormalParameterFunction);
+            $define_visitor!(FormalParameterValueConformableArray);
+            $define_visitor!(FormalParameterVariableConformableArray);
+            $define_visitor!(ConformableArraySchema);
+            $define_visitor!(ConformableArrayElement);
+            $define_visitor!(ArraySchema);
+            $define_visitor!(IndexTypeSpecification);
             $define_visitor!(StatementPart);
             $define_visitor!(Stmt);
             $define_visitor!(StmtLabel);
@@ -190,6 +196,7 @@ macro_rules! define_visitor_trait {
             $define_visitor!(ExprBinOp);
             $define_visitor!(ExprWriteParameter);
             $define_visitor!(ExprConversion);
+            $define_visitor_leaf!(ExprBoundIdentifier);
         }
     };
 }
@@ -1450,14 +1457,18 @@ define_visitable_enum!(FormalParameter, {
     ast::FormalParameter::Value,
     ast::FormalParameter::Variable,
     ast::FormalParameter::Procedure,
-    ast::FormalParameter::Function
+    ast::FormalParameter::Function,
+    ast::FormalParameter::ValueConformableArray,
+    ast::FormalParameter::VariableConformableArray
 });
 
 define_mutating_visitable_enum!(FormalParameter, {
     ast::FormalParameter::Value,
     ast::FormalParameter::Variable,
     ast::FormalParameter::Procedure,
-    ast::FormalParameter::Function
+    ast::FormalParameter::Function,
+    ast::FormalParameter::ValueConformableArray,
+    ast::FormalParameter::VariableConformableArray
 });
 
 // FormatlParameterValue
@@ -1560,6 +1571,145 @@ define_mutating_visitable!(
         mutating_visit_child_mut!(self, 2, v);
     }
 );
+
+// FormalParameterValueConformableArray
+define_visitable!(
+    FormalParameterValueConformableArray,
+    self,
+    v,
+    {
+        visit_child!(self, 1, v);
+    },
+    {
+        visit_child_mut!(self, 1, v);
+    }
+);
+
+define_mutating_visitable!(
+    FormalParameterValueConformableArray,
+    self,
+    v,
+    {
+        mutating_visit_child!(self, 1, v);
+    },
+    {
+        mutating_visit_child_mut!(self, 1, v);
+    }
+);
+
+// FormalParameterVariableConformableArray
+define_visitable!(
+    FormalParameterVariableConformableArray,
+    self,
+    v,
+    {
+        visit_child!(self, 1, v);
+    },
+    {
+        visit_child_mut!(self, 1, v);
+    }
+);
+
+define_mutating_visitable!(
+    FormalParameterVariableConformableArray,
+    self,
+    v,
+    {
+        mutating_visit_child!(self, 1, v);
+    },
+    {
+        mutating_visit_child_mut!(self, 1, v);
+    }
+);
+
+// ConformableArraySchema
+define_visitable!(
+    ConformableArraySchema,
+    self,
+    v,
+    {
+        visit_vector_child!(self, 1, v);
+        visit_child!(self, 2, v);
+    },
+    {
+        visit_vector_child_mut!(self, 1, v);
+        visit_child_mut!(self, 2, v);
+    }
+);
+
+define_mutating_visitable!(
+    ConformableArraySchema,
+    self,
+    v,
+    {
+        mutating_visit_vector_child!(self, 1, v);
+        mutating_visit_child!(self, 2, v);
+    },
+    {
+        mutating_visit_vector_child_mut!(self, 1, v);
+        mutating_visit_child_mut!(self, 2, v);
+    }
+);
+
+// ArraySchema
+define_visitable!(
+    ArraySchema,
+    self,
+    v,
+    {
+        visit_child!(self, 0, v);
+    },
+    {
+        visit_child_mut!(self, 0, v);
+    }
+);
+
+define_mutating_visitable!(
+    ArraySchema,
+    self,
+    v,
+    {
+        mutating_visit_child!(self, 0, v);
+    },
+    {
+        mutating_visit_child_mut!(self, 0, v);
+    }
+);
+
+// IndexTypeSpecification
+define_visitable!(IndexTypeSpecification,
+    self,
+    v,
+    {
+        visit_child!(self, 2, v);
+    },
+    {
+        visit_child_mut!(self, 2, v);
+    }
+);
+
+define_mutating_visitable!(IndexTypeSpecification,
+    self,
+    v,
+    {
+        mutating_visit_child!(self, 2, v);
+    },
+    {
+        mutating_visit_child_mut!(self, 2, v);
+    }
+);
+
+// ConformableArrayElement
+define_visitable_enum!(ConformableArrayElement,
+{
+    ast::ConformableArrayElement::TypeIdentifier,
+    ast::ConformableArrayElement::ArraySchema
+});
+define_mutating_visitable_enum!(ConformableArrayElement,
+{
+    ast::ConformableArrayElement::TypeIdentifier,
+    ast::ConformableArrayElement::ArraySchema
+});
 
 // StatementPart
 define_visitable!(
@@ -2054,7 +2204,8 @@ define_visitable_enum!(Expr, {
     ast::Expr::UnOp,
     ast::Expr::BinOp,
     ast::Expr::WriteParameter,
-    ast::Expr::Conversion
+    ast::Expr::Conversion,
+    ast::Expr::BoundIdentifier
 });
 
 define_mutating_visitable_enum!(Expr, {
@@ -2068,7 +2219,8 @@ define_mutating_visitable_enum!(Expr, {
     ast::Expr::UnOp,
     ast::Expr::BinOp,
     ast::Expr::WriteParameter,
-    ast::Expr::Conversion
+    ast::Expr::Conversion,
+    ast::Expr::BoundIdentifier
 });
 
 // ExprConst
@@ -2361,3 +2513,7 @@ define_mutating_visitable!(
         mutating_visit_child_mut!(self, 0, v);
     }
 );
+
+// ExprBoundIdentifier
+define_visitable_leaf!(ExprBoundIdentifier);
+define_mutating_visitable_leaf!(ExprBoundIdentifier);

@@ -419,8 +419,45 @@ FormalParameter : SpannedBox<ast::FormalParameter> = {
         SpannedBox::new(span_loc!(start, end), ast::FormalParameter::Procedure(ast::FormalParameterProcedure(identifier, formal_parameters))),
     <start:@L> "function" <identifier:Identifier> <formal_parameters:FormalParameterList?> ":" <start_id:@L> <result_type:Identifier> <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::FormalParameter::Function(ast::FormalParameterFunction(identifier, formal_parameters, 
-              SpannedBox::new(span_loc!(start_id, end), ast::TypeIdentifier(result_type)))))
+              SpannedBox::new(span_loc!(start_id, end), ast::TypeIdentifier(result_type))))),
+    // conformable array parameters
+    <start:@L> <identifiers:CommaSeparated<Identifier>> ":" <conformable_array:ConformableArraySchema> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end),
+            ast::FormalParameter::ValueConformableArray(
+                ast::FormalParameterValueConformableArray(identifiers, conformable_array))),
+    <start:@L> "var" <identifiers:CommaSeparated<Identifier>> ":" <conformable_array:ConformableArraySchema> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end),
+            ast::FormalParameter::VariableConformableArray(
+                ast::FormalParameterVariableConformableArray(identifiers, conformable_array))),
 };
+
+ConformableArraySchema : SpannedBox<ast::ConformableArraySchema> = {
+    <start:@L> "packed" "array" "[" <index_type_spec:IndexTypeSpecification> "]" "of" <start_type:@L> <type_identifier:Identifier> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end),
+                        ast::ConformableArraySchema(Some("packed".to_string()),
+                            vec![index_type_spec],
+                            SpannedBox::new(span_loc!(start_type, end),
+                                            ast::ConformableArrayElement::TypeIdentifier(ast::TypeIdentifier(type_identifier))))),
+    <start:@L> "array" "[" <index_type_seq:SemicolonSeparated<IndexTypeSpecification>> "]" "of" <start_type:@L>  <type_identifier:Identifier> <end:@R>  =>
+        SpannedBox::new(span_loc!(start, end),
+                        ast::ConformableArraySchema(None,
+                            index_type_seq,
+                            SpannedBox::new(span_loc!(start_type, end),
+                                            ast::ConformableArrayElement::TypeIdentifier(ast::TypeIdentifier(type_identifier))))),
+    <start:@L> "array" "[" <index_type_seq:SemicolonSeparated<IndexTypeSpecification>> "]" "of" <start_type:@L> <array_schema:ConformableArraySchema> <end:@R>  =>
+        SpannedBox::new(span_loc!(start, end),
+                        ast::ConformableArraySchema(None,
+                            index_type_seq,
+                            SpannedBox::new(span_loc!(start_type, end),
+                                            ast::ConformableArrayElement::ArraySchema(ast::ArraySchema(array_schema))))),
+};
+
+IndexTypeSpecification : SpannedBox<ast::IndexTypeSpecification> = {
+    <start:@L> <lower:Identifier> ".." <upper:Identifier> ":" <start_type:@L> <type_identifier:Identifier> <end:@R> => 
+        SpannedBox::new(span_loc!(start, end), ast::IndexTypeSpecification(lower, upper,
+           SpannedBox::new(span_loc!(start_type, end), ast::TypeIdentifier(type_identifier))))
+};
+
 
 ClosedStructuredStatement : SpannedBox<ast::Stmt> = {
     <cs:CompoundStatement> => cs,

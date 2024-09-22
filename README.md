@@ -80,7 +80,7 @@ From inside the build-directory
 
 | Feature                                                | State | Notes                                                       |
 | ------------------------------------------------------ | ----- | ----------------------------------------------------------- |
-| Conformable arrays in functions and procedures         | ❌    |                                                             |
+| Labels                                                 |       |                                                             |
 | pack/unpack required procedures                        | ❌    |                                                             |
 | Variant types                                          | ⚠️     | Variant types including non-trivial types types are not supported  |
 

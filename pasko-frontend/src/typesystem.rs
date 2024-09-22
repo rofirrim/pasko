@@ -2,6 +2,7 @@ use crate::constant;
 use crate::constant::Constant;
 use crate::limits;
 use crate::symbol;
+use crate::symbol::SymbolId;
 use crate::utils;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -53,6 +54,12 @@ pub enum TypeKind {
     Array {
         packed: bool,
         index: TypeId,
+        component: TypeId,
+    },
+    ConformableArray {
+        packed: bool,
+        lower: symbol::SymbolId,
+        upper: symbol::SymbolId,
         component: TypeId,
     },
     Record {
@@ -181,6 +188,41 @@ impl Type {
     fn array_type_is_packed(&self) -> bool {
         match self.info.kind {
             TypeKind::Array { packed, .. } => packed,
+            _ => panic!("This is not an array type"),
+        }
+    }
+
+    fn is_conformable_array_type(&self) -> bool {
+        match self.info.kind {
+            TypeKind::ConformableArray { .. } => true,
+            _ => false,
+        }
+    }
+
+    fn conformable_array_type_get_component_type(&self) -> TypeId {
+        match self.info.kind {
+            TypeKind::ConformableArray { component, .. } => component,
+            _ => panic!("This is not an array type"),
+        }
+    }
+
+    fn conformable_array_type_is_packed(&self) -> bool {
+        match self.info.kind {
+            TypeKind::ConformableArray { packed, .. } => packed,
+            _ => panic!("This is not an array type"),
+        }
+    }
+
+    fn conformable_array_type_get_lower(&self) -> SymbolId {
+        match self.info.kind {
+            TypeKind::ConformableArray { lower, .. } => lower,
+            _ => panic!("This is not an array type"),
+        }
+    }
+
+    fn conformable_array_type_get_upper(&self) -> SymbolId {
+        match self.info.kind {
+            TypeKind::ConformableArray { upper, .. } => upper,
             _ => panic!("This is not an array type"),
         }
     }
@@ -608,6 +650,13 @@ impl TypeSystem {
         ty.is_array_type()
     }
 
+    pub fn array_type_is_packed(&self, ty: TypeId) -> bool {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.array_type_is_packed()
+    }
+
     pub fn array_type_get_component_type(&self, ty: TypeId) -> TypeId {
         let ty = self.ultimate_type(ty);
         let ty = self.get_type_internal(ty);
@@ -620,6 +669,63 @@ impl TypeSystem {
         let ty = self.get_type_internal(ty);
 
         ty.array_type_get_index_type()
+    }
+
+    pub fn is_conformable_array_type(&self, ty: TypeId) -> bool {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.is_conformable_array_type()
+    }
+
+    pub fn conformable_array_type_get_component_type(&self, ty: TypeId) -> TypeId {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.conformable_array_type_get_component_type()
+    }
+
+    pub fn conformable_array_type_is_packed(&self, ty: TypeId) -> bool {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.conformable_array_type_is_packed()
+    }
+
+    pub fn conformable_array_type_get_lower(&self, ty: TypeId) -> SymbolId {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.conformable_array_type_get_lower()
+    }
+
+    pub fn conformable_array_type_get_upper(&self, ty: TypeId) -> SymbolId {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.conformable_array_type_get_upper()
+    }
+
+    pub fn array_or_conformable_array_type_get_component_type(&self, ty: TypeId) -> TypeId {
+        if self.is_array_type(ty) {
+            self.array_type_get_component_type(ty)
+        } else {
+            self.conformable_array_type_get_component_type(ty)
+        }
+    }
+
+    pub fn array_or_conformable_array_type_get_index_type(&self, ty: TypeId) -> TypeId {
+        if self.is_array_type(ty) {
+            let ty = self.ultimate_type(ty);
+            let ty = self.get_type_internal(ty);
+
+            ty.array_type_get_index_type()
+        } else {
+            let lower = self.conformable_array_type_get_lower(ty);
+            let lower_sym = self.symbol_map.borrow().get_symbol(lower);
+            let lower_sym = lower_sym.borrow();
+            lower_sym.get_type().unwrap()
+        }
     }
 
     pub fn is_record_type(&self, ty: TypeId) -> bool {
@@ -897,6 +1003,28 @@ impl TypeSystem {
                     "{}array [{}] of {}",
                     if packed { "packed " } else { "" },
                     self.get_type_name_impl(index, skip_alias, cycles.clone()),
+                    self.get_type_name_impl(component, skip_alias, cycles)
+                )
+            }
+            TypeKind::ConformableArray {
+                packed,
+                lower,
+                upper,
+                component,
+            } => {
+                format!(
+                    "conformable {}array [{}..{}] of {}",
+                    if packed { "packed " } else { "" },
+                    {
+                        let sym = self.symbol_map.borrow().get_symbol(lower);
+                        let sym = sym.borrow();
+                        sym.get_name().clone()
+                    },
+                    {
+                        let sym = self.symbol_map.borrow().get_symbol(upper);
+                        let sym = sym.borrow();
+                        sym.get_name().clone()
+                    },
                     self.get_type_name_impl(component, skip_alias, cycles)
                 )
             }

@@ -30,4 +30,6 @@ pub enum DataLocation {
         env_levels_up: usize,
         env_var_index: usize,
     },
+    // Immutable value, without address. Used for bound identifiers of conformable arrays.
+    Value(cranelift_codegen::ir::Value)
 }
