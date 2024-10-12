@@ -80,7 +80,8 @@ From inside the build-directory
 
 | Feature                                                | State | Notes                                                       |
 | ------------------------------------------------------ | ----- | ----------------------------------------------------------- |
-| Labels                                                 |       |                                                             |
+| labels                                                 | ❌    |                                                             |
+| with-statement                                         | ❌    |                                                             |
 | pack/unpack required procedures                        | ❌    |                                                             |
 | Variant types                                          | ⚠️     | Variant types including non-trivial types types are not supported  |
 
