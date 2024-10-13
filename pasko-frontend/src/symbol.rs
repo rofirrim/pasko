@@ -35,6 +35,7 @@ pub enum SymbolKind {
     Const,
     Field,
     BoundIdentifier,
+    Label
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

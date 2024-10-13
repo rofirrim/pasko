@@ -301,13 +301,13 @@ Statement : SpannedBox<ast::Stmt> = {
 };
 
 ClosedStatement : SpannedBox<ast::Stmt> = {
-    <start:@L> <label:LabelLiteral?> <stmt:SimpleStatement> <end:@R> => {
+    <start:@L> <label:LabelPrefix?> <stmt:SimpleStatement> <end:@R> => {
         match label {
             None => stmt,
             Some(l) => SpannedBox::new(span_loc!(start, end), ast::Stmt::Label(ast::StmtLabel(l, stmt))),
         }
     },
-    <start:@L> <label:LabelLiteral?> <stmt:ClosedStructuredStatement> <end:@R> => {
+    <start:@L> <label:LabelPrefix?> <stmt:ClosedStructuredStatement> <end:@R> => {
         match label {
             None => stmt,
             Some(l) => SpannedBox::new(span_loc!(start, end), ast::Stmt::Label(ast::StmtLabel(l, stmt))),
@@ -372,6 +372,11 @@ LabelLiteral : Spanned<usize> = <start:@L> <s:UnsignedInteger> <end:@L> =>? {
         Ok(s)
     }
 };
+
+LabelPrefix : Spanned<usize> = <l:LabelLiteral> ":" => { 
+    l
+};
+
 
 ProcedureAndFunctionDeclarationPart : SpannedBox<ast::ProcedureAndFunctionDeclarationPart>  = {
     <start:@L> <procedure_and_function_declaration:SemicolonTerminated<ProcedureAndFunctionDeclaration>> <end:@R> =>

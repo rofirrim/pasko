@@ -4,7 +4,7 @@ use crate::constant::Constant;
 use crate::diagnostics::{Diagnostic, DiagnosticKind, Diagnostics};
 use crate::span::{self, SpannedBox};
 use crate::symbol::{
-    ParameterKind, Symbol, SymbolId, SymbolKind, SymbolMap, SymbolMapImpl, SymbolRef,
+    self, ParameterKind, Symbol, SymbolId, SymbolKind, SymbolMap, SymbolMapImpl, SymbolRef,
 };
 use crate::typesystem::{Type, TypeId, TypeKind, TypeSystem};
 use crate::visitor::MutatingVisitable;
@@ -26,6 +26,7 @@ pub struct SemanticContext {
     pub program_parameters: Vec<(String, span::SpanLoc)>,
     pub global_files: Vec<SymbolId>,
     pending_type_definitions: Vec<SymbolId>,
+    label_declarations: Vec<Vec<SymbolId>>,
 }
 
 const REQUIRED_PROCEDURES: &[&str] = &[
@@ -76,6 +77,7 @@ impl SemanticContext {
             program_parameters: vec![],
             global_files: vec![],
             pending_type_definitions: vec![],
+            label_declarations: vec![],
         };
 
         sc
@@ -1724,6 +1726,10 @@ impl<'a> SemanticCheckerVisitor<'a> {
             });
         }
     }
+
+    fn get_label_name(&self, label: usize) -> String {
+        format!("label.{}", label)
+    }
 }
 
 impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
@@ -1773,21 +1779,70 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         _id: span::SpanId,
     ) -> bool {
         // Note this also includes the program block.
+        self.ctx.label_declarations.push(vec![]);
         self.ctx.scope.push_scope(None);
         true
     }
 
     fn visit_post_block(&mut self, _n: &mut ast::Block, _span: &span::SpanLoc, _id: span::SpanId) {
+        let label_declarations = self.ctx.label_declarations.pop().unwrap();
+        for label in label_declarations {
+            let label_sym = self.ctx.get_symbol(label);
+            let label_sym = label_sym.borrow();
+            if !label_sym.is_defined() {
+                self.diagnostics.add(
+                    DiagnosticKind::Error,
+                    label_sym.get_defining_point().unwrap(),
+                    format!("label has not been used"),
+                );
+            }
+        }
         self.ctx.scope.pop_scope();
     }
 
     fn visit_label_declaration_part(
         &mut self,
-        _n: &mut ast::LabelDeclarationPart,
-        span: &span::SpanLoc,
+        n: &mut ast::LabelDeclarationPart,
+        _span: &span::SpanLoc,
         _id: span::SpanId,
     ) {
-        self.unimplemented(*span, "declaration of labels");
+        let labels = &n.0;
+        for label in labels {
+            // The easiest thing to do here is to register the label like "label.{}"
+            // so checking later if it was declared is very easy.
+            let label_name = self.get_label_name(*label.get());
+            if let Some(label_decl) = self.ctx.scope.lookup_current_scope(&label_name) {
+                let previous_label = self.ctx.get_symbol(label_decl);
+                let previous_label = previous_label.borrow();
+                self.diagnostics.add_with_extra(
+                    DiagnosticKind::Error,
+                    *label.loc(),
+                    format!("redeclared label {}", label.get()),
+                    vec![],
+                    vec![Diagnostic::new(
+                        DiagnosticKind::Info,
+                        previous_label.get_defining_point().unwrap(),
+                        format!("label already declared here"),
+                    )],
+                );
+            } else {
+                let mut new_label = symbol::Symbol::new();
+                new_label.set_kind(SymbolKind::Label);
+                new_label.set_defining_point(*label.loc());
+                new_label.set_name(&label.get().to_string());
+                new_label.set_scope(self.ctx.scope.get_current_scope_id());
+                new_label.set_defined(false);
+
+                let new_label = self.ctx.new_symbol(new_label);
+                self.ctx.scope.add_entry(&label_name, new_label);
+
+                self.ctx
+                    .label_declarations
+                    .last_mut()
+                    .unwrap()
+                    .push(new_label);
+            }
+        }
     }
 
     fn visit_post_constant_definition(
@@ -4393,18 +4448,94 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             .set_ast_type(id, self.ctx.get_ast_type(node.0.id()).unwrap());
     }
 
-    fn visit_stmt_goto(&mut self, _n: &mut ast::StmtGoto, span: &span::SpanLoc, _id: span::SpanId) {
-        self.unimplemented(*span, "goto-statements");
+    fn visit_stmt_goto(&mut self, n: &mut ast::StmtGoto, _span: &span::SpanLoc, _id: span::SpanId) {
+        let label = &n.0;
+        let label_name = self.get_label_name(*label.get());
+        if let Some(label_decl) = self.ctx.scope.lookup(&label_name) {
+            // We do not allow non-local jumps, so we restrict them to the same function.
+            // We might be able to relax this using setjmp and longjmp.
+            let innermost_scope_symbol = self
+                .ctx
+                .scope
+                .get_innermost_scope_symbol(self.ctx.scope.get_current_scope_id());
+            let label_sym = self.ctx.get_symbol(label_decl);
+            let label_sym = label_sym.borrow();
+            let label_scope = label_sym.get_scope().unwrap();
+            let label_innermost_scope = self.ctx.scope.get_innermost_scope_symbol(label_scope);
+            match (innermost_scope_symbol, label_innermost_scope) {
+                (None, None) => {}
+                (Some(x), Some(y)) if x == y => {}
+                _ => {
+                    self.diagnostics.add(
+                        DiagnosticKind::Error,
+                        *label.loc(),
+                        format!("non-local jump not allowed"),
+                    );
+                }
+            }
+        } else {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *label.loc(),
+                format!("undeclared label"),
+            );
+        }
     }
 
-    fn visit_pre_stmt_label(
+    fn visit_post_stmt_label(
         &mut self,
-        _n: &mut ast::StmtLabel,
-        span: &span::SpanLoc,
+        n: &mut ast::StmtLabel,
+        _span: &span::SpanLoc,
         _id: span::SpanId,
-    ) -> bool {
-        self.unimplemented(*span, "labeled-statements");
-        false
+    ) {
+        // Check first the label.
+        let label = *n.0.get();
+        let label_name = self.get_label_name(label);
+        if let Some(label_decl) = self.ctx.scope.lookup(&label_name) {
+            let innermost_scope_symbol = self
+                .ctx
+                .scope
+                .get_innermost_scope_symbol(self.ctx.scope.get_current_scope_id());
+            let label_sym = self.ctx.get_symbol(label_decl);
+            let mut label_sym = label_sym.borrow_mut();
+            let label_scope = label_sym.get_scope().unwrap();
+            let label_innermost_scope = self.ctx.scope.get_innermost_scope_symbol(label_scope);
+            let mut wrong_label = false;
+            match (innermost_scope_symbol, label_innermost_scope) {
+                (None, None) => {}
+                (Some(x), Some(y)) if x == y => {}
+                _ => {
+                    self.diagnostics.add(
+                        DiagnosticKind::Error,
+                        *n.0.loc(),
+                        format!("statements can only be prefixed by labels declared in the innermost enclosing block"),
+                    );
+                    wrong_label = true;
+                }
+            }
+            if !wrong_label && label_sym.is_defined() {
+                self.diagnostics.add_with_extra(
+                    DiagnosticKind::Error,
+                    *n.0.loc(),
+                    format!("label has already been used as the prefix of a statement"),
+                    vec![],
+                    vec![Diagnostic::new(
+                        DiagnosticKind::Info,
+                        label_sym.get_defining_point().unwrap(),
+                        format!("previous use of this label"),
+                    )],
+                );
+            } else {
+                label_sym.set_defined(true);
+                label_sym.set_defining_point(*n.0.loc());
+            }
+        } else {
+            self.diagnostics.add(
+                DiagnosticKind::Error,
+                *n.0.loc(),
+                format!("label has not been declared"),
+            );
+        }
     }
 
     fn visit_pre_stmt_procedure_call(

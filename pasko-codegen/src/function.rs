@@ -20,6 +20,7 @@ use pasko_frontend::symbol;
 use pasko_frontend::symbol::ParameterKind;
 use pasko_frontend::symbol::SymbolId;
 use pasko_frontend::typesystem::TypeId;
+use pasko_frontend::visitor::MutatingVisitable;
 use pasko_frontend::visitor::{Visitable, VisitorMut};
 
 use cranelift_codegen::entity::EntityRef;
@@ -76,6 +77,8 @@ pub struct FunctionCodegenVisitor<'a, 'b, 'c> {
     symbols_to_dispose: Vec<pasko_frontend::symbol::SymbolId>,
 
     enclosing_environment: Option<cranelift_codegen::ir::Value>,
+
+    labeled_blocks: HashMap<usize, cranelift_codegen::ir::Block>,
 }
 
 impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
@@ -257,6 +260,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             temporaries_to_dispose: vec![],
             symbols_to_dispose: vec![],
             enclosing_environment: None,
+            labeled_blocks: HashMap::new(),
         }
     }
 
@@ -2155,6 +2159,16 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 unreachable!("unexpected data location for a bound identifier");
             }
         }
+    }
+
+    fn get_or_create_block_for_label(&mut self, label: usize) -> cranelift_codegen::ir::Block {
+        // We can't use the entry API because the borrow checker won't like it.
+        if let Some(x) = self.labeled_blocks.get(&label) {
+            return *x;
+        }
+        let new_block = self.builder().create_block();
+        self.labeled_blocks.insert(label, new_block);
+        new_block
     }
 }
 
@@ -4200,6 +4214,42 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         }
 
         false
+    }
+
+    fn visit_pre_stmt_label(
+        &mut self,
+        n: &ast::StmtLabel,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        // Get the target block.
+        let labeled_block = self.get_or_create_block_for_label(*n.0.get());
+
+        // Finish current block jumping to the target block.
+        self.builder().ins().jump(labeled_block, &[]);
+        self.block_stack.pop();
+
+        // Start the target block.
+        self.block_stack.push(labeled_block);
+        self.builder().switch_to_block(labeled_block);
+
+        // And emit the current statement as usual.
+        n.1.get().walk_mut(self, n.1.loc(), n.1.id());
+        false
+    }
+
+    fn visit_stmt_goto(&mut self, n: &ast::StmtGoto, _span: &span::SpanLoc, _id: span::SpanId) {
+        // Get the target block.
+        let labeled_block = self.get_or_create_block_for_label(*n.0.get());
+
+        // Finish the target block jumping to the target block.
+        self.builder().ins().jump(labeled_block, &[]);
+        self.block_stack.pop();
+
+        // And start a new block for the following statement.
+        let next_block = self.builder().create_block();
+        self.block_stack.push(next_block);
+        self.builder().switch_to_block(next_block);
     }
 
     fn visit_pre_expr_function_call(
