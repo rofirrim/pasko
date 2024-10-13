@@ -311,17 +311,16 @@ static unsigned __pasko_i64_size(int64_t x) {
   int lower = 0;
   int upper = 19;
   do {
-    int mid_point = (upper - lower) / 2;
+    int mid_point = (upper + lower) / 2;
     if (a < log10_table[mid_point]) {
       upper = mid_point;
-    } else if (log10_table[mid_point] < a) {
+    } else if (log10_table[mid_point] <= a) {
       lower = mid_point + 1;
-    } else {
-      return mid_point + 1;
     }
   } while (lower < upper);
 
-  return lower + 1;
+  int size = lower + 1;
+  return size;
 }
 
 void __pasko_write_textfile_i64(pasko_file_t *f, int64_t num,
