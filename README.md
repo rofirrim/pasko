@@ -80,10 +80,10 @@ From inside the build-directory
 
 | Feature                                                | State | Notes                                                       |
 | ------------------------------------------------------ | ----- | ----------------------------------------------------------- |
-| labels                                                 | ❌    |                                                             |
 | with-statement                                         | ❌    |                                                             |
 | pack/unpack required procedures                        | ❌    |                                                             |
 | Variant types                                          | ⚠️     | Variant types including non-trivial types types are not supported  |
+| labels                                                 | ⚠️     | Only local-gotos. It is unlikely non-local gotos get ever implemented. |
 
 ### Areas of improvement
 

@@ -56,19 +56,6 @@ fn do_ast_dump(input: &str) -> String {
 }
 
 #[test]
-fn diagnostic_not_implemented() {
-    semantic_check_diags(
-        r#"
-program test(input, output);
-begin
-    goto 1234;
-end.
-  "#,
-        vec!["sorry, goto-statements not implemented yet".to_string()],
-    );
-}
-
-#[test]
 fn semantic_diagnostics() {
     semantic_check_diags(
         r#"

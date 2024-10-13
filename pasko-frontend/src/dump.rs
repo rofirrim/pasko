@@ -1408,6 +1408,43 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         false
     }
 
+    fn visit_label_declaration_part(
+        &mut self,
+        n: &ast::LabelDeclarationPart,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) {
+        self.emit_line_payload(
+            "LabelDeclarationPart",
+            span,
+            id,
+            &format!(
+                "{}",
+                n.0.iter()
+                    .map(|x| format!("{}", x.get()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        )
+    }
+
+    fn visit_stmt_goto(&mut self, n: &ast::StmtGoto, span: &span::SpanLoc, id: span::SpanId) {
+        self.emit_line_payload("StmtGoto", span, id, &format!("label {}", n.0.get()));
+    }
+
+    fn visit_pre_stmt_label(
+        &mut self,
+        n: &ast::StmtLabel,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        self.emit_line_payload("StmtLabel", span, id, &format!("label {}", n.0.get()));
+
+        self.walk_last_child(&n.1);
+
+        false
+    }
+
     // Generic visitors of enumerators. They must return true so their variants are visited.
     fn visit_pre_procedure_and_function_declaration(
         &mut self,
