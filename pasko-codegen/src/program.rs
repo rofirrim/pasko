@@ -190,6 +190,7 @@ impl<'a> CodegenVisitor<'a> {
             cranelift_codegen::isa::lookup_by_name("x86_64-unknown-linux-gnu").unwrap();
         flag_builder.set("is_pic", "true").unwrap();
         flag_builder.set("opt_level", "speed").unwrap();
+        flag_builder.enable("enable_alias_analysis").unwrap();
         let isa = isa_builder
             .finish(settings::Flags::new(flag_builder))
             .unwrap();
