@@ -2,13 +2,13 @@
 pub enum DataLocation {
     // This has a global address.
     GlobalVar(cranelift_module::DataId),
+    // Simple local variables and parameters that can be mapped
+    // straightforwardly to Cranelift IR types can use this. They have an
+    // optional address in case it is actually needed.
+    Variable(cranelift_frontend::Variable, Option<cranelift_codegen::ir::Value>),
     // This entity value is stored directly in the stack. (i.e. loading the
     // value requires one load, storing a value just one store).
-    //
-    // This is used for local variables of all kinds.
-    //
-    // This is also used for parameters of simple type, pointers and set types
-    // (= sets are opaque so their values is simply a pointer to an opaque set).
+    // This is used for structs, arrays and sets.
     StackVarValue(cranelift_codegen::ir::entities::StackSlot),
     // This entity value is not stored directly in the stack.  Instead the stack
     // contains an address to the value (i.e., loading the value requires two
@@ -30,9 +30,6 @@ pub enum DataLocation {
         env_levels_up: usize,
         env_var_index: usize,
     },
-    // Simple variables that can be mapped straightforwardly to Cranelift IR types
-    // can use this. They have an optional address in case it is actually needed.
-    Variable(cranelift_frontend::Variable, Option<cranelift_codegen::ir::Value>),
     // Immutable value, without address. Used for bound identifiers of conformable arrays.
     Value(cranelift_codegen::ir::Value)
 }

@@ -4113,7 +4113,16 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         // Compute the address of ind_var
         ind_var.get().walk_mut(self, ind_var.loc(), ind_var.id());
-        let addr_ind_var = self.get_value(ind_var.id());
+        let (addr_ind_var, ind_variable) =
+            if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(ind_var.id()) {
+                let dl = *self.codegen.data_location.get(&sym_id).unwrap();
+                match dl {
+                    DataLocation::Variable(var, ..) => (None, Some(var)),
+                    _ => (Some(self.get_value(ind_var.id())), None),
+                }
+            } else {
+                (Some(self.get_value(ind_var.id())), None)
+            };
 
         let ind_var_ty = self
             .codegen
@@ -4122,12 +4131,20 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .unwrap();
 
         // Initialize induction var with the value of start
-        self.builder().ins().store(
-            cranelift_codegen::ir::MemFlags::new(),
-            start_val,
-            addr_ind_var,
-            0,
-        );
+        match (addr_ind_var, ind_variable) {
+            (Some(addr_ind_var), None) => {
+                self.builder().ins().store(
+                    cranelift_codegen::ir::MemFlags::new(),
+                    start_val,
+                    addr_ind_var,
+                    0,
+                );
+            }
+            (None, Some(ind_variable)) => {
+                self.builder().def_var(ind_variable, start_val);
+            }
+            _ => unreachable!(),
+        }
 
         // Now we can move onto the for block.
         let for_block = self.builder().create_block();
@@ -4145,12 +4162,16 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         // Load the value of the induction variable
         let cranelift_ty = self.codegen.type_to_cranelift_type(ind_var_ty);
-        let ind_var_value = self.builder().ins().load(
-            cranelift_ty,
-            cranelift_codegen::ir::MemFlags::new(),
-            addr_ind_var,
-            0,
-        );
+        let ind_var_value = match (addr_ind_var, ind_variable) {
+            (Some(addr_ind_var), None) => self.builder().ins().load(
+                cranelift_ty,
+                cranelift_codegen::ir::MemFlags::new(),
+                addr_ind_var,
+                0,
+            ),
+            (None, Some(ind_variable)) => self.builder().use_var(ind_variable),
+            _ => unreachable!(),
+        };
 
         // Compute ind_var == end
         let we_are_done = self
@@ -4175,12 +4196,20 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         };
 
         // Update the induction variable.
-        self.builder().ins().store(
-            cranelift_codegen::ir::MemFlags::new(),
-            next_ind_var_value,
-            addr_ind_var,
-            0,
-        );
+        match (addr_ind_var, ind_variable) {
+            (Some(addr_ind_var), None) => {
+                self.builder().ins().store(
+                    cranelift_codegen::ir::MemFlags::new(),
+                    next_ind_var_value,
+                    addr_ind_var,
+                    0,
+                );
+            }
+            (None, Some(ind_variable)) => {
+                self.builder().def_var(ind_variable, next_ind_var_value);
+            }
+            _ => unreachable!(),
+        }
 
         // Jump back.
         self.builder().ins().jump(for_block, &[]);
