@@ -30,12 +30,13 @@ use crate::datalocation::DataLocation;
 use crate::program::CodegenVisitor;
 
 pub fn codegen(
+    target: Option<String>,
     program: &span::SpannedBox<ast::Program>,
     semantic_context: &semantic::SemanticContext,
     object_filename: &PathBuf,
     ir_dump: bool,
 ) {
-    let mut codegen_visitor = CodegenVisitor::new(semantic_context, ir_dump);
+    let mut codegen_visitor = CodegenVisitor::new(target, semantic_context, ir_dump);
 
     program
         .get()

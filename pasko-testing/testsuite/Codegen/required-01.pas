@@ -114,390 +114,231 @@ end.
 
 CHECK: *** IR for 'my_abs_int'
 CHECK-NEXT: function u0:0(i64) -> i64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
-CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.i64 v2
-CHECK-NEXT:     v4 = iabs v3
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     store v4, v5
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     v7 = load.i64 v6
-CHECK-NEXT:     return v7
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = iabs v0
+CHECK-NEXT:     ! my_abs_int ← v1 
+CHECK-NEXT:     ! v1 → my_abs_int 
+CHECK-NEXT:     return v1
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_abs_int' seems OK
 
 CHECK: *** IR for 'my_sqr_int'
 CHECK-NEXT: function u0:1(i64) -> i64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
-CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.i64 v2
-CHECK-NEXT:     v4 = imul v3, v3
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     store v4, v5
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     v7 = load.i64 v6
-CHECK-NEXT:     return v7
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = imul v0, v0
+CHECK-NEXT:     ! my_sqr_int ← v1 
+CHECK-NEXT:     ! v1 → my_sqr_int 
+CHECK-NEXT:     return v1
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_sqr_int' seems OK
 
 CHECK: *** IR for 'my_abs_real'
 CHECK-NEXT: function u0:2(f64) -> f64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
-CHECK-EMPTY:
 CHECK-NEXT: block0(v0: f64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.f64 v2
-CHECK-NEXT:     v4 = fabs v3
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     store v4, v5
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     v7 = load.f64 v6
-CHECK-NEXT:     return v7
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = fabs v0
+CHECK-NEXT:     ! my_abs_real ← v1 
+CHECK-NEXT:     ! v1 → my_abs_real 
+CHECK-NEXT:     return v1
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_abs_real' seems OK
 
 CHECK: *** IR for 'my_sqr_real'
 CHECK-NEXT: function u0:3(f64) -> f64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
-CHECK-EMPTY:
 CHECK-NEXT: block0(v0: f64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.f64 v2
-CHECK-NEXT:     v4 = fmul v3, v3
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     store v4, v5
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     v7 = load.f64 v6
-CHECK-NEXT:     return v7
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = fmul v0, v0
+CHECK-NEXT:     ! my_sqr_real ← v1 
+CHECK-NEXT:     ! v1 → my_sqr_real 
+CHECK-NEXT:     return v1
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_sqr_real' seems OK
 
 CHECK: *** IR for 'my_sin'
 CHECK-NEXT: function u0:4(f64) -> f64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
 CHECK-NEXT:     sig0 = (f64) -> f64 system_v
-CHECK-NEXT:     fn0 = u0:5 sig0
-CHECK-EMPTY:
+CHECK-NEXT:     fn0 = u0:5 sig0 ; __pasko_sin_f64
+CHECK-EMPTY: 
 CHECK-NEXT: block0(v0: f64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.f64 v2
-CHECK-NEXT:     v4 = call fn0(v3)
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     store v4, v5
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     v7 = load.f64 v6
-CHECK-NEXT:     return v7
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = call fn0(v0)
+CHECK-NEXT:     ! my_sin ← v1 
+CHECK-NEXT:     ! v1 → my_sin 
+CHECK-NEXT:     return v1
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_sin' seems OK
 
 CHECK: *** IR for 'my_cos'
 CHECK-NEXT: function u0:6(f64) -> f64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
 CHECK-NEXT:     sig0 = (f64) -> f64 system_v
-CHECK-NEXT:     fn0 = u0:7 sig0
+CHECK-NEXT:     fn0 = u0:7 sig0 ; __pasko_cos_f64
 CHECK-EMPTY:
 CHECK-NEXT: block0(v0: f64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.f64 v2
-CHECK-NEXT:     v4 = call fn0(v3)
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     store v4, v5
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     v7 = load.f64 v6
-CHECK-NEXT:     return v7
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = call fn0(v0)
+CHECK-NEXT:     ! my_cos ← v1 
+CHECK-NEXT:     ! v1 → my_cos 
+CHECK-NEXT:     return v1
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_cos' seems OK
 
 CHECK: *** IR for 'my_exp'
 CHECK-NEXT: function u0:8(f64) -> f64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
 CHECK-NEXT:     sig0 = (f64) -> f64 system_v
-CHECK-NEXT:     fn0 = u0:9 sig0
+CHECK-NEXT:     fn0 = u0:9 sig0 ; __pasko_exp_f64
 CHECK-EMPTY:
 CHECK-NEXT: block0(v0: f64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.f64 v2
-CHECK-NEXT:     v4 = call fn0(v3)
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     store v4, v5
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     v7 = load.f64 v6
-CHECK-NEXT:     return v7
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = call fn0(v0)
+CHECK-NEXT:     ! my_exp ← v1 
+CHECK-NEXT:     ! v1 → my_exp 
+CHECK-NEXT:     return v1
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_exp' seems OK
 
 CHECK: *** IR for 'my_ln'
 CHECK-NEXT: function u0:10(f64) -> f64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
 CHECK-NEXT:     sig0 = (f64) -> f64 system_v
-CHECK-NEXT:     fn0 = u0:11 sig0
+CHECK-NEXT:     fn0 = u0:11 sig0 ; __pasko_ln_f64
 CHECK-EMPTY:
 CHECK-NEXT: block0(v0: f64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.f64 v2
-CHECK-NEXT:     v4 = call fn0(v3)
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     store v4, v5
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     v7 = load.f64 v6
-CHECK-NEXT:     return v7
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = call fn0(v0)
+CHECK-NEXT:     ! my_ln ← v1 
+CHECK-NEXT:     ! v1 → my_ln 
+CHECK-NEXT:     return v1
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_ln' seems OK
 
 CHECK: *** IR for 'my_sqrt'
 CHECK-NEXT: function u0:12(f64) -> f64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
-CHECK-EMPTY:
 CHECK-NEXT: block0(v0: f64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.f64 v2
-CHECK-NEXT:     v4 = sqrt v3
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     store v4, v5
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     v7 = load.f64 v6
-CHECK-NEXT:     return v7
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = sqrt v0
+CHECK-NEXT:     ! my_sqrt ← v1 
+CHECK-NEXT:     ! v1 → my_sqrt 
+CHECK-NEXT:     return v1
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_sqrt' seems OK
 
 CHECK: *** IR for 'my_arctan'
 CHECK-NEXT: function u0:13(f64) -> f64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
 CHECK-NEXT:     sig0 = (f64) -> f64 system_v
-CHECK-NEXT:     fn0 = u0:14 sig0
+CHECK-NEXT:     fn0 = u0:14 sig0 ; __pasko_arctan_f64
 CHECK-EMPTY:
 CHECK-NEXT: block0(v0: f64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.f64 v2
-CHECK-NEXT:     v4 = call fn0(v3)
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     store v4, v5
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     v7 = load.f64 v6
-CHECK-NEXT:     return v7
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = call fn0(v0)
+CHECK-NEXT:     ! my_arctan ← v1 
+CHECK-NEXT:     ! v1 → my_arctan 
+CHECK-NEXT:     return v1
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_arctan' seems OK
 
 CHECK: *** IR for 'my_trunc'
 CHECK-NEXT: function u0:15(f64) -> i64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
-CHECK-EMPTY:
 CHECK-NEXT: block0(v0: f64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.f64 v2
-CHECK-NEXT:     v4 = trunc v3
-CHECK-NEXT:     v5 = fcvt_to_sint.i64 v4
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     store v5, v6
-CHECK-NEXT:     v7 = stack_addr.i64 ss0
-CHECK-NEXT:     v8 = load.i64 v7
-CHECK-NEXT:     return v8
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = trunc v0
+CHECK-NEXT:     v2 = fcvt_to_sint.i64 v1
+CHECK-NEXT:     ! my_trunc ← v2 
+CHECK-NEXT:     ! v2 → my_trunc 
+CHECK-NEXT:     return v2
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_trunc' seems OK
 
 CHECK: *** IR for 'my_round'
 CHECK-NEXT: function u0:16(f64) -> i64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
-CHECK-EMPTY:
 CHECK-NEXT: block0(v0: f64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.f64 v2
-CHECK-NEXT:     v4 = nearest v3
-CHECK-NEXT:     v5 = fcvt_to_sint.i64 v4
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     store v5, v6
-CHECK-NEXT:     v7 = stack_addr.i64 ss0
-CHECK-NEXT:     v8 = load.i64 v7
-CHECK-NEXT:     return v8
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = nearest v0
+CHECK-NEXT:     v2 = fcvt_to_sint.i64 v1
+CHECK-NEXT:     ! my_round ← v2 
+CHECK-NEXT:     ! v2 → my_round 
+CHECK-NEXT:     return v2
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_round' seems OK
 
 CHECK: *** IR for 'my_ord_i'
 CHECK-NEXT: function u0:17(i64) -> i64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
-CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.i64 v2
-CHECK-NEXT:     v4 = stack_addr.i64 ss0
-CHECK-NEXT:     store v3, v4
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     v6 = load.i64 v5
-CHECK-NEXT:     return v6
+CHECK-NEXT:     ! v0 → my_ord_i 
+CHECK-NEXT:     return v0
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_ord_i' seems OK
 
 CHECK: *** IR for 'my_ord_b'
 CHECK-NEXT: function u0:18(i8) -> i64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 1
-CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i8):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.i8 v2
-CHECK-NEXT:     v4 = uextend.i64 v3
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     store v4, v5
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     v7 = load.i64 v6
-CHECK-NEXT:     return v7
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = uextend.i64 v0
+CHECK-NEXT:     ! my_ord_b ← v1 
+CHECK-NEXT:     ! v1 → my_ord_b 
+CHECK-NEXT:     return v1
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_ord_b' seems OK
 
 CHECK: *** IR for 'my_ord_c'
 CHECK-NEXT: function u0:19(i32) -> i64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 4
-CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i32):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.i32 v2
-CHECK-NEXT:     v4 = uextend.i64 v3
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     store v4, v5
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     v7 = load.i64 v6
-CHECK-NEXT:     return v7
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = uextend.i64 v0
+CHECK-NEXT:     ! my_ord_c ← v1 
+CHECK-NEXT:     ! v1 → my_ord_c 
+CHECK-NEXT:     return v1
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_ord_c' seems OK
 
 CHECK: *** IR for 'my_ord_sub'
 CHECK-NEXT: function u0:20(i64) -> i64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
-CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.i64 v2
-CHECK-NEXT:     v4 = stack_addr.i64 ss0
-CHECK-NEXT:     store v3, v4
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     v6 = load.i64 v5
-CHECK-NEXT:     return v6
+CHECK-NEXT:     ! v0 → my_ord_sub 
+CHECK-NEXT:     return v0
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_ord_sub' seems OK
 
 CHECK: *** IR for 'my_ord_enum'
 CHECK-NEXT: function u0:21(i64) -> i64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
-CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.i64 v2
-CHECK-NEXT:     v4 = stack_addr.i64 ss0
-CHECK-NEXT:     store v3, v4
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     v6 = load.i64 v5
-CHECK-NEXT:     return v6
+CHECK-NEXT:     ! v0 → my_ord_enum 
+CHECK-NEXT:     return v0
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_ord_enum' seems OK
 
 CHECK: *** IR for 'my_chr'
 CHECK-NEXT: function u0:22(i64) -> i32 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 4
-CHECK-NEXT:     ss1 = explicit_slot 8
-CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.i64 v2
-CHECK-NEXT:     v4 = ireduce.i32 v3
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     store v4, v5
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     v7 = load.i32 v6
-CHECK-NEXT:     return v7
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = ireduce.i32 v0
+CHECK-NEXT:     ! my_chr ← v1 
+CHECK-NEXT:     ! v1 → my_chr 
+CHECK-NEXT:     return v1
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_chr' seems OK
 
 CHECK: *** IR for 'my_succ'
 CHECK-NEXT: function u0:23(i64) -> i64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
-CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.i64 v2
-CHECK-NEXT:     v4 = iadd_imm v3, 1
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     store v4, v5
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     v7 = load.i64 v6
-CHECK-NEXT:     return v7
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = iadd_imm v0, 1
+CHECK-NEXT:     ! my_succ ← v1 
+CHECK-NEXT:     ! v1 → my_succ 
+CHECK-NEXT:     return v1
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_succ' seems OK
 
 CHECK: *** IR for 'my_pred'
 CHECK-NEXT: function u0:24(i64) -> i64 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
-CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i64):
-CHECK-NEXT:     v1 = stack_addr.i64 ss1
-CHECK-NEXT:     store v0, v1
-CHECK-NEXT:     v2 = stack_addr.i64 ss1
-CHECK-NEXT:     v3 = load.i64 v2
-CHECK-NEXT:     v4 = iadd_imm v3, 1
-CHECK-NEXT:     v5 = stack_addr.i64 ss0
-CHECK-NEXT:     store v4, v5
-CHECK-NEXT:     v6 = stack_addr.i64 ss0
-CHECK-NEXT:     v7 = load.i64 v6
-CHECK-NEXT:     return v7
+CHECK-NEXT:     ! v0 → x 
+CHECK-NEXT:     v1 = iadd_imm v0, 1
+CHECK-NEXT:     ! my_pred ← v1 
+CHECK-NEXT:     ! v1 → my_pred 
+CHECK-NEXT:     return v1
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'my_pred' seems OK
 

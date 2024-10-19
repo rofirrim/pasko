@@ -23,47 +23,42 @@ end.
 
 CHECK: *** IR for 'increment'
 CHECK-NEXT: function u0:0(i64, i64) system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
-CHECK-NEXT:     ss2 = explicit_slot 8
+CHECK-NEXT:     ss0 = explicit_slot 8 ; [by reference argument: m]
 CHECK-NEXT:     sig0 = (i64, i64) system_v
-CHECK-NEXT:     fn0 = colocated u0:0 sig0
-CHECK-EMPTY: 
+CHECK-NEXT:     fn0 = colocated u0:0 sig0 ; increment
+CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i64, v1: i64):
-CHECK-NEXT:     v2 = stack_addr.i64 ss0
-CHECK-NEXT:     store v0, v2
-CHECK-NEXT:     v3 = stack_addr.i64 ss1
-CHECK-NEXT:     store v1, v3
-CHECK-NEXT:     v4 = iconst.i64 3
-CHECK-NEXT:     v5 = stack_addr.i64 ss1
-CHECK-NEXT:     v6 = load.i64 v5
-CHECK-NEXT:     store v4, v6  ; v4 = 3
-CHECK-NEXT:     v7 = stack_addr.i64 ss0
-CHECK-NEXT:     v8 = load.i64 v7
-CHECK-NEXT:     v9 = stack_addr.i64 ss2
-CHECK-NEXT:     call fn0(v8, v9)
+CHECK-NEXT:     v5 = iconst.i64 0
+CHECK-NEXT:     v4 -> v5
+CHECK-NEXT:     v2 = iconst.i64 3
+CHECK-NEXT:     ! v1 → x 
+CHECK-NEXT:     store v2, v1  ; v2 = 3
+CHECK-NEXT:     v3 = stack_addr.i64 ss0
+CHECK-NEXT:     store v4, v3  ; v4 = 0
+CHECK-NEXT:     ! v0 → n 
+CHECK-NEXT:     call fn0(v0, v3)
 CHECK-NEXT:     return
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for 'increment' seems OK
 
 CHECK: *** IR for 'main'
 CHECK-NEXT: function u0:1(i32, i64) -> i32 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8
-CHECK-NEXT:     ss1 = explicit_slot 8
-CHECK-NEXT:     gv0 = symbol colocated userextname4
-CHECK-NEXT:     gv1 = symbol colocated userextname5
-CHECK-NEXT:     gv2 = symbol colocated userextname6
+CHECK-NEXT:     ss0 = explicit_slot 8 ; [null-ended-array: program-parameter-names]
+CHECK-NEXT:     ss1 = explicit_slot 8 ; [null-ended-array: global-files]
+CHECK-NEXT:     gv0 = symbol colocated userextname4 ; [input-textfile]
+CHECK-NEXT:     gv1 = symbol colocated userextname5 ; [output-textfile]
+CHECK-NEXT:     gv2 = symbol colocated userextname6 ; z
 CHECK-NEXT:     sig0 = (i32, i64, i32, i64, i32, i64) system_v
 CHECK-NEXT:     sig1 = (i32, i64) system_v
 CHECK-NEXT:     sig2 = () -> i64 system_v
 CHECK-NEXT:     sig3 = () -> i64 system_v
 CHECK-NEXT:     sig4 = (i64, i64) system_v
-CHECK-NEXT:     fn0 = u0:2 sig0
-CHECK-NEXT:     fn1 = u0:3 sig1
-CHECK-NEXT:     fn2 = u0:4 sig2
-CHECK-NEXT:     fn3 = u0:5 sig3
-CHECK-NEXT:     fn4 = colocated u0:0 sig4
-CHECK-EMPTY: 
+CHECK-NEXT:     fn0 = u0:2 sig0 ; __pasko_init
+CHECK-NEXT:     fn1 = u0:3 sig1 ; __pasko_finish
+CHECK-NEXT:     fn2 = u0:4 sig2 ; __pasko_get_input
+CHECK-NEXT:     fn3 = u0:5 sig3 ; __pasko_get_output
+CHECK-NEXT:     fn4 = colocated u0:0 sig4 ; increment
+CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i32, v1: i64):
 CHECK-NEXT:     v2 = iconst.i32 0
 CHECK-NEXT:     v3 = iconst.i64 0

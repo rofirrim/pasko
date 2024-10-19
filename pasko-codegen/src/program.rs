@@ -27,10 +27,11 @@ use cranelift_object;
 
 use std::any::Any;
 use std::collections::HashMap;
+use std::fmt::Write as FmtWrite;
 use std::fs::File;
 use std::hash::Hash;
 use std::io::BufWriter;
-use std::io::Write;
+use std::io::Write as IoWrite;
 
 use std::cell::RefCell;
 use std::thread::current;
@@ -123,6 +124,13 @@ impl EntityAnnotations {
             text,
         );
     }
+
+    pub fn new_value(&mut self, value: cranelift_codegen::ir::Value, text: &str) {
+        self.new(
+            cranelift_codegen::ir::entities::AnyEntity::Value(value),
+            text,
+        );
+    }
 }
 
 struct AnnotatedFuncWriter<'a> {
@@ -158,7 +166,30 @@ impl<'a> cranelift_codegen::write::FuncWriter for AnnotatedFuncWriter<'a> {
         indent: usize,
     ) -> std::fmt::Result {
         let mut p = PlainWriter;
-        p.write_instruction(w, func, aliases, inst, indent)
+        let mut tmp_string = String::new();
+        let blanks = " ".repeat(indent);
+        let inst_args = func.dfg.inst_args(inst);
+        for arg in inst_args {
+            if let Some(annot) = self
+                .annotations
+                .get(cranelift_codegen::ir::entities::AnyEntity::Value(*arg))
+            {
+                writeln!(tmp_string, "{}! {} → {} ", blanks, *arg, annot)?;
+            }
+        }
+        p.write_instruction(&mut tmp_string, func, aliases, inst, indent)?;
+
+        let inst_results = func.dfg.inst_results(inst);
+        for result in inst_results {
+            if let Some(annot) = self
+                .annotations
+                .get(cranelift_codegen::ir::entities::AnyEntity::Value(*result))
+            {
+                writeln!(tmp_string, "{}! {} ← {} ", blanks, annot, *result)?;
+            }
+        }
+
+        write!(w, "{}", tmp_string)
     }
 
     fn write_entity_definition(
@@ -183,11 +214,30 @@ impl<'a> cranelift_codegen::write::FuncWriter for AnnotatedFuncWriter<'a> {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
+fn get_host_target() -> &'static str {
+    "x86_64-unknown-linux-gnu"
+}
+
+#[cfg(target_arch = "aarch64")]
+fn get_host_target() -> &'static str {
+    "aarch64-unknown-linux-gnu"
+}
+
+#[cfg(target_arch = "riscv64")]
+fn get_host_target() -> &'static str {
+    "riscv64-unknown-linux-gnu"
+}
+
 impl<'a> CodegenVisitor<'a> {
-    pub fn new(semantic_context: &'a SemanticContext, ir_dump: bool) -> CodegenVisitor<'a> {
+    pub fn new(
+        target: Option<String>,
+        semantic_context: &'a SemanticContext,
+        ir_dump: bool,
+    ) -> CodegenVisitor<'a> {
         let mut flag_builder = settings::builder();
-        let isa_builder =
-            cranelift_codegen::isa::lookup_by_name("x86_64-unknown-linux-gnu").unwrap();
+        let target = target.unwrap_or_else(|| get_host_target().to_string());
+        let isa_builder = cranelift_codegen::isa::lookup_by_name(&target).unwrap();
         flag_builder.set("is_pic", "true").unwrap();
         flag_builder.set("opt_level", "speed").unwrap();
         flag_builder.enable("enable_alias_analysis").unwrap();
@@ -384,13 +434,13 @@ impl<'a> CodegenVisitor<'a> {
             }
             RuntimeFunctionId::PointerNew => {
                 let mut sig = Signature::new(CallConv::SystemV);
-                sig.params.push(AbiParam::new(self.pointer_type)); // addr to pointer
                 sig.params.push(AbiParam::new(I64)); // size in bytes
+                sig.returns.push(AbiParam::new(self.pointer_type)); // address to allocated data
                 self.register_import("__pasko_pointer_new", sig)
             }
             RuntimeFunctionId::PointerDispose => {
                 let mut sig = Signature::new(CallConv::SystemV);
-                sig.params.push(AbiParam::new(self.pointer_type)); // addr to pointer
+                sig.params.push(AbiParam::new(self.pointer_type)); // pointer address
                 self.register_import("__pasko_pointer_dispose", sig)
             }
             RuntimeFunctionId::Init => {
@@ -1252,7 +1302,7 @@ impl<'a> CodegenVisitor<'a> {
         // Allocate the return value in the stack only if simple.
         if let Some(return_symbol_id) = return_symbol_id {
             if return_type_is_simple {
-                function_codegen.allocate_value_in_stack(return_symbol_id);
+                function_codegen.allocate_variable(return_symbol_id);
             }
         }
 
@@ -1301,38 +1351,54 @@ impl<'a> CodegenVisitor<'a> {
                     assert!(!is_return);
                     match parameter_kind {
                         ParameterKind::Value => {
-                            if is_simple_type || is_set_type || is_pointer_type {
+                            if is_simple_type || is_pointer_type {
                                 // Simple types passed by value will have their
                                 // actual value in the stack.
                                 //
+                                // Pointer types can be passed by value in
+                                // cranelift as well.
+                                if !param_sym.is_captured() {
+                                    function_codegen.allocate_variable(*param_sym_id);
+                                } else {
+                                    function_codegen.allocate_value_in_stack(*param_sym_id);
+                                }
+                            } else if is_set_type {
                                 // Set types are opaque, so their value is their
                                 // opaque pointer. The caller will be
                                 // responsible for creating a new opaque pointer
                                 // to honour value semantics.
-                                //
-                                // Pointer types can be passed by value in
-                                // cranelift as well.
+                                // FIXME: Do we always have to allocate the pointer in the stack?
                                 function_codegen.allocate_value_in_stack(*param_sym_id);
                             } else {
                                 // Other non-simple types passed by value are
                                 // non-opaque storage-wise so we pass a pointer
                                 // to their actual "by value" storage (allocated
                                 // by the caller).
-                                function_codegen.allocate_address_in_stack(*param_sym_id);
+                                if !param_sym.is_captured() {
+                                    function_codegen.allocate_variable_address(*param_sym_id);
+                                } else {
+                                    function_codegen.allocate_address_in_stack(*param_sym_id);
+                                }
                             }
                         }
                         ParameterKind::Variable => {
                             // Variable parameters are always passed as pointer to variable itself.
-                            function_codegen.allocate_address_in_stack(*param_sym_id);
+                            function_codegen.allocate_variable_address(*param_sym_id);
                         }
                         ParameterKind::Function | ParameterKind::Procedure => {
                             function_codegen.allocate_function_address_in_stack(*param_sym_id)
                         }
-                        ParameterKind::ValueConformableArray
-                        | ParameterKind::VariableConformableArray => {
+                        ParameterKind::ValueConformableArray => {
+                            if !param_sym.is_captured() {
+                                function_codegen.allocate_variable_address(*param_sym_id);
+                            } else {
+                                function_codegen.allocate_address_in_stack(*param_sym_id);
+                            }
+                        }
+                        ParameterKind::VariableConformableArray => {
                             // These are never simple, so pass a pointer to the actual storage.
                             // Note: The bounds will be passed as pure values.
-                            function_codegen.allocate_address_in_stack(*param_sym_id);
+                            function_codegen.allocate_variable_address(*param_sym_id);
                         }
                     }
                 } else {
@@ -1363,9 +1429,9 @@ impl<'a> CodegenVisitor<'a> {
                 }
             });
         // Now link the bound identifiers in the function.
-        bound_identifiers.iter().for_each(|symbol_id| { 
+        bound_identifiers.iter().for_each(|symbol_id| {
             function_codegen.link_bound_identifier(current_param_index, *symbol_id);
-            current_param_index += 1 ;
+            current_param_index += 1;
         });
         // Notify about parameters that require disposing.
         parameters_to_dispose
@@ -1397,7 +1463,7 @@ impl<'a> CodegenVisitor<'a> {
         // Return the value
         if let Some(return_symbol_id) = return_symbol_id {
             if return_type_is_simple {
-                let ret_value = function_codegen.load_symbol_from_stack(return_symbol_id);
+                let ret_value = function_codegen.get_value_of_variable(return_symbol_id);
                 function_codegen.builder().ins().return_(&[ret_value]);
             } else {
                 function_codegen.builder().ins().return_(&[]);

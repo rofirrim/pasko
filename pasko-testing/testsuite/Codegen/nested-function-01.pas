@@ -47,36 +47,29 @@ end.
 
 CHECK: *** IR for '_level0_level1_level2'
 CHECK-NEXT: function u0:0(i64) system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8 ; z0
-CHECK-NEXT:     ss1 = explicit_slot 8 ; z1
-CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i64):
 CHECK-NEXT:     v1 = iconst.i64 6
-CHECK-NEXT:     v2 = stack_addr.i64 ss0
-CHECK-NEXT:     store v1, v2  ; v1 = 6
-CHECK-NEXT:     v3 = iconst.i64 7
-CHECK-NEXT:     v4 = stack_addr.i64 ss1
-CHECK-NEXT:     store v3, v4  ; v3 = 7
-CHECK-NEXT:     v5 = iconst.i64 308
-CHECK-NEXT:     v6 = load.i64 v0
-CHECK-NEXT:     v7 = load.i64 v6+8
-CHECK-NEXT:     store v5, v7  ; v5 = 308
-CHECK-NEXT:     v8 = iconst.i64 309
-CHECK-NEXT:     v9 = load.i64 v0
-CHECK-NEXT:     v10 = load.i64 v9+16
-CHECK-NEXT:     store v8, v10  ; v8 = 309
-CHECK-NEXT:     v11 = iconst.i64 210
-CHECK-NEXT:     v12 = load.i64 v0+8
-CHECK-NEXT:     store v11, v12  ; v11 = 210
-CHECK-NEXT:     v13 = iconst.i64 211
-CHECK-NEXT:     v14 = load.i64 v0+16
-CHECK-NEXT:     store v13, v14  ; v13 = 211
-CHECK-NEXT:     v15 = iconst.i64 112
-CHECK-NEXT:     v16 = stack_addr.i64 ss0
-CHECK-NEXT:     store v15, v16  ; v15 = 112
-CHECK-NEXT:     v17 = iconst.i64 113
-CHECK-NEXT:     v18 = stack_addr.i64 ss1
-CHECK-NEXT:     store v17, v18  ; v17 = 113
+CHECK-NEXT:     ! z0 ← v1 
+CHECK-NEXT:     v2 = iconst.i64 7
+CHECK-NEXT:     ! z1 ← v2 
+CHECK-NEXT:     v3 = iconst.i64 308
+CHECK-NEXT:     v4 = load.i64 v0
+CHECK-NEXT:     v5 = load.i64 v4+8
+CHECK-NEXT:     store v3, v5  ; v3 = 308
+CHECK-NEXT:     v6 = iconst.i64 309
+CHECK-NEXT:     v7 = load.i64 v0
+CHECK-NEXT:     v8 = load.i64 v7+16
+CHECK-NEXT:     store v6, v8  ; v6 = 309
+CHECK-NEXT:     v9 = iconst.i64 210
+CHECK-NEXT:     v10 = load.i64 v0+8
+CHECK-NEXT:     store v9, v10  ; v9 = 210
+CHECK-NEXT:     v11 = iconst.i64 211
+CHECK-NEXT:     v12 = load.i64 v0+16
+CHECK-NEXT:     store v11, v12  ; v11 = 211
+CHECK-NEXT:     v13 = iconst.i64 112
+CHECK-NEXT:     ! z0 ← v13 
+CHECK-NEXT:     v14 = iconst.i64 113
+CHECK-NEXT:     ! z1 ← v14 
 CHECK-NEXT:     return
 CHECK-NEXT: }
 CHECK-NEXT: *** IR for '_level0_level1_level2' seems OK
