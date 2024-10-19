@@ -79,6 +79,10 @@ pub struct FunctionCodegenVisitor<'a, 'b, 'c> {
     enclosing_environment: Option<cranelift_codegen::ir::Value>,
 
     labeled_blocks: HashMap<usize, cranelift_codegen::ir::Block>,
+
+    variable_counter: usize,
+
+    reload_variables: Vec<SymbolId>,
 }
 
 impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
@@ -261,6 +265,8 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             symbols_to_dispose: vec![],
             enclosing_environment: None,
             labeled_blocks: HashMap::new(),
+            variable_counter: 0,
+            reload_variables: vec![],
         }
     }
 
@@ -312,6 +318,25 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         self.link_symbol_to_value_stack_slot(sym_id, stack_slot, "[function] ");
     }
 
+    pub fn next_variable(&mut self) -> usize {
+        self.variable_counter += 1;
+        self.variable_counter
+    }
+
+    pub fn allocate_variable(&mut self, sym_id: pasko_frontend::symbol::SymbolId) {
+        let symbol = self.codegen.semantic_context.get_symbol(sym_id);
+        let symbol = symbol.borrow();
+        let symbol_type = symbol.get_type().unwrap();
+
+        let new_variable = Variable::new(self.next_variable());
+        let ty = self.codegen.type_to_cranelift_type(symbol_type);
+        self.builder().declare_var(new_variable, ty);
+
+        self.codegen
+            .data_location
+            .insert(sym_id, DataLocation::Variable(new_variable, None));
+    }
+
     pub fn allocate_value_in_stack(&mut self, sym_id: pasko_frontend::symbol::SymbolId) {
         let symbol = self.codegen.semantic_context.get_symbol(sym_id);
         let symbol = symbol.borrow();
@@ -330,9 +355,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         let symbol = self.codegen.semantic_context.get_symbol(sym_id);
         let symbol = symbol.borrow();
 
-        self.codegen
-            .annotations
-            .new_stack_slot(stack_slot, &format!("[indirect] {}", symbol.get_name()));
+        self.codegen.annotations.new_stack_slot(
+            stack_slot,
+            &format!("[by reference parameter] {}", symbol.get_name()),
+        );
 
         self.codegen
             .data_location
@@ -887,6 +913,11 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             DataLocation::StackVarValue(stack_slot) | DataLocation::StackVarAddress(stack_slot) => {
                 *stack_slot
             }
+            DataLocation::Variable(var, ..) => {
+                builder.def_var(*var, param_value);
+                // And we are done because variables do not have address.
+                return;
+            }
             _ => {
                 panic!("Unexpected data location for parameter");
             }
@@ -942,6 +973,18 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             stack_address,
             self.codegen.pointer_type.bytes() as i32,
         );
+    }
+
+    pub fn get_value_of_variable(
+        &mut self,
+        sym_id: pasko_frontend::symbol::SymbolId,
+    ) -> cranelift_codegen::ir::Value {
+        let location = *self.codegen.data_location.get(&sym_id).unwrap();
+
+        match location {
+            DataLocation::Variable(var, ..) => self.builder().use_var(var),
+            _ => panic!("This is not a variable"),
+        }
     }
 
     pub fn load_symbol_from_stack(
@@ -3104,6 +3147,21 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         n.1.get().walk_mut(self, n.1.loc(), n.1.id());
 
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
+
+        // Special handling for variables.
+        if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(n.0.id()) {
+            let dl = *self.codegen.data_location.get(&sym_id).unwrap();
+            match dl {
+                DataLocation::Variable(var, ..) => {
+                    let val = self.get_value(n.1.id());
+                    self.builder().def_var(var, val);
+                    // And we are done.
+                    return false;
+                }
+                _ => {}
+            }
+        }
+
         let addr = self.get_value(n.0.id());
         let addr_ty = self
             .codegen
@@ -3127,6 +3185,19 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     ) -> bool {
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
 
+        // Special handling of variables.
+        if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(n.0.id()) {
+            let dl = *self.codegen.data_location.get(&sym_id).unwrap();
+            match dl {
+                DataLocation::Variable(var, ..) => {
+                    let v = self.builder().use_var(var);
+                    self.set_value(id, v);
+                    return false;
+                }
+                _ => {}
+            }
+        }
+
         let addr = self.get_value(n.0.id());
         let ty = self
             .codegen
@@ -3148,6 +3219,52 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     ) -> bool {
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
 
+        // Special case for variables. Write them back to memory.
+        if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(n.0.id()) {
+            let dl = *self.codegen.data_location.get(&sym_id).unwrap();
+            match dl {
+                DataLocation::Variable(var, None) => {
+                    // This variable does not have an address. Allocate it first.
+                    let sym = self.codegen.semantic_context.get_symbol(sym_id);
+                    let sym = sym.borrow();
+                    let ty = sym.get_type().unwrap();
+                    let stack_slot = self.allocate_storage_for_type_in_stack(ty);
+                    self.codegen.annotations.new_stack_slot(
+                        stack_slot,
+                        &format!("[by reference argument: {}]", sym.get_name()),
+                    );
+                    let pointer_type = self.codegen.pointer_type;
+                    let stack_slot_address =
+                        self.builder().ins().stack_addr(pointer_type, stack_slot, 0);
+                    // Update the location with the address.
+                    self.codegen.data_location.insert(
+                        sym_id,
+                        DataLocation::Variable(var, Some(stack_slot_address)),
+                    );
+                }
+                _ => {}
+            }
+
+            let dl = *self.codegen.data_location.get(&sym_id).unwrap();
+            match dl {
+                DataLocation::Variable(var, Some(stack_slot_address)) => {
+                    let sym = self.codegen.semantic_context.get_symbol(sym_id);
+                    let sym = sym.borrow();
+                    let ty = sym.get_type().unwrap();
+                    let value = self.builder().use_var(var);
+                    self.store_value_into_address(stack_slot_address, ty, value, ty, true, true);
+                    self.set_value(id, stack_slot_address);
+                    // Remember to writeback this variable.
+                    self.reload_variables.push(sym_id);
+                    return false;
+                }
+                DataLocation::Variable(_var, None) => {
+                    unreachable!("we should have an address");
+                }
+                _ => {}
+            }
+        }
+
         let addr = self.get_value(n.0.id());
 
         self.set_value(id, addr);
@@ -3164,6 +3281,20 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         let sym_id = self.codegen.semantic_context.get_ast_symbol(id).unwrap();
         let sym = self.codegen.semantic_context.get_symbol(sym_id);
         let sym = sym.borrow();
+
+        // Variables do not have address.
+        match sym.get_kind() {
+            symbol::SymbolKind::Variable => {
+                let dl = self.codegen.data_location.get(&sym_id).unwrap();
+                match dl {
+                    DataLocation::Variable(..) => {
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        };
 
         let addr_value = match sym.get_kind() {
             symbol::SymbolKind::Variable => self.get_address_of_symbol(sym_id),
@@ -4176,13 +4307,15 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     .semantic_context
                     .type_system
                     .is_subrange_type(ty)
-                || self.codegen.semantic_context.type_system.is_array_type(ty)
-                || self.codegen.semantic_context.type_system.is_record_type(ty)
                 || self
                     .codegen
                     .semantic_context
                     .type_system
                     .is_pointer_type(ty)
+            {
+                self.allocate_variable(sym_id);
+            } else if self.codegen.semantic_context.type_system.is_array_type(ty)
+                || self.codegen.semantic_context.type_system.is_record_type(ty)
             {
                 self.allocate_value_in_stack(sym_id);
             } else if self.codegen.semantic_context.type_system.is_set_type(ty) {
@@ -4506,6 +4639,21 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             };
 
             self.value_map.insert(id, result);
+
+            let reload_variables = std::mem::take(&mut self.reload_variables);
+            for sym_id in reload_variables {
+                let dl = *self.codegen.data_location.get(&sym_id).unwrap();
+                match dl {
+                    DataLocation::Variable(var, Some(address)) => {
+                        let sym = self.codegen.semantic_context.get_symbol(sym_id);
+                        let sym = sym.borrow();
+                        let ty = sym.get_type().unwrap();
+                        let val = self.load_value_from_address(address, ty);
+                        self.builder().def_var(var, val);
+                    }
+                    _ => panic!("Unexpected data location"),
+                }
+            }
 
             // Temporaries of arguments cannot be disposed until we have returned from the function.
             self.dispose_temporaries();

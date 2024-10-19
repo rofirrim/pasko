@@ -30,6 +30,9 @@ pub enum DataLocation {
         env_levels_up: usize,
         env_var_index: usize,
     },
+    // Simple variables that can be mapped straightforwardly to Cranelift IR types
+    // can use this. They have an optional address in case it is actually needed.
+    Variable(cranelift_frontend::Variable, Option<cranelift_codegen::ir::Value>),
     // Immutable value, without address. Used for bound identifiers of conformable arrays.
     Value(cranelift_codegen::ir::Value)
 }

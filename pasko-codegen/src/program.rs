@@ -1252,7 +1252,7 @@ impl<'a> CodegenVisitor<'a> {
         // Allocate the return value in the stack only if simple.
         if let Some(return_symbol_id) = return_symbol_id {
             if return_type_is_simple {
-                function_codegen.allocate_value_in_stack(return_symbol_id);
+                function_codegen.allocate_variable(return_symbol_id);
             }
         }
 
@@ -1301,17 +1301,18 @@ impl<'a> CodegenVisitor<'a> {
                     assert!(!is_return);
                     match parameter_kind {
                         ParameterKind::Value => {
-                            if is_simple_type || is_set_type || is_pointer_type {
+                            if is_simple_type || is_pointer_type { 
                                 // Simple types passed by value will have their
                                 // actual value in the stack.
                                 //
+                                // Pointer types can be passed by value in
+                                // cranelift as well.
+                                function_codegen.allocate_variable(*param_sym_id);
+                            } else if is_set_type {
                                 // Set types are opaque, so their value is their
                                 // opaque pointer. The caller will be
                                 // responsible for creating a new opaque pointer
                                 // to honour value semantics.
-                                //
-                                // Pointer types can be passed by value in
-                                // cranelift as well.
                                 function_codegen.allocate_value_in_stack(*param_sym_id);
                             } else {
                                 // Other non-simple types passed by value are
@@ -1397,7 +1398,7 @@ impl<'a> CodegenVisitor<'a> {
         // Return the value
         if let Some(return_symbol_id) = return_symbol_id {
             if return_type_is_simple {
-                let ret_value = function_codegen.load_symbol_from_stack(return_symbol_id);
+                let ret_value = function_codegen.get_value_of_variable(return_symbol_id);
                 function_codegen.builder().ins().return_(&[ret_value]);
             } else {
                 function_codegen.builder().ins().return_(&[]);
