@@ -23,13 +23,13 @@ void *__pasko_reallocate(void *p, size_t new_size) {
   return realloc(p, new_size);
 }
 
-void __pasko_pointer_new(void **ptr, uint64_t bytes)
+void* __pasko_pointer_new(uint64_t bytes)
 {
-  *ptr = __pasko_allocate(bytes);
+  return __pasko_allocate(bytes);
 }
 
-void __pasko_pointer_dispose(void **ptr) {
-  __pasko_deallocate(*ptr);
+void __pasko_pointer_dispose(void *ptr) {
+  __pasko_deallocate(ptr);
 }
 
 char* __pasko_strdup(const char* c) {

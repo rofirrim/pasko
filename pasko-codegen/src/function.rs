@@ -2726,7 +2726,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     if let Some(args) = &n.1 {
                         assert!(args.len() == 1);
                         let arg = &args[0];
-                        let (var_addr, var_ty) = match arg.get() {
+                        let (addr_or_var, pointer_ty, var_ty) = match arg.get() {
                             ast::Expr::Variable(expr_var) => {
                                 let var = &expr_var.0;
 
@@ -2744,7 +2744,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                     .pointer_type_get_pointee_type(pointer_ty);
 
                                 (
-                                    self.get_address_for_variable_reference(var.id(), true),
+                                    self.get_address_or_variable(var.id()),
+                                    pointer_ty,
                                     pointee_ty,
                                 )
                             }
@@ -2760,31 +2761,41 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                             .codegen
                             .get_runtime_function(RuntimeFunctionId::PointerNew);
                         let func_ref = self.get_function_reference(func_id);
-                        self.builder().ins().call(func_ref, &[var_addr, size_bytes]);
+                        let call = self.builder().ins().call(func_ref, &[size_bytes]);
+                        let result = {
+                            let results = self.builder().inst_results(call);
+                            assert!(results.len() == 1, "Invalid number of results");
+                            results[0]
+                        };
+                        self.set_value_to_address_or_variable(
+                            &addr_or_var,
+                            pointer_ty,
+                            result,
+                            pointer_ty,
+                        );
                     }
                 }
                 "dispose" => {
                     if let Some(args) = &n.1 {
                         assert!(args.len() == 1);
                         let arg = &args[0];
-                        let var_addr = match arg.get() {
-                            ast::Expr::Variable(expr_var) => {
-                                let var = &expr_var.0;
+                        arg.get().walk_mut(self, arg.loc(), arg.id());
 
-                                // Why are we passing the address of the variable?
-                                var.get().walk_mut(self, var.loc(), var.id());
-                                self.get_address_for_variable_reference(var.id(), false)
-                            }
-                            _ => {
-                                panic!("Invalid AST at this point!");
-                            }
-                        };
+                        // let pointer_ty = self
+                        //     .codegen
+                        //     .semantic_context
+                        //     .get_ast_type(arg.id())
+                        //     .unwrap();
+
+                        let arg_value = self.get_value(arg.id());
 
                         let func_id = self
                             .codegen
                             .get_runtime_function(RuntimeFunctionId::PointerDispose);
                         let func_ref = self.get_function_reference(func_id);
-                        self.builder().ins().call(func_ref, &[var_addr]);
+                        self.builder().ins().call(func_ref, &[arg_value]);
+
+                        // TODO: We could nullify the pointer here but this means getting the address
                     }
                 }
                 "rewrite" => {
