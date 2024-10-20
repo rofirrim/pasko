@@ -82,7 +82,12 @@ pub struct FunctionCodegenVisitor<'a, 'b, 'c> {
 
     variable_counter: usize,
 
-    reload_variables: Vec<SymbolId>,
+    variables_to_reload: Vec<SymbolId>,
+}
+
+enum AddressOrVariable {
+    Variable(cranelift_frontend::Variable),
+    Address(cranelift_codegen::ir::Value),
 }
 
 impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
@@ -266,7 +271,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             enclosing_environment: None,
             labeled_blocks: HashMap::new(),
             variable_counter: 0,
-            reload_variables: vec![],
+            variables_to_reload: vec![],
         }
     }
 
@@ -1696,6 +1701,23 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         }
     }
 
+    fn reload_variables(&mut self) {
+        let variables_to_reload = std::mem::take(&mut self.variables_to_reload);
+        for sym_id in variables_to_reload {
+            let dl = *self.codegen.data_location.get(&sym_id).unwrap();
+            match dl {
+                DataLocation::Variable(var, Some(address)) => {
+                    let sym = self.codegen.semantic_context.get_symbol(sym_id);
+                    let sym = sym.borrow();
+                    let ty = sym.get_type().unwrap();
+                    let val = self.load_value_from_address(address, ty);
+                    self.builder().def_var(var, val);
+                }
+                _ => panic!("Unexpected data location"),
+            }
+        }
+    }
+
     fn get_address_of_data_location(
         &mut self,
         storage: DataLocation,
@@ -2213,6 +2235,108 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         self.labeled_blocks.insert(label, new_block);
         new_block
     }
+
+    fn get_address_for_variable_reference(
+        &mut self,
+        id: pasko_frontend::span::SpanId,
+        have_to_reload: bool,
+    ) -> cranelift_codegen::ir::Value {
+        if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(id) {
+            let dl = *self.codegen.data_location.get(&sym_id).unwrap();
+            // First check if this variable has an address. If not, get one.
+            match dl {
+                DataLocation::Variable(var, None) => {
+                    // This variable does not have an address. Allocate it first.
+                    let sym = self.codegen.semantic_context.get_symbol(sym_id);
+                    let sym = sym.borrow();
+                    let ty = sym.get_type().unwrap();
+                    let stack_slot = self.allocate_storage_for_type_in_stack(ty);
+                    self.codegen.annotations.new_stack_slot(
+                        stack_slot,
+                        &format!("[by reference argument: {}]", sym.get_name()),
+                    );
+                    let pointer_type = self.codegen.pointer_type;
+                    let stack_slot_address =
+                        self.builder().ins().stack_addr(pointer_type, stack_slot, 0);
+                    // Update the location with the address.
+                    self.codegen.data_location.insert(
+                        sym_id,
+                        DataLocation::Variable(var, Some(stack_slot_address)),
+                    );
+                }
+                _ => {}
+            }
+
+            // Write to memory the current value of the variable.
+            let dl = *self.codegen.data_location.get(&sym_id).unwrap();
+            match dl {
+                DataLocation::Variable(var, Some(stack_slot_address)) => {
+                    let sym = self.codegen.semantic_context.get_symbol(sym_id);
+                    let sym = sym.borrow();
+                    let ty = sym.get_type().unwrap();
+                    let value = self.builder().use_var(var);
+                    self.store_value_into_address(stack_slot_address, ty, value, ty, true, true);
+                    self.set_value(id, stack_slot_address);
+                    // And remember to reload it later.
+                    if have_to_reload {
+                        self.variables_to_reload.push(sym_id);
+                    }
+                    return stack_slot_address;
+                }
+                DataLocation::Variable(_var, None) => {
+                    unreachable!("we should have an address");
+                }
+                _ => {}
+            }
+        }
+
+        // Regular variables already have address in the stack.
+        let addr = self.get_value(id);
+        addr
+    }
+
+    fn get_address_or_variable(&self, id: pasko_frontend::span::SpanId) -> AddressOrVariable {
+        if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(id) {
+            let dl = *self.codegen.data_location.get(&sym_id).unwrap();
+            // First check if this variable has an address. If not, get one.
+            match dl {
+                DataLocation::Variable(var, ..) => return AddressOrVariable::Variable(var),
+                _ => {}
+            }
+        }
+
+        // Regular variables already have address in the stack.
+        let addr = self.get_value(id);
+        AddressOrVariable::Address(addr)
+    }
+
+    fn get_value_from_address_or_variable(
+        &mut self,
+        addr_or_var: &AddressOrVariable,
+        addr_ty: pasko_frontend::typesystem::TypeId,
+    ) -> cranelift_codegen::ir::Value {
+        match addr_or_var {
+            AddressOrVariable::Variable(var) => self.builder().use_var(*var),
+            AddressOrVariable::Address(addr) => self.load_value_from_address(*addr, addr_ty),
+        }
+    }
+
+    fn set_value_to_address_or_variable(
+        &mut self,
+        addr_or_var: &AddressOrVariable,
+        addr_ty: pasko_frontend::typesystem::TypeId,
+        value: cranelift_codegen::ir::Value,
+        value_ty: pasko_frontend::typesystem::TypeId,
+    ) {
+        match addr_or_var {
+            AddressOrVariable::Variable(var) => {
+                self.builder().def_var(*var, value);
+            }
+            AddressOrVariable::Address(addr) => {
+                self.store_value_into_address_for_assignment(*addr, addr_ty, value, value_ty);
+            }
+        }
+    }
 }
 
 impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
@@ -2454,7 +2578,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                     let var = &expr_var.0;
 
                                     var.get().walk_mut(self, var.loc(), var.id());
-                                    let var_addr = self.get_value(var.id());
+                                    let addr_or_var = self.get_address_or_variable(var.id());
 
                                     let var_ty = self
                                         .codegen
@@ -2508,8 +2632,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                                 .same_type(var_ty, component_ty));
                                             (expr_value, component_ty)
                                         };
-                                        self.store_value_into_address_for_assignment(
-                                            var_addr,
+                                        self.set_value_to_address_or_variable(
+                                            &addr_or_var,
                                             var_ty,
                                             expr_value,
                                             component_ty,
@@ -2568,11 +2692,11 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                             results[0]
                                         };
 
-                                        self.builder().ins().store(
-                                            cranelift_codegen::ir::MemFlags::new(),
+                                        self.set_value_to_address_or_variable(
+                                            &addr_or_var,
+                                            var_ty,
                                             result,
-                                            var_addr,
-                                            0,
+                                            var_ty,
                                         );
                                     } else {
                                         panic!(
@@ -2619,7 +2743,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                     .type_system
                                     .pointer_type_get_pointee_type(pointer_ty);
 
-                                (self.get_value(var.id()), pointee_ty)
+                                (
+                                    self.get_address_for_variable_reference(var.id(), true),
+                                    pointee_ty,
+                                )
                             }
                             _ => {
                                 panic!("Invalid AST at this point!");
@@ -2644,8 +2771,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                             ast::Expr::Variable(expr_var) => {
                                 let var = &expr_var.0;
 
+                                // Why are we passing the address of the variable?
                                 var.get().walk_mut(self, var.loc(), var.id());
-                                self.get_value(var.id())
+                                self.get_address_for_variable_reference(var.id(), false)
                             }
                             _ => {
                                 panic!("Invalid AST at this point!");
@@ -2827,6 +2955,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     );
                 }
             }
+
+            // Reload variables that had to be copied to memory so they can be passed by references.
+            self.reload_variables();
         } else {
             let args = &n.1;
 
@@ -3219,54 +3350,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     ) -> bool {
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
 
-        // Special case for variables. Write them back to memory.
-        if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(n.0.id()) {
-            let dl = *self.codegen.data_location.get(&sym_id).unwrap();
-            match dl {
-                DataLocation::Variable(var, None) => {
-                    // This variable does not have an address. Allocate it first.
-                    let sym = self.codegen.semantic_context.get_symbol(sym_id);
-                    let sym = sym.borrow();
-                    let ty = sym.get_type().unwrap();
-                    let stack_slot = self.allocate_storage_for_type_in_stack(ty);
-                    self.codegen.annotations.new_stack_slot(
-                        stack_slot,
-                        &format!("[by reference argument: {}]", sym.get_name()),
-                    );
-                    let pointer_type = self.codegen.pointer_type;
-                    let stack_slot_address =
-                        self.builder().ins().stack_addr(pointer_type, stack_slot, 0);
-                    // Update the location with the address.
-                    self.codegen.data_location.insert(
-                        sym_id,
-                        DataLocation::Variable(var, Some(stack_slot_address)),
-                    );
-                }
-                _ => {}
-            }
-
-            let dl = *self.codegen.data_location.get(&sym_id).unwrap();
-            match dl {
-                DataLocation::Variable(var, Some(stack_slot_address)) => {
-                    let sym = self.codegen.semantic_context.get_symbol(sym_id);
-                    let sym = sym.borrow();
-                    let ty = sym.get_type().unwrap();
-                    let value = self.builder().use_var(var);
-                    self.store_value_into_address(stack_slot_address, ty, value, ty, true, true);
-                    self.set_value(id, stack_slot_address);
-                    // Remember to writeback this variable.
-                    self.reload_variables.push(sym_id);
-                    return false;
-                }
-                DataLocation::Variable(_var, None) => {
-                    unreachable!("we should have an address");
-                }
-                _ => {}
-            }
-        }
-
-        let addr = self.get_value(n.0.id());
-
+        let addr = self.get_address_for_variable_reference(n.0.id(), true);
         self.set_value(id, addr);
 
         false
@@ -4113,16 +4197,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         // Compute the address of ind_var
         ind_var.get().walk_mut(self, ind_var.loc(), ind_var.id());
-        let (addr_ind_var, ind_variable) =
-            if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(ind_var.id()) {
-                let dl = *self.codegen.data_location.get(&sym_id).unwrap();
-                match dl {
-                    DataLocation::Variable(var, ..) => (None, Some(var)),
-                    _ => (Some(self.get_value(ind_var.id())), None),
-                }
-            } else {
-                (Some(self.get_value(ind_var.id())), None)
-            };
+        let addr_or_var = self.get_address_or_variable(ind_var.id());
 
         let ind_var_ty = self
             .codegen
@@ -4131,20 +4206,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .unwrap();
 
         // Initialize induction var with the value of start
-        match (addr_ind_var, ind_variable) {
-            (Some(addr_ind_var), None) => {
-                self.builder().ins().store(
-                    cranelift_codegen::ir::MemFlags::new(),
-                    start_val,
-                    addr_ind_var,
-                    0,
-                );
-            }
-            (None, Some(ind_variable)) => {
-                self.builder().def_var(ind_variable, start_val);
-            }
-            _ => unreachable!(),
-        }
+        self.set_value_to_address_or_variable(&addr_or_var, ind_var_ty, start_val, ind_var_ty);
 
         // Now we can move onto the for block.
         let for_block = self.builder().create_block();
@@ -4161,17 +4223,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .walk_mut(self, statement.loc(), statement.id());
 
         // Load the value of the induction variable
-        let cranelift_ty = self.codegen.type_to_cranelift_type(ind_var_ty);
-        let ind_var_value = match (addr_ind_var, ind_variable) {
-            (Some(addr_ind_var), None) => self.builder().ins().load(
-                cranelift_ty,
-                cranelift_codegen::ir::MemFlags::new(),
-                addr_ind_var,
-                0,
-            ),
-            (None, Some(ind_variable)) => self.builder().use_var(ind_variable),
-            _ => unreachable!(),
-        };
+        let ind_var_value = self.get_value_from_address_or_variable(&addr_or_var, ind_var_ty);
 
         // Compute ind_var == end
         let we_are_done = self
@@ -4196,20 +4248,12 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         };
 
         // Update the induction variable.
-        match (addr_ind_var, ind_variable) {
-            (Some(addr_ind_var), None) => {
-                self.builder().ins().store(
-                    cranelift_codegen::ir::MemFlags::new(),
-                    next_ind_var_value,
-                    addr_ind_var,
-                    0,
-                );
-            }
-            (None, Some(ind_variable)) => {
-                self.builder().def_var(ind_variable, next_ind_var_value);
-            }
-            _ => unreachable!(),
-        }
+        self.set_value_to_address_or_variable(
+            &addr_or_var,
+            ind_var_ty,
+            next_ind_var_value,
+            ind_var_ty,
+        );
 
         // Jump back.
         self.builder().ins().jump(for_block, &[]);
@@ -4342,7 +4386,11 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     .type_system
                     .is_pointer_type(ty)
             {
-                self.allocate_variable(sym_id);
+                if !sym.is_captured() {
+                    self.allocate_variable(sym_id);
+                } else {
+                    self.allocate_value_in_stack(sym_id);
+                }
             } else if self.codegen.semantic_context.type_system.is_array_type(ty)
                 || self.codegen.semantic_context.type_system.is_record_type(ty)
             {
@@ -4669,20 +4717,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
             self.value_map.insert(id, result);
 
-            let reload_variables = std::mem::take(&mut self.reload_variables);
-            for sym_id in reload_variables {
-                let dl = *self.codegen.data_location.get(&sym_id).unwrap();
-                match dl {
-                    DataLocation::Variable(var, Some(address)) => {
-                        let sym = self.codegen.semantic_context.get_symbol(sym_id);
-                        let sym = sym.borrow();
-                        let ty = sym.get_type().unwrap();
-                        let val = self.load_value_from_address(address, ty);
-                        self.builder().def_var(var, val);
-                    }
-                    _ => panic!("Unexpected data location"),
-                }
-            }
+            // Reload variables that had to be written to memory to be passed by reference.
+            self.reload_variables();
 
             // Temporaries of arguments cannot be disposed until we have returned from the function.
             self.dispose_temporaries();

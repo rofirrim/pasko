@@ -2953,6 +2953,11 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                             == SymbolKind::Procedure
                                 );
                                 symbol_of_current_scope.add_to_required_environment(sym_id);
+
+                                // Mark the symbol as being captured.
+                                let sym = self.ctx.get_symbol(sym_id);
+                                let mut sym = sym.borrow_mut();
+                                sym.set_captured(true);
                             }
                         }
                         (Some(_), None) => {

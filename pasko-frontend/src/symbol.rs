@@ -58,6 +58,7 @@ struct SymbolInfo {
     val: Option<Constant>,
     defined: bool,
     required: bool,
+    captured: bool,
     // FIXME: We can reduce the memory used by this by grouping these less
     // common things by the kind of Symbol.
     parameter: Option<ParameterKind>,
@@ -210,6 +211,14 @@ impl Symbol {
 
     pub fn get_required_environment(&self) -> &HashSet<SymbolId> {
         &self.info.required_environment
+    }
+
+    pub fn is_captured(&self) -> bool {
+        self.info.captured
+    }
+
+    pub fn set_captured(&mut self, captured: bool) {
+        self.info.captured = captured;
     }
 }
 

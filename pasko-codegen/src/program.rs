@@ -1301,13 +1301,17 @@ impl<'a> CodegenVisitor<'a> {
                     assert!(!is_return);
                     match parameter_kind {
                         ParameterKind::Value => {
-                            if is_simple_type || is_pointer_type { 
+                            if is_simple_type || is_pointer_type {
                                 // Simple types passed by value will have their
                                 // actual value in the stack.
                                 //
                                 // Pointer types can be passed by value in
                                 // cranelift as well.
-                                function_codegen.allocate_variable(*param_sym_id);
+                                if !param_sym.is_captured() {
+                                    function_codegen.allocate_variable(*param_sym_id);
+                                } else {
+                                    function_codegen.allocate_value_in_stack(*param_sym_id);
+                                }
                             } else if is_set_type {
                                 // Set types are opaque, so their value is their
                                 // opaque pointer. The caller will be
@@ -1364,9 +1368,9 @@ impl<'a> CodegenVisitor<'a> {
                 }
             });
         // Now link the bound identifiers in the function.
-        bound_identifiers.iter().for_each(|symbol_id| { 
+        bound_identifiers.iter().for_each(|symbol_id| {
             function_codegen.link_bound_identifier(current_param_index, *symbol_id);
-            current_param_index += 1 ;
+            current_param_index += 1;
         });
         // Notify about parameters that require disposing.
         parameters_to_dispose
