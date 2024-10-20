@@ -27,10 +27,11 @@ use cranelift_object;
 
 use std::any::Any;
 use std::collections::HashMap;
+use std::fmt::Write as FmtWrite;
 use std::fs::File;
 use std::hash::Hash;
 use std::io::BufWriter;
-use std::io::Write;
+use std::io::Write as IoWrite;
 
 use std::cell::RefCell;
 use std::thread::current;
@@ -123,6 +124,13 @@ impl EntityAnnotations {
             text,
         );
     }
+
+    pub fn new_value(&mut self, value: cranelift_codegen::ir::Value, text: &str) {
+        self.new(
+            cranelift_codegen::ir::entities::AnyEntity::Value(value),
+            text,
+        );
+    }
 }
 
 struct AnnotatedFuncWriter<'a> {
@@ -158,7 +166,30 @@ impl<'a> cranelift_codegen::write::FuncWriter for AnnotatedFuncWriter<'a> {
         indent: usize,
     ) -> std::fmt::Result {
         let mut p = PlainWriter;
-        p.write_instruction(w, func, aliases, inst, indent)
+        let mut tmp_string = String::new();
+        let blanks = " ".repeat(indent);
+        let inst_args = func.dfg.inst_args(inst);
+        for arg in inst_args {
+            if let Some(annot) = self
+                .annotations
+                .get(cranelift_codegen::ir::entities::AnyEntity::Value(*arg))
+            {
+                writeln!(tmp_string, "{}! {} → {} ", blanks, *arg, annot)?;
+            }
+        }
+        p.write_instruction(&mut tmp_string, func, aliases, inst, indent)?;
+
+        let inst_results = func.dfg.inst_results(inst);
+        for result in inst_results {
+            if let Some(annot) = self
+                .annotations
+                .get(cranelift_codegen::ir::entities::AnyEntity::Value(*result))
+            {
+                writeln!(tmp_string, "{}! {} ← {} ", blanks, annot, *result)?;
+            }
+        }
+
+        write!(w, "{}", tmp_string)
     }
 
     fn write_entity_definition(

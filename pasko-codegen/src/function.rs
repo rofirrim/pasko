@@ -43,7 +43,6 @@ use std::array;
 use std::collections::btree_map::VacantEntry;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::Write;
 use std::path::PathBuf;
 use std::thread::current;
 
@@ -86,7 +85,10 @@ pub struct FunctionCodegenVisitor<'a, 'b, 'c> {
 }
 
 enum AddressOrVariable {
-    Variable(cranelift_frontend::Variable),
+    Variable(
+        cranelift_frontend::Variable,
+        pasko_frontend::symbol::SymbolId,
+    ),
     Address(cranelift_codegen::ir::Value),
 }
 
@@ -959,7 +961,13 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         let location = *self.codegen.data_location.get(&sym_id).unwrap();
 
         match location {
-            DataLocation::Variable(var, ..) => self.builder().use_var(var),
+            DataLocation::Variable(var, ..) => {
+                let v = self.builder().use_var(var);
+                let symbol = self.codegen.semantic_context.get_symbol(sym_id);
+                let symbol = symbol.borrow();
+                self.codegen.annotations.new_value(v, symbol.get_name());
+                v
+            }
             _ => panic!("This is not a variable"),
         }
     }
@@ -2253,7 +2261,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             let dl = *self.codegen.data_location.get(&sym_id).unwrap();
             // First check if this variable has an address. If not, get one.
             match dl {
-                DataLocation::Variable(var, ..) => return AddressOrVariable::Variable(var),
+                DataLocation::Variable(var, ..) => return AddressOrVariable::Variable(var, sym_id),
                 _ => {}
             }
         }
@@ -2269,7 +2277,13 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         addr_ty: pasko_frontend::typesystem::TypeId,
     ) -> cranelift_codegen::ir::Value {
         match addr_or_var {
-            AddressOrVariable::Variable(var) => self.builder().use_var(*var),
+            AddressOrVariable::Variable(var, sym_id) => {
+                let v = self.builder().use_var(*var);
+                let symbol = self.codegen.semantic_context.get_symbol(*sym_id);
+                let symbol = symbol.borrow();
+                self.codegen.annotations.new_value(v, symbol.get_name());
+                v
+            }
             AddressOrVariable::Address(addr) => self.load_value_from_address(*addr, addr_ty),
         }
     }
@@ -2282,7 +2296,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         value_ty: pasko_frontend::typesystem::TypeId,
     ) {
         match addr_or_var {
-            AddressOrVariable::Variable(var) => {
+            AddressOrVariable::Variable(var, ..) => {
                 self.builder().def_var(*var, value);
             }
             AddressOrVariable::Address(addr) => {
@@ -3282,6 +3296,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             match dl {
                 DataLocation::Variable(var, ..) => {
                     let v = self.builder().use_var(var);
+                    let symbol = self.codegen.semantic_context.get_symbol(sym_id);
+                    let symbol = symbol.borrow();
+                    self.codegen.annotations.new_value(v, symbol.get_name());
                     self.set_value(id, v);
                     return false;
                 }
