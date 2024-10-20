@@ -909,11 +909,21 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             }
             DataLocation::Variable(var, ..) => {
                 builder.def_var(*var, param_value);
+                let sym = self.codegen.semantic_context.get_symbol(sym_id);
+                let sym = sym.borrow();
+                self.codegen
+                    .annotations
+                    .new_value(param_value, sym.get_name());
                 // And we are done because variables do not have address.
                 return;
             }
             DataLocation::VariableAddress(var) => {
                 builder.def_var(*var, param_value);
+                let sym = self.codegen.semantic_context.get_symbol(sym_id);
+                let sym = sym.borrow();
+                self.codegen
+                    .annotations
+                    .new_value(param_value, sym.get_name());
                 // And we are done because variables do not have address.
                 return;
             }
@@ -1677,6 +1687,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     let ty = sym.get_type().unwrap();
                     let val = self.load_value_from_address(address, ty);
                     self.builder().def_var(var, val);
+                    self.codegen.annotations.new_value(val, sym.get_name());
                 }
                 _ => panic!("Unexpected data location"),
             }
@@ -2296,8 +2307,11 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         value_ty: pasko_frontend::typesystem::TypeId,
     ) {
         match addr_or_var {
-            AddressOrVariable::Variable(var, ..) => {
+            AddressOrVariable::Variable(var, sym_id) => {
                 self.builder().def_var(*var, value);
+                let symbol = self.codegen.semantic_context.get_symbol(*sym_id);
+                let symbol = symbol.borrow();
+                self.codegen.annotations.new_value(value, symbol.get_name());
             }
             AddressOrVariable::Address(addr) => {
                 self.store_value_into_address_for_assignment(*addr, addr_ty, value, value_ty);
@@ -3260,6 +3274,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 DataLocation::Variable(var, ..) => {
                     let val = self.get_value(n.1.id());
                     self.builder().def_var(var, val);
+                    let sym = self.codegen.semantic_context.get_symbol(sym_id);
+                    let sym = sym.borrow();
+                    self.codegen.annotations.new_value(val, sym.get_name());
                     // And we are done.
                     return false;
                 }
