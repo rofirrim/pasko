@@ -345,7 +345,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
     pub fn allocate_variable_address(&mut self, sym_id: pasko_frontend::symbol::SymbolId) {
         let new_variable = Variable::new(self.next_variable());
         let pointer_type = self.codegen.pointer_type;
-        self.builder().declare_var(new_variable,pointer_type);
+        self.builder().declare_var(new_variable, pointer_type);
 
         self.codegen
             .data_location
