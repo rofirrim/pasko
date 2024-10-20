@@ -188,11 +188,14 @@ fn get_native_target() -> &'static str {
 }
 
 impl<'a> CodegenVisitor<'a> {
-    pub fn new(target : Option<String>, semantic_context: &'a SemanticContext, ir_dump: bool) -> CodegenVisitor<'a> {
+    pub fn new(
+        target: Option<String>,
+        semantic_context: &'a SemanticContext,
+        ir_dump: bool,
+    ) -> CodegenVisitor<'a> {
         let mut flag_builder = settings::builder();
         let target = target.unwrap_or_else(|| get_native_target().to_string());
-        let isa_builder =
-            cranelift_codegen::isa::lookup_by_name(&target).unwrap();
+        let isa_builder = cranelift_codegen::isa::lookup_by_name(&target).unwrap();
         flag_builder.set("is_pic", "true").unwrap();
         flag_builder.set("opt_level", "speed").unwrap();
         flag_builder.enable("enable_alias_analysis").unwrap();
@@ -1322,27 +1325,38 @@ impl<'a> CodegenVisitor<'a> {
                                 // opaque pointer. The caller will be
                                 // responsible for creating a new opaque pointer
                                 // to honour value semantics.
+                                // FIXME: Do we always have to allocate the pointer in the stack?
                                 function_codegen.allocate_value_in_stack(*param_sym_id);
                             } else {
                                 // Other non-simple types passed by value are
                                 // non-opaque storage-wise so we pass a pointer
                                 // to their actual "by value" storage (allocated
                                 // by the caller).
-                                function_codegen.allocate_address_in_stack(*param_sym_id);
+                                if !param_sym.is_captured() {
+                                    function_codegen.allocate_variable_address(*param_sym_id);
+                                } else {
+                                    function_codegen.allocate_address_in_stack(*param_sym_id);
+                                }
                             }
                         }
                         ParameterKind::Variable => {
                             // Variable parameters are always passed as pointer to variable itself.
-                            function_codegen.allocate_address_in_stack(*param_sym_id);
+                            function_codegen.allocate_variable_address(*param_sym_id);
                         }
                         ParameterKind::Function | ParameterKind::Procedure => {
                             function_codegen.allocate_function_address_in_stack(*param_sym_id)
                         }
-                        ParameterKind::ValueConformableArray
-                        | ParameterKind::VariableConformableArray => {
+                        ParameterKind::ValueConformableArray => {
+                            if !param_sym.is_captured() {
+                                function_codegen.allocate_variable_address(*param_sym_id);
+                            } else {
+                                function_codegen.allocate_address_in_stack(*param_sym_id);
+                            }
+                        }
+                        ParameterKind::VariableConformableArray => {
                             // These are never simple, so pass a pointer to the actual storage.
                             // Note: The bounds will be passed as pure values.
-                            function_codegen.allocate_address_in_stack(*param_sym_id);
+                            function_codegen.allocate_variable_address(*param_sym_id);
                         }
                     }
                 } else {

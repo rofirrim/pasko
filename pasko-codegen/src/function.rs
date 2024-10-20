@@ -342,6 +342,16 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .insert(sym_id, DataLocation::Variable(new_variable, None));
     }
 
+    pub fn allocate_variable_address(&mut self, sym_id: pasko_frontend::symbol::SymbolId) {
+        let new_variable = Variable::new(self.next_variable());
+        let pointer_type = self.codegen.pointer_type;
+        self.builder().declare_var(new_variable,pointer_type);
+
+        self.codegen
+            .data_location
+            .insert(sym_id, DataLocation::VariableAddress(new_variable));
+    }
+
     pub fn allocate_value_in_stack(&mut self, sym_id: pasko_frontend::symbol::SymbolId) {
         let symbol = self.codegen.semantic_context.get_symbol(sym_id);
         let symbol = symbol.borrow();
@@ -896,6 +906,11 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 *stack_slot
             }
             DataLocation::Variable(var, ..) => {
+                builder.def_var(*var, param_value);
+                // And we are done because variables do not have address.
+                return;
+            }
+            DataLocation::VariableAddress(var) => {
                 builder.def_var(*var, param_value);
                 // And we are done because variables do not have address.
                 return;
@@ -1675,6 +1690,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     .ins()
                     .global_value(self.codegen.pointer_type, gv);
 
+                addr
+            }
+            DataLocation::VariableAddress(var) => {
+                let addr = self.builder().use_var(var);
                 addr
             }
             DataLocation::StackVarValue(stack_slot) => {
