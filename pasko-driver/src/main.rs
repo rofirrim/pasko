@@ -35,12 +35,9 @@ struct Cli {
     verbose: bool,
 
     #[arg(short, default_value_t = false, help = "Only emit object, do not link")]
-    compile_only : bool,
+    compile_only: bool,
 
-    #[arg(
-        long,
-        help = "Path to the directory containing the pasko runtime"
-    )]
+    #[arg(long, help = "Path to the directory containing the pasko runtime")]
     pasko_runtime: Option<PathBuf>,
 
     #[arg(long, help = "Target to generate code for")]
@@ -86,6 +83,8 @@ enum Mode {
 }
 
 fn main() -> ExitCode {
+    env_logger::init();
+
     let cli = Cli::parse();
 
     let extension = cli.file.extension();
