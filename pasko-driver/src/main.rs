@@ -34,12 +34,17 @@ struct Cli {
     )]
     verbose: bool,
 
+    #[arg(short, default_value_t = false, help = "Only emit object, do not link")]
+    compile_only : bool,
+
     #[arg(
-        short,
         long,
         help = "Path to the directory containing the pasko runtime"
     )]
     pasko_runtime: Option<PathBuf>,
+
+    #[arg(long, help = "Target to generate code for")]
+    target: Option<String>,
 
     // #[command(next_help_heading = "Debugging flags")]
     #[command(flatten, next_help_heading = "Debug / Testing")]
@@ -193,9 +198,15 @@ fn main() -> ExitCode {
 
     let ir_dump = cli.mode == Mode::IRDump;
 
-    pasko_codegen::codegen::codegen(&program, &semantic_context, &object_filename, ir_dump);
+    pasko_codegen::codegen::codegen(
+        cli.target,
+        &program,
+        &semantic_context,
+        &object_filename,
+        ir_dump,
+    );
 
-    if ir_dump {
+    if ir_dump || cli.compile_only {
         return ExitCode::SUCCESS;
     }
 

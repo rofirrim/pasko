@@ -183,11 +183,16 @@ impl<'a> cranelift_codegen::write::FuncWriter for AnnotatedFuncWriter<'a> {
     }
 }
 
+fn get_native_target() -> &'static str {
+    "x86_64-unknown-linux-gnu"
+}
+
 impl<'a> CodegenVisitor<'a> {
-    pub fn new(semantic_context: &'a SemanticContext, ir_dump: bool) -> CodegenVisitor<'a> {
+    pub fn new(target : Option<String>, semantic_context: &'a SemanticContext, ir_dump: bool) -> CodegenVisitor<'a> {
         let mut flag_builder = settings::builder();
+        let target = target.unwrap_or_else(|| get_native_target().to_string());
         let isa_builder =
-            cranelift_codegen::isa::lookup_by_name("x86_64-unknown-linux-gnu").unwrap();
+            cranelift_codegen::isa::lookup_by_name(&target).unwrap();
         flag_builder.set("is_pic", "true").unwrap();
         flag_builder.set("opt_level", "speed").unwrap();
         flag_builder.enable("enable_alias_analysis").unwrap();
