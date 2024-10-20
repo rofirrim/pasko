@@ -275,7 +275,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         }
     }
 
-    pub fn get_variable(&mut self) -> cranelift_frontend::Variable {
+    pub fn get_new_variable(&mut self) -> cranelift_frontend::Variable {
         let v = cranelift_frontend::Variable::new(self.var_counter);
 
         self.var_counter += 1;
@@ -393,15 +393,8 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
     ) where
         F: Fn(&mut Self, cranelift_codegen::ir::Value),
     {
-        let pointer_type = self.codegen.pointer_type;
-        let addr_ind_var = self.allocate_storage_in_stack(I64.bytes());
-        self.codegen
-            .annotations
-            .new_stack_slot(addr_ind_var, "<loop-induction-variable>");
-        let addr_ind_var = self
-            .builder()
-            .ins()
-            .stack_addr(pointer_type, addr_ind_var, 0);
+        let ind_var = self.get_new_variable();
+        self.builder().declare_var(ind_var, I64);
 
         let range_is_empty = self.builder().ins().icmp(
             IntCC::SignedGreaterThan, // start > end
@@ -423,12 +416,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         self.builder().switch_to_block(for_init_block);
 
         // Initialize induction var with the value of start
-        self.builder().ins().store(
-            cranelift_codegen::ir::MemFlags::new(),
-            start_val,
-            addr_ind_var,
-            0,
-        );
+        self.builder().def_var(ind_var, start_val);
 
         let for_block = self.builder().create_block();
         self.builder().ins().jump(for_block, &[]);
@@ -438,18 +426,12 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         self.block_stack.push(for_block);
         self.builder().switch_to_block(for_block);
 
-        let idx_val =
-            self.builder()
-                .ins()
-                .load(I64, cranelift_codegen::ir::MemFlags::new(), addr_ind_var, 0);
+        let idx_val = self.builder().use_var(ind_var);
         let idx_val = self.builder().ins().isub(idx_val, start_val);
 
         body(self, idx_val);
 
-        let ind_var_value =
-            self.builder()
-                .ins()
-                .load(I64, cranelift_codegen::ir::MemFlags::new(), addr_ind_var, 0);
+        let ind_var_value = self.builder().use_var(ind_var);
 
         let we_are_done = self
             .builder()
@@ -469,12 +451,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         let next_ind_var_value = self.builder().ins().iadd_imm(ind_var_value, 1);
 
         // Update the induction variable.
-        self.builder().ins().store(
-            cranelift_codegen::ir::MemFlags::new(),
-            next_ind_var_value,
-            addr_ind_var,
-            0,
-        );
+        self.builder().def_var(ind_var, next_ind_var_value);
 
         // Jump back.
         self.builder().ins().jump(for_block, &[]);
@@ -928,17 +905,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             }
         };
         let builder = self.builder_obj.as_mut().unwrap();
-
-        let stack_address = builder
-            .ins()
-            .stack_addr(self.codegen.pointer_type, stack_slot, 0);
-
-        builder.ins().store(
-            cranelift_codegen::ir::MemFlags::new(),
-            param_value,
-            stack_address,
-            0,
-        );
+        builder.ins().stack_store(param_value, stack_slot, 0);
     }
 
     pub fn copy_in_function_functional_parameter(
@@ -962,20 +929,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         };
         let builder = self.builder_obj.as_mut().unwrap();
 
-        let stack_address = builder
-            .ins()
-            .stack_addr(self.codegen.pointer_type, stack_slot, 0);
-
-        builder.ins().store(
-            cranelift_codegen::ir::MemFlags::new(),
-            function_address,
-            stack_address,
-            0,
-        );
-        builder.ins().store(
-            cranelift_codegen::ir::MemFlags::new(),
+        builder.ins().stack_store(function_address, stack_slot, 0);
+        builder.ins().stack_store(
             environment_address,
-            stack_address,
+            stack_slot,
             self.codegen.pointer_type.bytes() as i32,
         );
     }
@@ -1003,11 +960,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 // let param_value =
                 let builder = self.builder_obj.as_mut().unwrap();
 
-                let stack_address =
-                    builder
-                        .ins()
-                        .stack_addr(self.codegen.pointer_type, *stack_slot, 0);
-
                 let symbol = self.codegen.semantic_context.get_symbol(sym_id);
                 let symbol = symbol.borrow();
                 let ty = symbol.get_type().unwrap();
@@ -1021,16 +973,13 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 {
                     let cranelift_ty = self.codegen.type_to_cranelift_type(ty);
 
-                    builder.ins().load(
-                        cranelift_ty,
-                        cranelift_codegen::ir::MemFlags::new(),
-                        stack_address,
-                        0,
-                    )
+                    builder.ins().stack_load(cranelift_ty, *stack_slot, 0)
                 } else if self.codegen.semantic_context.type_system.is_array_type(ty)
                     || self.codegen.semantic_context.type_system.is_record_type(ty)
                 {
-                    stack_address
+                    builder
+                        .ins()
+                        .stack_addr(self.codegen.pointer_type, *stack_slot, 0)
                 } else {
                     panic!(
                         "Unexpected type {}",
@@ -1044,18 +993,11 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 // let param_value =
                 let builder = self.builder_obj.as_mut().unwrap();
 
-                let stack_address =
+                // Load the address in the stack.
+                let variable_address =
                     builder
                         .ins()
-                        .stack_addr(self.codegen.pointer_type, *stack_slot, 0);
-
-                // Load the address in the stack.
-                let variable_address = builder.ins().load(
-                    self.codegen.pointer_type,
-                    cranelift_codegen::ir::MemFlags::new(),
-                    stack_address,
-                    0,
-                );
+                        .stack_load(self.codegen.pointer_type, *stack_slot, 0);
 
                 let symbol = self.codegen.semantic_context.get_symbol(sym_id);
                 let symbol = symbol.borrow();
@@ -1743,15 +1685,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             }
             DataLocation::StackVarAddress(stack_slot) => {
                 let pointer_type = self.codegen.pointer_type;
-                let stack_addr = self.builder().ins().stack_addr(pointer_type, stack_slot, 0);
-
-                let addr = self.builder().ins().load(
-                    pointer_type,
-                    cranelift_codegen::ir::MemFlags::new(),
-                    stack_addr,
-                    0,
-                );
-
+                let addr = self.builder().ins().stack_load(pointer_type, stack_slot, 0);
                 addr
             }
             DataLocation::NestedVarValue {
@@ -3132,21 +3066,18 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 .annotations
                 .new_stack_slot(stack_slot, "[set-constructor]");
             let pointer = self.codegen.pointer_type;
-            let stack_addr = self.builder().ins().stack_addr(pointer, stack_slot, 0);
             for (index, value) in n.0.iter().enumerate() {
                 let value = self.get_value(value.id());
-                self.builder().ins().store(
-                    cranelift_codegen::ir::MemFlags::new(),
-                    value,
-                    stack_addr,
-                    (element_size * index) as i32,
-                );
+                self.builder()
+                    .ins()
+                    .stack_store(value, stack_slot, (element_size * index) as i32);
             }
 
             let number_of_elements_value = self.emit_const_integer(num_expr_members as i64);
 
             let func_id = self.codegen.get_runtime_function(RuntimeFunctionId::SetNew);
             let func_ref = self.get_function_reference(func_id);
+            let stack_addr = self.builder().ins().stack_addr(pointer, stack_slot, 0);
             self.builder()
                 .ins()
                 .call(func_ref, &[number_of_elements_value, stack_addr])
@@ -3165,24 +3096,22 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         let result = if num_range_members > 0 {
             // Range members will be added in a loop to avoid blowing the stack very easily.
-            let stack_slot = self.allocate_storage_for_type_in_stack(set_type);
+            let set_stack_slot = self.allocate_storage_for_type_in_stack(set_type);
             self.codegen
                 .annotations
-                .new_stack_slot(stack_slot, "[set-constructor-tmp-set]");
+                .new_stack_slot(set_stack_slot, "[set-constructor-tmp-set]");
             let pointer = self.codegen.pointer_type;
-            let set_tmp_stack = self.builder().ins().stack_addr(pointer, stack_slot, 0);
-            self.builder().ins().store(
-                cranelift_codegen::ir::MemFlags::new(),
-                result,
-                set_tmp_stack,
-                0,
-            );
+            let set_tmp_stack = self.builder().ins().stack_addr(pointer, set_stack_slot, 0);
+            self.builder().ins().stack_store(result, set_stack_slot, 0);
 
-            let stack_slot = self.allocate_storage_for_type_in_stack(element_type);
+            let element_stack_slot = self.allocate_storage_for_type_in_stack(element_type);
             self.codegen
                 .annotations
-                .new_stack_slot(stack_slot, "[set-constructor-ith-element]");
-            let stack_addr = self.builder().ins().stack_addr(pointer, stack_slot, 0);
+                .new_stack_slot(element_stack_slot, "[set-constructor-ith-element]");
+            let element_stack_addr =
+                self.builder()
+                    .ins()
+                    .stack_addr(pointer, element_stack_slot, 0);
             let one = self.emit_const_integer(1 as i64);
 
             n.0.iter()
@@ -3206,10 +3135,9 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                     let current_value =
                                         self_.builder().ins().iadd(lower_bound_val, idx);
                                     // Store the value of the current member.
-                                    self_.builder().ins().store(
-                                        cranelift_codegen::ir::MemFlags::new(),
+                                    self_.builder().ins().stack_store(
                                         current_value,
-                                        stack_addr,
+                                        element_stack_slot,
                                         0,
                                     );
 
@@ -3218,8 +3146,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                         .codegen
                                         .get_runtime_function(RuntimeFunctionId::SetNew);
                                     let func_ref = self_.get_function_reference(func_id);
-                                    let call =
-                                        self_.builder().ins().call(func_ref, &[one, stack_addr]);
+                                    let call = self_
+                                        .builder()
+                                        .ins()
+                                        .call(func_ref, &[one, element_stack_addr]);
                                     let singleton = {
                                         let results = self_.builder().inst_results(call);
                                         assert!(results.len() == 1, "Invalid number of results");
