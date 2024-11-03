@@ -217,6 +217,8 @@ OrdinalTypeDenoter : SpannedBox<ast::TypeDenoter> = {
 };
 
 FieldList : SpannedBox<ast::FieldList> = { 
+    <start:@L> <end:@R> =>
+        SpannedBox::new(span_loc!(start, end), ast::FieldList(None, None)),
     <start:@L> <fixed_part:FixedPart> <end:@R> =>
         SpannedBox::new(span_loc!(start, end), ast::FieldList(Some(fixed_part), None)),
     <start:@L> <fixed_part:FixedPartSemicolon> <variant_part:VariantPart> <end:@R> =>
@@ -511,7 +513,7 @@ ClosedRepetitiveStatement : SpannedBox<ast::Stmt> = {
         SpannedBox::new(span_loc!(start, end), ast::Stmt::For(ast::StmtFor(ast::ForKind::DownTo, 
             SpannedBox::new(span_loc!(start_var, end_var), ast::AssigVariable(control_var)),
             initial_value, final_value, body))),
-    <start:@L> "with" <variables:CommaSeparated<Identifier>> "do" <body:ClosedStatement> <end:@R> => 
+    <start:@L> "with" <variables:CommaSeparated<VariableAccess>> "do" <body:ClosedStatement> <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::Stmt::With(ast::StmtWith(variables, body)))
 };
 
@@ -526,7 +528,7 @@ OpenRepetitiveStatement : SpannedBox<ast::Stmt> = {
         SpannedBox::new(span_loc!(start, end), ast::Stmt::For(ast::StmtFor(ast::ForKind::DownTo, 
             SpannedBox::new(span_loc!(start_var, end_var), ast::AssigVariable(control_var)),
             initial_value, final_value, body))),
-    <start:@L> "with" <variables:CommaSeparated<Identifier>> "do" <body:OpenStatement> <end:@R> => 
+    <start:@L> "with" <variables:CommaSeparated<VariableAccess>> "do" <body:OpenStatement> <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::Stmt::With(ast::StmtWith(variables, body)))
 };
 

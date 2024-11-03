@@ -1978,9 +1978,11 @@ define_visitable!(
     self,
     v,
     {
+        visit_vector_child!(self, 0, v);
         visit_child!(self, 1, v);
     },
     {
+        visit_vector_child_mut!(self, 0, v);
         visit_child_mut!(self, 1, v);
     }
 );
@@ -1990,9 +1992,11 @@ define_mutating_visitable!(
     self,
     v,
     {
+        mutating_visit_vector_child!(self, 0, v);
         mutating_visit_child!(self, 1, v);
     },
     {
+        mutating_visit_vector_child_mut!(self, 0, v);
         mutating_visit_child_mut!(self, 1, v);
     }
 );

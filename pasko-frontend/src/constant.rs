@@ -7,6 +7,7 @@ pub enum Constant {
     Integer(i64),
     Real(f64),
     Bool(bool),
+    String(String)
 }
 
 impl From<i64> for Constant {
@@ -28,12 +29,31 @@ impl From<bool> for Constant {
     }
 }
 
+impl From<String> for Constant {
+    fn from(v: String) -> Constant {
+        Constant::String(v.clone())
+    }
+}
+
+impl From<&String> for Constant {
+    fn from(v: &String) -> Constant {
+        Constant::String(v.clone())
+    }
+}
+
+impl From<&str> for Constant {
+    fn from(v: &str) -> Constant {
+        Constant::String(v.to_string())
+    }
+}
+
 impl ToString for Constant {
     fn to_string(&self) -> String {
         match self {
             Constant::Integer(x) => x.to_string(),
             Constant::Real(x) => x.to_string(),
             Constant::Bool(x) => x.to_string(),
+            Constant::String(x) => x.clone(),
         }
     }
 }
@@ -49,6 +69,7 @@ impl PartialEq for Constant {
                 debug_assert!(!x.is_nan() && !y.is_nan());
                 x.to_bits().eq(&y.to_bits())
             }
+            (Constant::String(x), Constant::String(y)) => x.eq(y),
             _ => false,
         }
     }
@@ -63,6 +84,7 @@ impl PartialOrd for Constant {
             (Constant::Integer(x), Constant::Integer(y)) => x.partial_cmp(y),
             (Constant::Bool(x), Constant::Bool(y)) => x.partial_cmp(y),
             (Constant::Real(x), Constant::Real(y)) => x.partial_cmp(y),
+            (Constant::String(x), Constant::String(y)) => x.partial_cmp(y),
             _ => None,
         }
     }
@@ -78,6 +100,7 @@ impl Hash for Constant {
                 debug_assert!(!x.is_nan());
                 x.to_bits().hash(state);
             }
+            Constant::String(s) => s.hash(state),
         }
     }
 }

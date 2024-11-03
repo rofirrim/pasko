@@ -2,5 +2,7 @@
 *.swp
 *.swo
 .vscode
+# They have copyright so avoid committing them
+pasko-testing/standard-test-moore
 # Experiments directori
 experiments

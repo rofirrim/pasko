@@ -189,6 +189,45 @@ impl<'input> Lexer<'input> {
     fn peek(&mut self) -> Option<(usize, char)> {
         self.peek_nth(0)
     }
+
+    fn consume_comment(&mut self, offset: usize) -> (usize, usize) {
+        let mut offset_end = offset + 1;
+        let mut nesting_level = 1;
+        while let Some((_, c2)) = self.peek() {
+            self.skip();
+            offset_end += 1;
+            match c2 {
+                '}' => {
+                    nesting_level -= 1;
+                    if nesting_level == 0 {
+                        break;
+                    }
+                }
+                '{' => {
+                    nesting_level += 1;
+                }
+                // Old style comments.
+                '(' => {
+                    if let Some((_, '*')) = self.peek() {
+                        self.skip();
+                        nesting_level += 1;
+                    }
+                }
+                '*' => {
+                    if let Some((_, ')')) = self.peek() {
+                        self.skip();
+                        nesting_level -= 1;
+                        if nesting_level == 0 {
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        (offset_end, nesting_level)
+    }
 }
 
 impl<'input> Iterator for Lexer<'input> {
@@ -208,25 +247,7 @@ impl<'input> Iterator for Lexer<'input> {
                     // Whitespace. Discard.
                 }
                 '{' => {
-                    let mut offset_end = offset + 1;
-                    // Comment. Discard but take into acount nested comments.
-                    let mut nesting_level = 1;
-                    while let Some((_, c2)) = self.peek() {
-                        self.skip();
-                        offset_end += 1;
-                        match c2 {
-                            '}' => {
-                                nesting_level -= 1;
-                                if nesting_level == 0 {
-                                    break;
-                                }
-                            }
-                            '{' => {
-                                nesting_level += 1;
-                            }
-                            _ => {}
-                        }
-                    }
+                    let (offset_end, nesting_level) = self.consume_comment(offset);
                     if nesting_level != 0 {
                         return Some(Err(LexicalError {
                             start: offset,
@@ -247,6 +268,7 @@ impl<'input> Iterator for Lexer<'input> {
                 }
                 ',' => return Some(Ok((offset, Tok::Comma, offset + 1))),
                 '^' => return Some(Ok((offset, Tok::Deref, offset + 1))),
+                '@' => return Some(Ok((offset, Tok::Deref, offset + 1))),
                 '<' => {
                     let s2 = self.peek();
                     if let Some((_, c2)) = s2 {
@@ -267,6 +289,10 @@ impl<'input> Iterator for Lexer<'input> {
                         if c2 == '.' {
                             self.skip();
                             return Some(Ok((offset, Tok::Ellipsis, offset + 2)));
+                        } else if c2 == ')' {
+                            // .) is ]
+                            self.skip();
+                            return Some(Ok((offset, Tok::RightSquareBracket, offset + 2)));
                         }
                     }
                     return Some(Ok((offset, Tok::Dot, offset + 1)));
@@ -282,7 +308,32 @@ impl<'input> Iterator for Lexer<'input> {
                     }
                     return Some(Ok((offset, Tok::GreaterThan, offset + 1)));
                 }
-                '(' => return Some(Ok((offset, Tok::LeftParen, offset + 1))),
+                '(' => {
+                    let s2 = self.peek();
+                    if let Some((_, c2)) = s2 {
+                        if c2 == '*' {
+                            // (* starts an old style comment.
+                            // Consume '*'
+                            self.skip();
+                            let (offset_end, nesting_level) = self.consume_comment(offset);
+                            if nesting_level != 0 {
+                                return Some(Err(LexicalError {
+                                    start: offset,
+                                    end: offset_end,
+                                    message: format!("unterminated comment"),
+                                }));
+                            }
+                            // Nothing else to do at this point.
+                            continue;
+                        } else if c2 == '.' {
+                            // (. is [
+                            // Consume '.'
+                            self.skip();
+                            return Some(Ok((offset, Tok::LeftSquareBracket, offset + 2)));
+                        }
+                    }
+                    return Some(Ok((offset, Tok::LeftParen, offset + 1)));
+                }
                 '[' => return Some(Ok((offset, Tok::LeftSquareBracket, offset + 1))),
                 '-' => return Some(Ok((offset, Tok::Minus, offset + 1))),
                 '*' => return Some(Ok((offset, Tok::Mul, offset + 1))),
@@ -303,12 +354,16 @@ impl<'input> Iterator for Lexer<'input> {
                                 self.skip();
                             }
                             '.' => {
-                                let ellipsis = if let Some((_, c3)) = self.peek_nth(1) {
-                                    c3 == '.'
+                                let is_followed_by_number = if let Some((_, c3)) = self.peek_nth(1)
+                                {
+                                    // 42.1
+                                    // 42.. is not a valid real
+                                    // 42.) would not be a valid real either an in fact it must be lexed as 42]
+                                    '0' <= c3 && c3 <= '9'
                                 } else {
                                     false
                                 };
-                                if !ellipsis {
+                                if is_followed_by_number {
                                     is_real = true;
                                     tmp.push(c2);
                                     offset_end += 1;

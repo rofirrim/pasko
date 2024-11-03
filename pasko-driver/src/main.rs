@@ -139,7 +139,10 @@ fn main() -> ExitCode {
 
     let mut program = parse_result.unwrap();
 
-    let mut semantic_context = pasko_frontend::semantic::SemanticContext::new();
+    // FIXME: The input is used to build the linemap but there is no point to build it twice, one for semantic
+    // and another one for the diagnostics and the dumper. Either we get it from the semantic context
+    // or we push it onto it.
+    let mut semantic_context = pasko_frontend::semantic::SemanticContext::new(&input);
 
     if cli.mode == Mode::ASTDumpPre {
         let mut dumper = dump::ASTDumper::new(&input, &semantic_context);

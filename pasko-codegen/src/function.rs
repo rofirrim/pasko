@@ -170,6 +170,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             Constant::Integer(x) => self.emit_const_integer(x as i64),
             Constant::Real(x) => self.emit_const_real(x),
             Constant::Bool(x) => self.emit_const_bool(x),
+            Constant::String(s) => self.emit_string_literal(&s),
         }
     }
 

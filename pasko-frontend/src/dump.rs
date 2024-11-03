@@ -1445,6 +1445,39 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         false
     }
 
+    fn visit_pre_expr_write_parameter(
+        &mut self,
+        n: &ast::ExprWriteParameter,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        self.emit_line("ExprWriteParameter", span, id);
+
+        self.walk_child(&n.0);
+        if n.2.is_some() {
+            self.walk_child(&n.1);
+            self.walk_optional_child(&n.2);
+        } else {
+            self.walk_last_child(&n.1);
+        }
+
+        false
+    }
+
+    fn visit_pre_stmt_with(
+        &mut self,
+        n: &ast::StmtWith,
+        span: &span::SpanLoc,
+        id: span::SpanId,
+    ) -> bool {
+        self.emit_line("StmtWith", span, id);
+
+        self.walk_vec_child(&n.0);
+        self.walk_last_child(&n.1);
+
+        false
+    }
+
     // Generic visitors of enumerators. They must return true so their variants are visited.
     fn visit_pre_procedure_and_function_declaration(
         &mut self,

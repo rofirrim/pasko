@@ -12,3 +12,7 @@ pasko-codegen = { path = "../pasko-codegen" }
 [[test]]
 name = "testsuite"
 harness = false
+
+[[test]]
+name = "standard-test-moore"
+harness = false

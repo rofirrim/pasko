@@ -57,7 +57,7 @@ pub struct StmtFor(
     pub SpannedBox<Stmt>,
 );
 #[derive(Debug)]
-pub struct StmtWith(pub Vec<Spanned<String>>, pub SpannedBox<Stmt>);
+pub struct StmtWith(pub Vec<SpannedBox<Assig>>, pub SpannedBox<Stmt>);
 
 #[derive(Debug)]
 pub struct StmtEmpty;

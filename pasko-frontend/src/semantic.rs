@@ -2,7 +2,7 @@ use crate::ast::{self, ExprVariableReference, UnaryOp};
 use crate::ast::{BinOperand, FormalParameter};
 use crate::constant::Constant;
 use crate::diagnostics::{Diagnostic, DiagnosticKind, Diagnostics};
-use crate::span::{self, SpannedBox};
+use crate::span::{self, LineMap, SpanLoc, SpannedBox};
 use crate::symbol::{
     self, ParameterKind, Symbol, SymbolId, SymbolKind, SymbolMap, SymbolMapImpl, SymbolRef,
 };
@@ -12,8 +12,10 @@ use crate::visitor::MutatingVisitorMut;
 use crate::{scope, typesystem};
 
 use std::collections::{HashMap, HashSet};
+use std::i64;
 
 pub struct SemanticContext {
+    line_map: LineMap,
     symbol_map: SymbolMap,
     pub type_system: TypeSystem,
 
@@ -61,11 +63,12 @@ pub fn is_required_function_zeroadic(name: &str) -> bool {
 
 // In bytes.
 impl SemanticContext {
-    pub fn new() -> SemanticContext {
+    pub fn new(input: &str) -> SemanticContext {
         let symbol_map = SymbolMapImpl::new();
         let type_system = TypeSystem::new(symbol_map.clone());
 
         let sc = SemanticContext {
+            line_map: LineMap::new(&input),
             symbol_map,
             type_system,
             scope: scope::Scope::new(),
@@ -81,6 +84,10 @@ impl SemanticContext {
         };
 
         sc
+    }
+
+    pub fn get_line_column(&self, loc: &SpanLoc) -> (usize, usize) {
+        self.line_map.offset_to_line_and_col(loc.0)
     }
 
     pub fn get_ast_type(&self, id: span::SpanId) -> Option<TypeId> {
@@ -191,6 +198,14 @@ impl SemanticContext {
         new_sym.set_type(self.type_system.get_textfile_type());
         let new_sym = self.new_symbol(new_sym);
         self.scope.add_entry("text", new_sym);
+
+        let mut new_sym = Symbol::new();
+        new_sym.set_name("maxint");
+        new_sym.set_kind(SymbolKind::Const);
+        new_sym.set_type(self.type_system.get_integer_type());
+        new_sym.set_const(Constant::Integer(i64::MAX));
+        let new_sym = self.new_symbol(new_sym);
+        self.scope.add_entry("maxint", new_sym);
     }
 }
 
@@ -477,10 +492,12 @@ impl<'a> SemanticCheckerVisitor<'a> {
         }
 
         for p in params_a.iter().flatten().zip(params_b.iter().flatten()) {
-            let sym_a = self.ctx.get_symbol(*p.0);
+            let sym_id_a = *p.0;
+            let sym_a = self.ctx.get_symbol(sym_id_a);
             let sym_a = sym_a.borrow();
 
-            let sym_b = self.ctx.get_symbol(*p.1);
+            let sym_id_b = *p.1;
+            let sym_b = self.ctx.get_symbol(sym_id_b);
             let sym_b = sym_b.borrow();
 
             let param_kind_a = sym_a.get_parameter().unwrap();
@@ -488,6 +505,22 @@ impl<'a> SemanticCheckerVisitor<'a> {
             match (param_kind_a, param_kind_b) {
                 (ParameterKind::Value, ParameterKind::Value)
                 | (ParameterKind::Variable, ParameterKind::Variable) => {}
+                (ParameterKind::Function, ParameterKind::Function) => {
+                    // Check parameters and return
+                    if !self.equivalent_function_symbols(sym_id_a, sym_id_b) {
+                        return false;
+                    }
+                    // These symbols have no type.
+                    continue;
+                }
+                (ParameterKind::Procedure, ParameterKind::Procedure) => {
+                    // Check parameters and return
+                    if !self.equivalent_procedure_symbols(sym_id_a, sym_id_b) {
+                        return false;
+                    }
+                    // These symbols have no type.
+                    continue;
+                }
                 _ => {
                     return false;
                 }
@@ -677,6 +710,15 @@ impl<'a> SemanticCheckerVisitor<'a> {
             return true;
         }
 
+        // Because subrange types are integers in disguise, make them explicitly compatible.
+        if self.ctx.type_system.is_integer_type(lhs_type_id)
+            && self.ctx.type_system.is_subrange_type(rhs_type_id)
+            || self.ctx.type_system.is_integer_type(rhs_type_id)
+                && self.ctx.type_system.is_subrange_type(lhs_type_id)
+        {
+            return true;
+        }
+
         // lhs and rhs are set-types of compatible base-types, and either both lhs and rhs are designated packed or neither lhs nor rhs is designated packed.
         if self.ctx.type_system.is_set_type(lhs_type_id)
             && self.ctx.type_system.is_set_type(rhs_type_id)
@@ -739,6 +781,13 @@ impl<'a> SemanticCheckerVisitor<'a> {
 
         if self.ctx.type_system.is_real_type(lhs_type_id)
             && self.ctx.type_system.is_integer_type(rhs_type_id)
+        {
+            return true;
+        }
+
+        // We allow assigning chars to integers because the values of chars are integers.
+        if self.ctx.type_system.is_integer_type(lhs_type_id)
+            && self.ctx.type_system.is_char_type(rhs_type_id)
         {
             return true;
         }
@@ -835,6 +884,15 @@ impl<'a> SemanticCheckerVisitor<'a> {
             return Some(self.ctx.type_system.get_integer_type());
         }
 
+        // Subranges are like integers.
+        if (self.ctx.type_system.is_subrange_type(lhs_ty)
+            || self.ctx.type_system.is_integer_type(lhs_ty))
+            && (self.ctx.type_system.is_subrange_type(rhs_ty)
+                || self.ctx.type_system.is_integer_type(rhs_ty))
+        {
+            return Some(self.ctx.type_system.get_integer_type());
+        }
+
         if self.ctx.type_system.is_real_type(lhs_ty) && self.ctx.type_system.is_real_type(rhs_ty)
             || self.ctx.type_system.is_integer_type(lhs_ty)
                 && self.ctx.type_system.is_real_type(rhs_ty)
@@ -846,7 +904,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
         None
     }
 
-    fn same_set_type(&self, lhs_ty: TypeId, rhs_ty: TypeId) -> Option<TypeId> {
+    fn compatible_set_type(&self, lhs_ty: TypeId, rhs_ty: TypeId) -> Option<TypeId> {
         // Special cases when operating with []
         if self.is_set_and_generic_set(lhs_ty, rhs_ty) {
             return Some(lhs_ty);
@@ -860,7 +918,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
             return None;
         }
 
-        if !self.ctx.type_system.same_type(
+        if !self.is_compatible(
             self.ctx.type_system.set_type_get_element(lhs_ty),
             self.ctx.type_system.set_type_get_element(rhs_ty),
         ) {
@@ -894,8 +952,10 @@ impl<'a> SemanticCheckerVisitor<'a> {
     }
 
     fn both_integer_type(&self, lhs_ty: TypeId, rhs_ty: TypeId) -> Option<TypeId> {
-        if self.ctx.type_system.is_integer_type(lhs_ty)
-            && self.ctx.type_system.is_integer_type(rhs_ty)
+        if (self.ctx.type_system.is_subrange_type(lhs_ty)
+            || self.ctx.type_system.is_integer_type(lhs_ty))
+            && (self.ctx.type_system.is_subrange_type(rhs_ty)
+                || self.ctx.type_system.is_integer_type(rhs_ty))
         {
             return Some(self.ctx.type_system.get_integer_type());
         }
@@ -933,7 +993,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
         rhs_type_id: TypeId,
     ) -> Option<TypeId> {
         let valid_type = |ty: TypeId| {
-            self.ctx.type_system.is_simple_type(ty) // || self.ctx.type_system.is_string_type(ty))
+            self.ctx.type_system.is_simple_type(ty) || self.ctx.type_system.is_string_type(ty)
         };
 
         if !valid_type(lhs_type_id) || !valid_type(rhs_type_id) {
@@ -954,7 +1014,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
             self.ctx.type_system.is_simple_type(ty)
                 || self.ctx.type_system.is_set_type(ty)
                 || self.ctx.type_system.is_generic_set_type(ty)
-            // || self.ctx.type_system.is_string_type(ty))
+                || self.ctx.type_system.is_string_type(ty)
         };
 
         if !valid_type(lhs_type_id) || !valid_type(rhs_type_id) {
@@ -973,7 +1033,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                 || self.ctx.type_system.is_generic_set_type(ty)
                 || self.ctx.type_system.is_pointer_type(ty)
                 || self.ctx.type_system.is_generic_pointer_type(ty)
-            // self.ctx.type_system.is_string_type(ty)
+                || self.ctx.type_system.is_string_type(ty)
         };
 
         if !valid_type(lhs_type_id) || !valid_type(rhs_type_id) {
@@ -2040,6 +2100,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
         let lower_ty = self.ctx.get_ast_type(lower.id()).unwrap();
         let upper_ty = self.ctx.get_ast_type(lower.id()).unwrap();
+        if self.ctx.type_system.is_error_type(lower_ty)
+            || self.ctx.type_system.is_error_type(upper_ty)
+        {
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
+            return;
+        }
         if !self.ctx.type_system.same_type(lower_ty, upper_ty) {
             self.diagnostics.add_with_extra(
                 DiagnosticKind::Error,
@@ -3697,10 +3764,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             }
             BinOperand::InSet => {
                 if self.ctx.type_system.is_set_type(rhs_ty)
-                    && self
-                        .ctx
-                        .type_system
-                        .same_type(self.ctx.type_system.set_type_get_element(rhs_ty), lhs_ty)
+                    && self.is_compatible(self.ctx.type_system.set_type_get_element(rhs_ty), lhs_ty)
                 {
                     self.ctx
                         .set_ast_type(id, self.ctx.type_system.get_bool_type());
@@ -3738,7 +3802,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         self.ctx.set_ast_type(id, result_type);
                     }
                     None => {
-                        if let Some(set_ty) = self.same_set_type(lhs_ty, rhs_ty) {
+                        if let Some(set_ty) = self.compatible_set_type(lhs_ty, rhs_ty) {
                             self.ctx.set_ast_type(id, set_ty);
                             if self.ctx.type_system.is_generic_set_type(lhs_ty) {
                                 self.ctx.set_ast_type(node.1.id(), set_ty);
@@ -3979,6 +4043,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         1 => {
                             let ty = self.ctx.get_ast_type(args[0].id()).unwrap();
                             if !self.ctx.type_system.is_integer_type(ty)
+                                && !self.ctx.type_system.is_subrange_type(ty)
                                 && !self.ctx.type_system.is_real_type(ty)
                             {
                                 self.diagnostics.add(
@@ -4080,7 +4145,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 "chr" => match args.len() {
                     1 => {
                         let ty = self.ctx.get_ast_type(args[0].id()).unwrap();
-                        if !self.ctx.type_system.is_integer_type(ty) {
+                        if !self.ctx.type_system.is_integer_type(ty)
+                            && !self.ctx.type_system.is_subrange_type(ty)
+                        {
                             self.diagnostics.add(
                                 DiagnosticKind::Error,
                                 *args[0].loc(),
@@ -4133,7 +4200,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 "odd" => match args.len() {
                     1 => {
                         let ty = self.ctx.get_ast_type(args[0].id()).unwrap();
-                        if !self.ctx.type_system.is_integer_type(ty) {
+                        if !self.ctx.type_system.is_integer_type(ty)
+                            && !self.ctx.type_system.is_subrange_type(ty)
+                        {
                             self.diagnostics.add(
                                 DiagnosticKind::Error,
                                 *args[0].loc(),
@@ -4435,6 +4504,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         } else {
             self.ctx.type_system.get_char_type()
         };
+        self.ctx.set_ast_value(id, Constant::from(str));
         self.ctx.set_ast_type(id, string_literal_type);
     }
 
@@ -4657,6 +4727,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                             if is_textfile {
                                 if !self.ctx.type_system.is_error_type(ty)
                                     && !self.ctx.type_system.is_integer_type(ty)
+                                    && !self.ctx.type_system.is_subrange_type(ty)
                                     && !self.ctx.type_system.is_real_type(ty)
                                     && !self.ctx.type_system.is_char_type(ty)
                                     && !self.ctx.type_system.is_bool_type(ty)
@@ -4722,19 +4793,38 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                 );
                                 break;
                             }
-                            match arg.get() {
-                                ast::Expr::Variable(_) => {
-                                    let ty = self.ctx.get_ast_type(arg.id()).unwrap();
-                                    if !self.ctx.type_system.is_pointer_type(ty) {
-                                        self.diagnostics.add(DiagnosticKind::Error, *span,
+
+                            let ty = self.ctx.get_ast_type(arg.id()).unwrap();
+                            if procedure_name == "new" {
+                                // New requires a variable.
+                                match arg.get() {
+                                    ast::Expr::Variable(_) => {
+                                        if !self.ctx.type_system.is_error_type(ty)
+                                            && !self.ctx.type_system.is_pointer_type(ty)
+                                        {
+                                            self.diagnostics.add(DiagnosticKind::Error, *span,
                                             format!("the argument to {} must be a variable of pointer type", procedure_name));
+                                        }
+                                    }
+                                    _ => {
+                                        self.diagnostics.add(
+                                            DiagnosticKind::Error,
+                                            *arg.loc(),
+                                            format!("must be a variable"),
+                                        );
                                     }
                                 }
-                                _ => {
+                            } else {
+                                if !self.ctx.type_system.is_error_type(ty)
+                                    && !self.ctx.type_system.is_pointer_type(ty)
+                                {
                                     self.diagnostics.add(
                                         DiagnosticKind::Error,
-                                        *arg.loc(),
-                                        format!("must be a variable"),
+                                        *span,
+                                        format!(
+                                        "the argument to {} must be an expression of pointer type",
+                                        procedure_name
+                                    ),
                                     );
                                 }
                             }
@@ -4780,6 +4870,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                             format!("a call to {} requires exactly one argument", procedure_name),
                         );
                     }
+                }
+                "pack" | "unpack" => {
+                    self.unimplemented(*span, &format!("call to procedure {}", procedure_name));
                 }
                 _ => {
                     unreachable!("call to procedure {}", node.0.get().as_str())
@@ -4892,6 +4985,24 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                             );
                         }
                     }
+                    Constant::String(s) => {
+                        assert!(s.chars().count() == 1);
+                        let codepoint = s.chars().next().unwrap() as i64;
+                        if let Some(prev_loc) = const_set.insert(codepoint, case_const.loc()) {
+                            let previous_const = Diagnostic::new(
+                                DiagnosticKind::Info,
+                                *prev_loc,
+                                format!("previous case"),
+                            );
+                            self.diagnostics.add_with_extra(
+                                DiagnosticKind::Error,
+                                *case_const.loc(),
+                                format!("case repeated"),
+                                vec![],
+                                vec![previous_const],
+                            );
+                        }
+                    }
                     _ => {
                         panic!("Unexpected constant");
                     }
@@ -4943,7 +5054,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         }
 
         let ty = self.ctx.get_ast_type(node.0.id()).unwrap();
-        let ty = if must_be_real && !self.ctx.type_system.is_real_type(ty) {
+        let ty = if self.ctx.type_system.is_error_type(ty) {
+            ty
+        } else if must_be_real && !self.ctx.type_system.is_real_type(ty) {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *node.0.loc(),
@@ -4953,11 +5066,14 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         } else if !self.ctx.type_system.is_real_type(ty)
             && !self.ctx.type_system.is_bool_type(ty)
             && !self.ctx.type_system.is_integer_type(ty)
+            && !self.ctx.type_system.is_char_type(ty)
+            && !self.ctx.type_system.is_string_type(ty)
+            && !self.ctx.type_system.is_subrange_type(ty)
         {
             self.diagnostics.add(
                     DiagnosticKind::Error,
                     *node.0.loc(),
-                    format!("argument of writeln must be an expression of integer-type, real-type or Boolean-type"),
+                    format!("argument of writeln must be an expression of integer-type, real-type, character-type, string-type, or Boolean-type"),
                 );
             self.ctx.type_system.get_error_type()
         } else {
