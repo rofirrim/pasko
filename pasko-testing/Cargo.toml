@@ -13,6 +13,10 @@ pasko-codegen = { path = "../pasko-codegen" }
 name = "testsuite"
 harness = false
 
+[features]
+compliance = []
+
 [[test]]
 name = "standard-test-moore"
 harness = false
+required-features = ["compliance"]
