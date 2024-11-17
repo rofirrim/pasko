@@ -35,7 +35,8 @@ pub enum SymbolKind {
     Const,
     Field,
     BoundIdentifier,
-    Label
+    Label,
+    AssociatedField, // With statement
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +66,8 @@ struct SymbolInfo {
     formal_parameters: Option<Vec<Vec<SymbolId>>>,
     return_symbol: Option<SymbolId>,
     required_environment: HashSet<SymbolId>,
+    associated_record: Option<span::SpanId>,
+    associated_field: Option<SymbolId>,
 }
 
 #[derive(Debug)]
@@ -219,6 +222,22 @@ impl Symbol {
 
     pub fn set_captured(&mut self, captured: bool) {
         self.info.captured = captured;
+    }
+
+    pub fn associated_record(&self) -> Option<span::SpanId> {
+        self.info.associated_record
+    }
+
+    pub fn set_associated_record(&mut self, id: span::SpanId) {
+        self.info.associated_record = Some(id);
+    }
+
+    pub fn associated_field(&self) -> Option<SymbolId> {
+        self.info.associated_field
+    }
+
+    pub fn set_associated_field(&mut self, id: SymbolId) {
+        self.info.associated_field = Some(id);
     }
 }
 

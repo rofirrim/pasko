@@ -3036,6 +3036,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         _ => unreachable!(),
                     }
                 }
+                SymbolKind::AssociatedField => {
+                    self.ctx.set_ast_symbol(id, sym_id);
+                    self.ctx.set_ast_type(id, sym_type.unwrap());
+                }
                 SymbolKind::ErrorLookup => {
                     self.ctx
                         .set_ast_type(id, self.ctx.type_system.get_error_type());
@@ -3484,7 +3488,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         if let Some(assig_sym_id) = self.ctx.get_ast_symbol(node.0.id()) {
             let assig_sym = self.ctx.get_symbol(assig_sym_id);
             let assig_sym = assig_sym.borrow();
-            if assig_sym.get_kind() != SymbolKind::Variable {
+            if assig_sym.get_kind() != SymbolKind::Variable
+                && assig_sym.get_kind() != SymbolKind::AssociatedField
+            {
                 self.diagnostics.add(
                     DiagnosticKind::Error,
                     *node.0.loc(),
@@ -5013,12 +5019,70 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
     fn visit_pre_stmt_with(
         &mut self,
-        _n: &mut ast::StmtWith,
-        span: &span::SpanLoc,
+        n: &mut ast::StmtWith,
+        _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
-        self.unimplemented(*span, "with-statements");
-        false
+        let record_vars = &mut n.0;
+
+        for record_var in record_vars {
+            let record_var_id = record_var.id();
+            let record_var_loc = *record_var.loc();
+            record_var
+                .get_mut()
+                .mutating_walk_mut(self, &record_var_loc, record_var_id);
+
+            let ty = self.ctx.get_ast_type(record_var.id()).unwrap();
+            if !self.ctx.type_system.is_error_type(ty) && !self.ctx.type_system.is_record_type(ty) {
+                self.diagnostics.add(
+                    DiagnosticKind::Error,
+                    *record_var.loc(),
+                    format!("the type of this variable must be a record type"),
+                );
+            }
+
+            // We always push a scope even if we do not have to do anything,
+            // this way even in error we do not have mismatches.
+            self.ctx.scope.push_scope(None);
+
+            if self.ctx.type_system.is_record_type(ty) {
+                // Now register the associated fields in the scope.
+                let fields = self.ctx.type_system.record_type_get_all_fields(ty).clone();
+                for field_id in fields {
+                    let field = self.ctx.get_symbol(field_id);
+                    let field = field.borrow();
+
+                    let mut new_associated_field = Symbol::new();
+                    let field_name = field.get_name();
+                    new_associated_field.set_name(field_name);
+                    new_associated_field.set_kind(SymbolKind::AssociatedField);
+                    new_associated_field.set_type(field.get_type().unwrap());
+                    new_associated_field.set_associated_record(record_var.id());
+                    new_associated_field.set_associated_field(field_id);
+                    new_associated_field.set_scope(self.ctx.scope.get_current_scope_id());
+                    new_associated_field.set_defining_point(record_var_loc);
+
+                    let new_associated_field_id = self.ctx.new_symbol(new_associated_field);
+                    self.ctx
+                        .scope
+                        .add_entry(field_name, new_associated_field_id);
+                }
+            }
+        }
+
+        true
+    }
+
+    fn visit_post_stmt_with(
+        &mut self,
+        n: &mut ast::StmtWith,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) {
+        let record_vars = &n.0;
+        for _record_var in record_vars {
+            self.ctx.scope.pop_scope();
+        }
     }
 
     fn visit_post_expr_write_parameter(

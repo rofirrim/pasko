@@ -80,7 +80,6 @@ From inside the build-directory
 
 | Feature                                                | State | Notes                                                       |
 | ------------------------------------------------------ | ----- | ----------------------------------------------------------- |
-| with-statement                                         | ❌    |                                                             |
 | pack/unpack required procedures                        | ❌    |                                                             |
 | Variant types                                          | ⚠️     | Variant types including non-trivial types types are not supported  |
 | labels                                                 | ⚠️     | Only local-gotos. It is unlikely non-local gotos get ever implemented. |
@@ -88,7 +87,7 @@ From inside the build-directory
 ### Areas of improvement
 
 - The required functions could be represented using a table.
-- We could be using a more idiomatic representation for types.
+- We could be using a more idiomatic representation for types and symbols.
 
 ##### I found a bug / I want to contribute
 

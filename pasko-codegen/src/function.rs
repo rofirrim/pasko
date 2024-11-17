@@ -596,10 +596,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     unimplemented!("Variant types");
                 }
                 fields.iter().for_each(|field_id| {
-                    let offset = {
-                        let cache = self.codegen.offset_cache.borrow();
-                        *cache.get(&field_id).unwrap()
-                    } as i64;
+                    let offset = self.get_offset_of_field(addr_ty, *field_id);
 
                     let field_sym = self.codegen.semantic_context.get_symbol(*field_id);
                     let field_sym = field_sym.borrow();
@@ -1882,10 +1879,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 let field_ty = field_sym.get_type().unwrap();
 
                 if self.codegen.type_contains_set_types(field_ty) {
-                    let offset = {
-                        let cache = self.codegen.offset_cache.borrow();
-                        *cache.get(&field_id).unwrap()
-                    } as i64;
+                    let offset = self.get_offset_of_field(addr_ty, *field_id);
                     let field_addr = self.add_offset_to_address(addr, offset);
                     self.dispose_var_of_type(field_addr, field_ty);
                 }
@@ -1980,10 +1974,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 let field_ty = field_sym.get_type().unwrap();
 
                 if self.codegen.type_contains_set_types(field_ty) {
-                    let offset = {
-                        let cache = self.codegen.offset_cache.borrow();
-                        *cache.get(&field_id).unwrap()
-                    } as i64;
+                    let offset = self.get_offset_of_field(addr_ty, *field_id);
                     let field_addr = self.add_offset_to_address(addr, offset);
                     self.initialize_set_data(field_addr, field_ty);
                 }
@@ -2326,6 +2317,17 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 self.store_value_into_address_for_assignment(*addr, addr_ty, value, value_ty);
             }
         }
+    }
+
+    fn get_offset_of_field(&mut self, record_type: TypeId, field_id: SymbolId) -> i64 {
+        // Make sure the type has been laid out.
+        self.codegen.size_in_bytes(record_type);
+        let offset = {
+            let cache = self.codegen.offset_cache.borrow();
+            *cache.get(&field_id).unwrap()
+        } as i64;
+
+        offset
     }
 }
 
@@ -3278,18 +3280,19 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         // Special handling for variables.
         if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(n.0.id()) {
-            let dl = *self.codegen.data_location.get(&sym_id).unwrap();
-            match dl {
-                DataLocation::Variable(var, ..) => {
-                    let val = self.get_value(n.1.id());
-                    self.builder().def_var(var, val);
-                    let sym = self.codegen.semantic_context.get_symbol(sym_id);
-                    let sym = sym.borrow();
-                    self.codegen.annotations.new_value(val, sym.get_name());
-                    // And we are done.
-                    return false;
+            if let Some(dl) = self.codegen.data_location.get(&sym_id).cloned() {
+                match dl {
+                    DataLocation::Variable(var, ..) => {
+                        let val = self.get_value(n.1.id());
+                        self.builder().def_var(var, val);
+                        let sym = self.codegen.semantic_context.get_symbol(sym_id);
+                        let sym = sym.borrow();
+                        self.codegen.annotations.new_value(val, sym.get_name());
+                        // And we are done.
+                        return false;
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
 
@@ -3318,17 +3321,19 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         // Special handling of variables.
         if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(n.0.id()) {
-            let dl = *self.codegen.data_location.get(&sym_id).unwrap();
-            match dl {
-                DataLocation::Variable(var, ..) => {
-                    let v = self.builder().use_var(var);
-                    let symbol = self.codegen.semantic_context.get_symbol(sym_id);
-                    let symbol = symbol.borrow();
-                    self.codegen.annotations.new_value(v, symbol.get_name());
-                    self.set_value(id, v);
-                    return false;
+            let dl = self.codegen.data_location.get(&sym_id).cloned();
+            if let Some(dl) = dl {
+                match dl {
+                    DataLocation::Variable(var, ..) => {
+                        let v = self.builder().use_var(var);
+                        let symbol = self.codegen.semantic_context.get_symbol(sym_id);
+                        let symbol = symbol.borrow();
+                        self.codegen.annotations.new_value(v, symbol.get_name());
+                        self.set_value(id, v);
+                        return false;
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
 
@@ -3396,6 +3401,23 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     let func_ref = self.get_function_reference(func_id);
                     self.builder().ins().func_addr(pointer_type, func_ref)
                 }
+            }
+            symbol::SymbolKind::AssociatedField => {
+                // First get the address of the associated record
+                let associated_record_id = sym.associated_record().unwrap();
+                let associated_field_id = sym.associated_field().unwrap();
+
+                let associated_record_addr = self.get_value(associated_record_id);
+
+                let record_type = self
+                    .codegen
+                    .semantic_context
+                    .get_ast_type(associated_record_id)
+                    .unwrap();
+
+                let offset = self.get_offset_of_field(record_type, associated_field_id);
+                let addr = self.add_offset_to_address(associated_record_addr, offset);
+                addr
             }
             _ => {
                 panic!(
@@ -3580,13 +3602,11 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
         let record_addr = self.get_value(n.0.id());
 
-        // Make sure the type has been laid out.
-        let _ = self.codegen.size_in_bytes(
-            self.codegen
-                .semantic_context
-                .get_ast_type(n.0.id())
-                .unwrap(),
-        );
+        let record_type = self
+            .codegen
+            .semantic_context
+            .get_ast_type(n.0.id())
+            .unwrap();
 
         let field_sym = self
             .codegen
@@ -3594,10 +3614,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .get_ast_symbol(n.1.id())
             .unwrap();
 
-        let offset = {
-            let cache = self.codegen.offset_cache.borrow();
-            *cache.get(&field_sym).unwrap()
-        } as i64;
+        let offset = self.get_offset_of_field(record_type, field_sym);
 
         let addr = self.add_offset_to_address(record_addr, offset);
         self.set_value(id, addr);
@@ -4375,6 +4392,24 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         self.builder().switch_to_block(after_case);
 
+        false
+    }
+
+    fn visit_pre_stmt_with(
+        &mut self,
+        n: &ast::StmtWith,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) -> bool {
+        let variables = &n.0;
+
+        for variable in variables {
+            // Visit them to compute their addresses.
+            variable.get().walk_mut(self, variable.loc(), variable.id());
+        }
+
+        let stmt = &n.1;
+        stmt.get().walk_mut(self, stmt.loc(), stmt.id());
         false
     }
 
