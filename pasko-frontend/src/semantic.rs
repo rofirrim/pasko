@@ -2099,7 +2099,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let upper = &n.1;
 
         let lower_ty = self.ctx.get_ast_type(lower.id()).unwrap();
-        let upper_ty = self.ctx.get_ast_type(lower.id()).unwrap();
+        let upper_ty = self.ctx.get_ast_type(upper.id()).unwrap();
         if self.ctx.type_system.is_error_type(lower_ty)
             || self.ctx.type_system.is_error_type(upper_ty)
         {
