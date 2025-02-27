@@ -4438,9 +4438,14 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             };
             match sym_kind {
                 SymbolKind::Const => {
-                    self.ctx.set_ast_symbol(id, sym_id);
-                    self.ctx.set_ast_type(id, sym_type.unwrap());
-                    self.ctx.set_ast_value(id, sym_value.unwrap());
+                    if sym_value.is_none() {
+                        self.ctx
+                            .set_ast_type(id, self.ctx.type_system.get_error_type());
+                    } else {
+                        self.ctx.set_ast_symbol(id, sym_id);
+                        self.ctx.set_ast_type(id, sym_type.unwrap());
+                        self.ctx.set_ast_value(id, sym_value.unwrap());
+                    }
                 }
                 SymbolKind::ErrorLookup => {
                     self.ctx
