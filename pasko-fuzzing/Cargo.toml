@@ -1,0 +1,8 @@
+[package]
+name = "pasko-fuzzing"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+afl = "0.15.15"
+pasko-frontend = { path = "../pasko-frontend" }
