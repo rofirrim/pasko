@@ -2301,7 +2301,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 let consts = &variant.get().0;
                 for const_ in consts {
                     let const_ty = self.ctx.get_ast_type(const_.id()).unwrap();
-                    if !self.ctx.type_system.is_error_type(const_ty) && !self.is_compatible(variant_selector_type, const_ty) {
+                    if !self.ctx.type_system.is_error_type(const_ty)
+                        && !self.is_compatible(variant_selector_type, const_ty)
+                    {
                         self.diagnostics.add_with_extra(
                             DiagnosticKind::Error,
                             *const_.loc(),
