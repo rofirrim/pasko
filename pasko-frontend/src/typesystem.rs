@@ -1100,9 +1100,7 @@ impl TypeSystem {
             ),
             TypeKind::TextFile => "text".to_owned(),
             TypeKind::None => "<no type>".to_owned(),
-            _ => {
-                unreachable!("Cannot print name of type {:?}", ty.get_kind());
-            }
+            TypeKind::Error => "<error-type>".to_owned(),
         }
     }
 
