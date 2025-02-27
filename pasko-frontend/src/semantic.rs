@@ -4439,7 +4439,25 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     self.ctx
                         .set_ast_type(id, self.ctx.type_system.get_error_type());
                 }
-                _ => {}
+                _ => {
+                    let extra = {
+                        let var_name = self.ctx.get_symbol(sym_id);
+                        let var_name = var_name.borrow();
+                        self.extra_diag_previous_location(&var_name)
+                    };
+                    self.diagnostics.add_with_extra(
+                        DiagnosticKind::Error,
+                        *node.0.loc(),
+                        format!(
+                            "identifier '{}' has not been declared as a named constant in this scope",
+                            node.0.get()
+                        ),
+                        vec![],
+                        extra,
+                    );
+                    self.ctx
+                        .set_ast_type(id, self.ctx.type_system.get_error_type());
+                }
             }
         } else {
             // The symbol was not even found.
