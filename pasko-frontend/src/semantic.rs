@@ -2338,23 +2338,25 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         self.record_info.tag_type = type_denoter;
 
         if let Some(tag_name) = &n.0 {
+            // We always create a symbol for this
+            let mut new_sym = Symbol::new();
+            new_sym.set_name(tag_name.get());
+            new_sym.set_kind(SymbolKind::Field);
+            new_sym.set_defining_point(*tag_name.loc());
+            new_sym.set_type(type_denoter);
+            new_sym.set_scope(self.ctx.scope.get_current_scope_id());
+
+            let new_sym = self.ctx.new_symbol(new_sym);
+
+            self.ctx.set_ast_symbol(tag_name.id(), new_sym);
+
             if !self.diagnose_redeclared_symbol(tag_name.get(), tag_name.loc()) {
-                let mut new_sym = Symbol::new();
-                new_sym.set_name(tag_name.get());
-                new_sym.set_kind(SymbolKind::Field);
-                new_sym.set_defining_point(*tag_name.loc());
-                new_sym.set_type(type_denoter);
-                new_sym.set_scope(self.ctx.scope.get_current_scope_id());
-
-                let new_sym = self.ctx.new_symbol(new_sym);
-
+                // Only add it to the scope if it has not been redeclared.
                 self.ctx.scope.add_entry(tag_name.get(), new_sym);
-
-                self.ctx.set_ast_symbol(tag_name.id(), new_sym);
-
-                // Remember this selector as a field.
-                self.record_info.tag_name = new_sym;
             }
+
+            // Remember this selector as a field.
+            self.record_info.tag_name = new_sym;
         } else {
             // We always create a fake symbol.
             let mut new_sym = Symbol::new();
