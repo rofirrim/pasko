@@ -5616,22 +5616,34 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
         let mut array_type = component_type_id;
 
-        for index_type_spec in index_type_specs.iter().rev() {
+        if index_type_specs.iter().any(|index_type_spec| {
             let lower = &index_type_spec.get().0;
-            let lower = self.ctx.get_ast_symbol(lower.id()).unwrap();
+            let lower = self.ctx.get_ast_symbol(lower.id());
 
             let upper = &index_type_spec.get().1;
-            let upper = self.ctx.get_ast_symbol(upper.id()).unwrap();
+            let upper = self.ctx.get_ast_symbol(upper.id());
 
-            let mut new_array = Type::default();
-            new_array.set_kind(TypeKind::ConformableArray {
-                packed,
-                lower,
-                upper,
-                component: array_type,
-            });
+            lower.is_none() || upper.is_none()
+        }) {
+            array_type = self.ctx.type_system.get_error_type()
+        } else {
+            for index_type_spec in index_type_specs.iter().rev() {
+                let lower = &index_type_spec.get().0;
+                let lower = self.ctx.get_ast_symbol(lower.id()).unwrap();
 
-            array_type = self.ctx.type_system.new_type(new_array);
+                let upper = &index_type_spec.get().1;
+                let upper = self.ctx.get_ast_symbol(upper.id()).unwrap();
+
+                let mut new_array = Type::default();
+                new_array.set_kind(TypeKind::ConformableArray {
+                    packed,
+                    lower,
+                    upper,
+                    component: array_type,
+                });
+
+                array_type = self.ctx.type_system.new_type(new_array);
+            }
         }
 
         self.ctx.set_ast_type(id, array_type);
