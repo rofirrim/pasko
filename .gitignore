@@ -2,6 +2,9 @@
 *.swp
 *.swo
 .vscode
+GPATH
+GRTAGS
+GTAGS
 # They have copyright so avoid committing them
 pasko-testing/standard-test-moore
 # Experiments directori
