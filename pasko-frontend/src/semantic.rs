@@ -4441,6 +4441,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 }
                 _ => {}
             }
+        } else {
+            // The symbol was not even found.
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
         }
     }
 
@@ -4965,6 +4969,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             let case_consts = &case_ast.0;
             for case_const in case_consts {
                 let const_ty = self.ctx.get_ast_type(case_const.id()).unwrap();
+                if self.ctx.type_system.is_error_type(const_ty) {
+                    continue;
+                }
                 if !self.ctx.type_system.same_type(const_ty, expr_ty) && !case_expr_err {
                     self.diagnostics.add_with_extra(
                         DiagnosticKind::Error,
