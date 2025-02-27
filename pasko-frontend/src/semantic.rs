@@ -2064,12 +2064,6 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             enum_ids.push(new_sym);
         }
 
-        if enum_error {
-            self.ctx
-                .set_ast_type(id, self.ctx.type_system.get_error_type());
-            return;
-        }
-
         let mut enum_type = Type::default();
         enum_type.set_kind(TypeKind::Enum(enum_ids.clone()));
 
@@ -2086,7 +2080,12 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 .set_type(enum_type_id)
         });
 
-        self.ctx.set_ast_type(id, enum_type_id);
+        if enum_error {
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
+        } else {
+            self.ctx.set_ast_type(id, enum_type_id);
+        }
     }
 
     fn visit_post_subrange_type(
