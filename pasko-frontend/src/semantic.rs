@@ -2234,12 +2234,17 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             let id = constant.id();
             constant.get_mut().mutating_walk_mut(self, &loc, id);
 
+            let const_value = self.ctx.get_ast_value(id);
+            if const_value.is_none() {
+                continue;
+            }
+
             self.record_info
                 .cases
                 .last_mut()
                 .unwrap()
                 .constants
-                .push(self.ctx.get_ast_value(id).unwrap());
+                .push(const_value.unwrap());
         }
 
         // Field list
@@ -2296,7 +2301,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 let consts = &variant.get().0;
                 for const_ in consts {
                     let const_ty = self.ctx.get_ast_type(const_.id()).unwrap();
-                    if !self.is_compatible(variant_selector_type, const_ty) {
+                    if !self.ctx.type_system.is_error_type(const_ty) && !self.is_compatible(variant_selector_type, const_ty) {
                         self.diagnostics.add_with_extra(
                             DiagnosticKind::Error,
                             *const_.loc(),
