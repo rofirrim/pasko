@@ -9,8 +9,6 @@ use pasko_frontend::{self, dump, visitor::Visitable};
 
 mod diagnostics;
 
-// use pasko_frontend::
-
 #[derive(Parser)]
 #[command(name = "pasko")]
 #[command(author = "Roger Ferrer <rofirrim@gmail.com>")]
@@ -43,7 +41,6 @@ struct Cli {
     #[arg(long, help = "Target to generate code for")]
     target: Option<String>,
 
-    // #[command(next_help_heading = "Debugging flags")]
     #[command(flatten, next_help_heading = "Debug / Testing")]
     debug_flags: DebugFlags,
 }
