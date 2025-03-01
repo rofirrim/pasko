@@ -223,10 +223,10 @@ fn main() -> ExitCode {
         linker_invocation
             .arg("-L")
             .arg(pasko_runtime.clone())
-            .arg(format!("-Wl,-rpath,{}", pasko_runtime.to_string_lossy()))
-            .arg("-lpasko_runtime")
-            .arg("-lm");
+            .arg(format!("-Wl,-rpath,{}", pasko_runtime.to_string_lossy()));
     }
+
+    linker_invocation.arg("-lpasko_runtime").arg("-lm");
 
     if cli.verbose {
         eprintln!(
