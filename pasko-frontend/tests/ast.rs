@@ -29,7 +29,7 @@ fn parse_tree_failure_check_diags(input: &str, errors: Vec<String>) {
     assert!(diags.num_diagnostics() != 0, "No diagnostics were emitted?");
 
     let mut check_diags = CheckDiagnostics::new();
-    errors.iter().for_each(|s| check_diags.check_error(&s));
+    errors.iter().for_each(|s| check_diags.check_error(s));
 
     diags.report(&check_diags);
     assert_eq!(

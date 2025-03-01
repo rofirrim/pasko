@@ -6,6 +6,12 @@ pub struct CheckDiagnostics {
     idx: Cell<usize>,
 }
 
+impl Default for CheckDiagnostics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CheckDiagnostics {
     pub fn new() -> CheckDiagnostics {
         CheckDiagnostics {

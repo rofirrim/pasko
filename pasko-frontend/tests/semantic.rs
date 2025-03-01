@@ -24,7 +24,7 @@ fn semantic_check_diags(input: &str, errors: Vec<String>) {
     }
 
     let mut check_diags = CheckDiagnostics::new();
-    errors.iter().for_each(|s| check_diags.check_error(&s));
+    errors.iter().for_each(|s| check_diags.check_error(s));
 
     diags.report(&check_diags);
     assert_eq!(
@@ -44,7 +44,7 @@ fn do_ast_dump(input: &str) -> String {
         Some(parse) => {
             semantic::check_program(parse, &mut semantic_context, &mut diags);
 
-            let mut dumper = dump::ASTDumper::new(&input, &semantic_context);
+            let mut dumper = dump::ASTDumper::new(input, &semantic_context);
             dumper.set_no_ids();
             parse.get().walk_mut(&mut dumper, parse.loc(), parse.id());
             dumper.to_string()

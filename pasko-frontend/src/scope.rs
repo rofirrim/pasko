@@ -16,6 +16,12 @@ pub struct Scope {
     items: Vec<ScopeItem>,
 }
 
+impl Default for Scope {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Scope {
     pub fn new() -> Scope {
         Scope {
@@ -78,7 +84,7 @@ impl Scope {
     // Note: global scope includes the bottom scope (where program parameters live)
     // and the scope of the program block.
     pub fn lookup_global_scope(&self, name: &str) -> Option<SymbolId> {
-        self.lookup_impl(ScopeId(1), name).map(|x| x)
+        self.lookup_impl(ScopeId(1), name)
     }
 
     pub fn get_global_scope_id(&self) -> ScopeId {
@@ -87,7 +93,7 @@ impl Scope {
 
     // Note: global scope includes only the bottom scope (where program parameters live)
     pub fn lookup_program_scope(&self, name: &str) -> Option<SymbolId> {
-        self.lookup_impl(ScopeId(0), name).map(|x| x)
+        self.lookup_impl(ScopeId(0), name)
     }
 
     pub fn get_program_scope_id(&self) -> ScopeId {

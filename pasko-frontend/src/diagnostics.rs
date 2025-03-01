@@ -48,6 +48,12 @@ pub struct Diagnostics {
     num_error: usize,
 }
 
+impl Default for Diagnostics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Diagnostics {
     pub fn new() -> Diagnostics {
         Diagnostics {
@@ -56,11 +62,8 @@ impl Diagnostics {
         }
     }
     pub fn add(&mut self, kind: DiagnosticKind, locus: SpanLoc, message: String) {
-        match kind {
-            DiagnosticKind::Error => {
-                self.num_error += 1;
-            }
-            _ => {}
+        if kind == DiagnosticKind::Error {
+            self.num_error += 1;
         }
         self.diagnostics.push(Diagnostic::new(kind, locus, message));
     }
@@ -73,11 +76,8 @@ impl Diagnostics {
         extra_locus: Vec<SpanLoc>,
         extra_diagnostics: Vec<Diagnostic>,
     ) {
-        match kind {
-            DiagnosticKind::Error => {
-                self.num_error += 1;
-            }
-            _ => {}
+        if kind == DiagnosticKind::Error {
+            self.num_error += 1;
         }
         self.diagnostics.push(Diagnostic::new_with_extra(
             kind,

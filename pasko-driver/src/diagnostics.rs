@@ -64,7 +64,7 @@ impl<'input_file> SimpleEmitter<'input_file> {
         let first_line = all_line_locations.iter().map(|l| l.0.line).min().unwrap();
         let last_line = all_line_locations.iter().map(|l| l.1.line).max().unwrap();
 
-        eprintln!("");
+        eprintln!();
         for current_line in first_line..=last_line {
             // println!("Current line = {current_line}");
             let start_offset = linemap.start_of_line_offset(current_line).unwrap();
@@ -147,7 +147,7 @@ impl<'input_file> SimpleEmitter<'input_file> {
                 eprintln!("{linenum_indent}│ {}", s);
             }
         }
-        eprintln!("");
+        eprintln!();
     }
 }
 
@@ -181,13 +181,11 @@ impl<'input_file> pasko_frontend::diagnostics::DiagnosticEmitter for SimpleEmitt
         self.print_location(&linemap, main_location, extra_locations);
 
         // Emit extras if any.
-        match &diag.extra_diagnostics {
-            Some(extras) => {
-                for d in extras.iter() {
-                    self.emit(d);
-                }
+
+        if let Some(extras) = &diag.extra_diagnostics {
+            for d in extras.iter() {
+                self.emit(d);
             }
-            None => {}
         }
     }
 }

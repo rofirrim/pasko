@@ -1,5 +1,6 @@
 use std::cmp::{Eq, Ordering, PartialEq, PartialOrd};
 use std::convert::From;
+use std::fmt::Display;
 use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone)]
@@ -7,7 +8,7 @@ pub enum Constant {
     Integer(i64),
     Real(f64),
     Bool(bool),
-    String(String)
+    String(String),
 }
 
 impl From<i64> for Constant {
@@ -47,13 +48,13 @@ impl From<&str> for Constant {
     }
 }
 
-impl ToString for Constant {
-    fn to_string(&self) -> String {
+impl Display for Constant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Constant::Integer(x) => x.to_string(),
-            Constant::Real(x) => x.to_string(),
-            Constant::Bool(x) => x.to_string(),
-            Constant::String(x) => x.clone(),
+            Constant::Integer(x) => write!(f, "{}", x),
+            Constant::Real(x) => write!(f, "{}", x),
+            Constant::Bool(x) => write!(f, "{}", x),
+            Constant::String(x) => write!(f, "{}", x),
         }
     }
 }

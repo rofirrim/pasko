@@ -24,7 +24,7 @@ use cranelift_object; // ::{ObjectBuilder, ObjectModule};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::Path;
 
 use crate::datalocation::DataLocation;
 use crate::program::CodegenVisitor;
@@ -33,7 +33,7 @@ pub fn codegen(
     target: Option<String>,
     program: &span::SpannedBox<ast::Program>,
     semantic_context: &semantic::SemanticContext,
-    object_filename: &PathBuf,
+    object_filename: &Path,
     ir_dump: bool,
 ) {
     let mut codegen_visitor = CodegenVisitor::new(target, semantic_context, ir_dump);

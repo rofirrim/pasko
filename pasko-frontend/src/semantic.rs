@@ -12,7 +12,6 @@ use crate::visitor::MutatingVisitorMut;
 use crate::{scope, typesystem};
 
 use std::collections::{HashMap, HashSet};
-use std::i64;
 
 pub struct SemanticContext {
     line_map: LineMap,
@@ -41,11 +40,11 @@ const REQUIRED_FUNCTIONS: &[&str] = &[
 ];
 
 pub fn is_required_procedure(name: &str) -> bool {
-    REQUIRED_PROCEDURES.iter().find(|x| name == **x).is_some()
+    REQUIRED_PROCEDURES.iter().any(|x| name == *x)
 }
 
 pub fn is_required_function(name: &str) -> bool {
-    REQUIRED_FUNCTIONS.iter().find(|x| name == **x).is_some()
+    REQUIRED_FUNCTIONS.iter().any(|x| name == *x)
 }
 
 pub fn is_required_procedure_or_function(name: &str) -> bool {
@@ -54,11 +53,7 @@ pub fn is_required_procedure_or_function(name: &str) -> bool {
 
 // Returns if the function is a required function that can be called with zero arguments.
 pub fn is_required_function_zeroadic(name: &str) -> bool {
-    is_required_function(name)
-        && match name {
-            "eof" | "eoln" => true,
-            _ => false,
-        }
+    is_required_function(name) && matches!(name, "eof" | "eoln")
 }
 
 // In bytes.
@@ -67,8 +62,8 @@ impl SemanticContext {
         let symbol_map = SymbolMapImpl::new();
         let type_system = TypeSystem::new(symbol_map.clone());
 
-        let sc = SemanticContext {
-            line_map: LineMap::new(&input),
+        SemanticContext {
+            line_map: LineMap::new(input),
             symbol_map,
             type_system,
             scope: scope::Scope::new(),
@@ -81,9 +76,7 @@ impl SemanticContext {
             global_files: vec![],
             pending_type_definitions: vec![],
             label_declarations: vec![],
-        };
-
-        sc
+        }
     }
 
     pub fn get_line_column(&self, loc: &SpanLoc) -> (usize, usize) {
@@ -313,15 +306,13 @@ impl<'a> SemanticCheckerVisitor<'a> {
                     vec![],
                     extra,
                 );
-                return true;
+                true
             }
-            None => {
-                return false;
-            }
+            None => false,
         }
     }
 
-    fn is_pending_type_definition(&mut self, name: &String) -> Option<SymbolId> {
+    fn is_pending_type_definition(&mut self, name: &str) -> Option<SymbolId> {
         let sym = self.ctx.scope.lookup_current_scope(name);
         if let Some(sym_id) = sym {
             let sym = self.ctx.get_symbol(sym_id);
@@ -340,7 +331,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
         span: &span::SpanLoc,
         is_procedure: bool,
     ) -> FunctionProcedureDeclarationStatus {
-        if let Some(sym_id) = self.ctx.scope.lookup_current_scope(&name) {
+        if let Some(sym_id) = self.ctx.scope.lookup_current_scope(name) {
             let sym = self.ctx.get_symbol(sym_id);
             let sym = sym.borrow();
 
@@ -484,8 +475,8 @@ impl<'a> SemanticCheckerVisitor<'a> {
 
     fn compare_parameter_declarations(
         &self,
-        params_a: &Vec<Vec<SymbolId>>,
-        params_b: &Vec<Vec<SymbolId>>,
+        params_a: &[Vec<SymbolId>],
+        params_b: &[Vec<SymbolId>],
     ) -> bool {
         if params_a.iter().flatten().count() != params_b.iter().flatten().count() {
             return false;
@@ -540,7 +531,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
     fn equivalent_function_declarations(
         &self,
         prev_sym_id: SymbolId,
-        formal_parameters: &Vec<Vec<SymbolId>>,
+        formal_parameters: &[Vec<SymbolId>],
         result_type: TypeId,
     ) -> bool {
         let prev_sym = self.ctx.get_symbol(prev_sym_id);
@@ -617,7 +608,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
     fn equivalent_procedure_declarations(
         &self,
         prev_sym_id: SymbolId,
-        formal_parameters: &Vec<Vec<SymbolId>>,
+        formal_parameters: &[Vec<SymbolId>],
     ) -> bool {
         let prev_sym = self.ctx.get_symbol(prev_sym_id);
         let prev_sym = prev_sym.borrow();
@@ -727,15 +718,13 @@ impl<'a> SemanticCheckerVisitor<'a> {
                 self.ctx.type_system.set_type_get_element(rhs_type_id),
             )
         {
-            return match (
-                self.ctx.type_system.set_type_get_packed(lhs_type_id),
-                self.ctx.type_system.set_type_get_packed(rhs_type_id),
-            ) {
-                (Some(true), Some(true)) | (Some(false), Some(false)) | (None, _) | (_, None) => {
-                    true
-                }
-                _ => false,
-            };
+            return matches!(
+                (
+                    self.ctx.type_system.set_type_get_packed(lhs_type_id),
+                    self.ctx.type_system.set_type_get_packed(rhs_type_id),
+                ),
+                (Some(true), Some(true)) | (Some(false), Some(false)) | (None, _) | (_, None)
+            );
         }
 
         // We have to allow operations of the form `nil <> p` and `p <> nil`.
@@ -1043,6 +1032,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
         self.relational_compatibility(lhs_type_id, rhs_type_id)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn diagnose_invalid_binary_operator(
         &mut self,
         id: span::SpanId,
@@ -1228,7 +1218,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
         &mut self,
         is_function: bool,
         function_name: &str,
-        args: &mut Vec<span::SpannedBox<ast::Expr>>,
+        args: &mut [span::SpannedBox<ast::Expr>],
         call_loc: span::SpanLoc,
         callee_symbol_id: SymbolId,
     ) -> bool {
@@ -1269,10 +1259,9 @@ impl<'a> SemanticCheckerVisitor<'a> {
         let params_flattened: Vec<_> = params
             .iter()
             .enumerate()
-            .map(|(param_pack_idx, param_pack)| {
+            .flat_map(|(param_pack_idx, param_pack)| {
                 param_pack.iter().map(move |param| (param_pack_idx, *param))
             })
-            .flatten()
             .collect();
 
         assert!(args.len() == params_flattened.len());
@@ -1341,10 +1330,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                     }
                     let arg_sym = self.ctx.get_ast_symbol(arg.id());
 
-                    let expr_is_variable = match arg.get() {
-                        ast::Expr::Variable(_) => true,
-                        _ => false,
-                    };
+                    let expr_is_variable = matches!(arg.get(), ast::Expr::Variable(_));
 
                     if arg_sym.is_none() || !expr_is_variable {
                         self.diagnostics.add(
@@ -1394,54 +1380,49 @@ impl<'a> SemanticCheckerVisitor<'a> {
                     };
                     let mut valid_argument = false;
                     let mut valid_name = false;
-                    match arg.get() {
-                        ast::Expr::Variable(expr_var) => match expr_var.0.get() {
-                            ast::Assig::Variable(var) => {
-                                let name = var.0.get();
-                                if let Some(arg_sym_id) = self.lookup_symbol(name, var.0.loc()) {
-                                    let arg_sym = self.ctx.get_symbol(arg_sym_id);
-                                    let arg_sym = arg_sym.borrow();
-                                    match (param_kind, arg_sym.get_kind()) {
-                                        (ParameterKind::Function, SymbolKind::Function)
-                                        | (ParameterKind::Procedure, SymbolKind::Procedure) => {
-                                            valid_name = true;
+                    if let ast::Expr::Variable(expr_var) = arg.get() {
+                        if let ast::Assig::Variable(var) = expr_var.0.get() {
+                            let name = var.0.get();
+                            if let Some(arg_sym_id) = self.lookup_symbol(name, var.0.loc()) {
+                                let arg_sym = self.ctx.get_symbol(arg_sym_id);
+                                let arg_sym = arg_sym.borrow();
+                                match (param_kind, arg_sym.get_kind()) {
+                                    (ParameterKind::Function, SymbolKind::Function)
+                                    | (ParameterKind::Procedure, SymbolKind::Procedure) => {
+                                        valid_name = true;
 
-                                            let equivalent_decl =
-                                                if param_kind == ParameterKind::Function {
-                                                    self.equivalent_function_symbols(
-                                                        param_sym_id,
-                                                        arg_sym_id,
-                                                    )
-                                                } else {
-                                                    self.equivalent_procedure_symbols(
-                                                        param_sym_id,
-                                                        arg_sym_id,
-                                                    )
-                                                };
-
-                                            if !equivalent_decl {
-                                                self.diagnostics.add_with_extra(DiagnosticKind::Error, *arg.loc(),
-                                                   format!("{param_kind_name} argument is not compatible with the {param_kind_name} parameter"),
-                                                   vec![],
-                                                   vec![Diagnostic::new(DiagnosticKind::Error,
-                                                    {
-                                                      let param_sym = self.ctx.get_symbol(param_sym_id);
-                                                      let param_sym = param_sym.borrow();
-                                                      param_sym.get_defining_point().unwrap()
-                                                    }, format!("declaration of the {} parameter", param_kind_name))],);
+                                        let equivalent_decl =
+                                            if param_kind == ParameterKind::Function {
+                                                self.equivalent_function_symbols(
+                                                    param_sym_id,
+                                                    arg_sym_id,
+                                                )
                                             } else {
-                                                self.ctx
-                                                    .set_ast_symbol(expr_var.0.id(), arg_sym_id);
-                                                valid_argument = true;
-                                            }
+                                                self.equivalent_procedure_symbols(
+                                                    param_sym_id,
+                                                    arg_sym_id,
+                                                )
+                                            };
+
+                                        if !equivalent_decl {
+                                            self.diagnostics.add_with_extra(DiagnosticKind::Error, *arg.loc(),
+                                           format!("{param_kind_name} argument is not compatible with the {param_kind_name} parameter"),
+                                           vec![],
+                                           vec![Diagnostic::new(DiagnosticKind::Error,
+                                            {
+                                              let param_sym = self.ctx.get_symbol(param_sym_id);
+                                              let param_sym = param_sym.borrow();
+                                              param_sym.get_defining_point().unwrap()
+                                            }, format!("declaration of the {} parameter", param_kind_name))],);
+                                        } else {
+                                            self.ctx.set_ast_symbol(expr_var.0.id(), arg_sym_id);
+                                            valid_argument = true;
                                         }
-                                        _ => {}
                                     }
+                                    _ => {}
                                 }
                             }
-                            _ => {}
-                        },
-                        _ => {}
+                        }
                     }
                     if !valid_argument {
                         argument_error = true;
@@ -1534,10 +1515,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                     }
 
                     let arg_sym = self.ctx.get_ast_symbol(arg.id());
-                    let expr_is_variable = match arg.get() {
-                        ast::Expr::Variable(_) => true,
-                        _ => false,
-                    };
+                    let expr_is_variable = matches!(arg.get(), ast::Expr::Variable(_));
 
                     if arg_sym.is_none() || !expr_is_variable {
                         self.diagnostics.add(
@@ -1605,7 +1583,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                         self.diagnostics.add_with_extra(
                             DiagnosticKind::Error,
                             *current_arg.loc(),
-                            format!("these arguments should have the same type",),
+                            "these arguments should have the same type".to_string(),
                             vec![*first_arg.loc()],
                             vec![],
                         );
@@ -1697,7 +1675,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
         global_file: &str,
         is_newline_version: bool,
         span: &span::SpanLoc,
-        args: &Vec<span::SpannedBox<ast::Expr>>,
+        args: &[span::SpannedBox<ast::Expr>],
     ) -> (usize, TypeId, bool) {
         let is_textfile;
         let file_component: TypeId;
@@ -1715,11 +1693,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
             let file_arg = &args[0];
             let ty = self.ctx.get_ast_type(file_arg.id()).unwrap();
             if self.ctx.type_system.is_file_type(ty) {
-                if self.ctx.type_system.is_textfile_type(ty) {
-                    is_textfile = true;
-                } else {
-                    is_textfile = false;
-                }
+                is_textfile = self.ctx.type_system.is_textfile_type(ty);
                 if args.len() < 2 {
                     // write(file)
                     // read(file)
@@ -1741,7 +1715,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
             }
         } else {
             assert!(is_newline_version);
-            if args.len() > 0 {
+            if !args.is_empty() {
                 // Check if the first argument is a textfile.
                 let file_arg = &args[0];
                 let ty = self.ctx.get_ast_type(file_arg.id()).unwrap();
@@ -1774,7 +1748,6 @@ impl<'a> SemanticCheckerVisitor<'a> {
     }
 
     fn record_type_get_all_fields_of_variant(
-        &self,
         variant_part: &Option<typesystem::VariantPart>,
         result: &mut Vec<SymbolId>,
     ) {
@@ -1782,7 +1755,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
             result.push(variant_part.tag_name);
             variant_part.cases.iter().for_each(|case| {
                 case.fields.iter().for_each(|f| result.push(*f));
-                self.record_type_get_all_fields_of_variant(&case.variant, result);
+                Self::record_type_get_all_fields_of_variant(&case.variant, result);
             });
         }
     }
@@ -1853,7 +1826,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 self.diagnostics.add(
                     DiagnosticKind::Error,
                     label_sym.get_defining_point().unwrap(),
-                    format!("label has not been used"),
+                    "label has not been used".to_string(),
                 );
             }
         }
@@ -1882,7 +1855,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     vec![Diagnostic::new(
                         DiagnosticKind::Info,
                         previous_label.get_defining_point().unwrap(),
-                        format!("label already declared here"),
+                        "label already declared here".to_string(),
                     )],
                 );
             } else {
@@ -2025,7 +1998,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *n.1.loc(),
-                format!("invalid cyclic reference to type being declared"),
+                "invalid cyclic reference to type being declared".to_string(),
             );
             return false;
         }
@@ -2162,7 +2135,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         let packed = n.0.is_some();
 
         let index_types = &n.1;
-        assert!(index_types.len() > 0);
+        assert!(!index_types.is_empty());
 
         let component_type = self.ctx.get_ast_type(n.2.id()).unwrap();
 
@@ -2315,7 +2288,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                             vec![Diagnostic::new(
                                 DiagnosticKind::Info,
                                 *variant_selector.loc(),
-                                format!("corresponding variant selector declaration"),
+                                "corresponding variant selector declaration".to_string(),
                             )],
                         );
                     }
@@ -2435,7 +2408,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
         // Compute all the fields for convenience.
         let mut all_fields = fixed_fields.clone();
-        self.record_type_get_all_fields_of_variant(&variant, &mut all_fields);
+        Self::record_type_get_all_fields_of_variant(&variant, &mut all_fields);
 
         let packed = n.0.is_some();
         let mut new_record_type = Type::default();
@@ -2578,13 +2551,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             }
         }
 
-        if is_required_procedure_or_function(&proc_name) {
+        if is_required_procedure_or_function(proc_name) {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *n.0.loc(),
                 format!(
                     "cannot declare required {} '{}'",
-                    if is_required_function(&proc_name) {
+                    if is_required_function(proc_name) {
                         "function"
                     } else {
                         "procedure"
@@ -2601,7 +2574,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
         let formal_parameters = self.gather_formal_parameters(&mut n.1);
         // No parameters here means zero parameters in a forward declaration.
-        let formal_parameters = formal_parameters.unwrap_or_else(|| vec![]);
+        let formal_parameters = formal_parameters.unwrap_or_default();
 
         match redeclaration_status {
             FunctionProcedureDeclarationStatus::ForwardDeclared(prev_sym_id)
@@ -2610,9 +2583,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     let prev_sym = self.ctx.get_symbol(prev_sym_id);
                     let prev_sym = prev_sym.borrow();
                     self.diagnostics.add_with_extra(DiagnosticKind::Error, *n.0.loc(),
-                    format!("procedure declaration is incompatible with a previous procedure declaration"),
+                    "procedure declaration is incompatible with a previous procedure declaration".to_string(),
                      vec![],
-                     vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), format!("previous declaration"))]);
+                     vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), "previous declaration".to_string())]);
                 }
                 self.ctx.scope.pop_scope();
                 // Nothing else to do at this point.
@@ -2664,13 +2637,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             }
         }
 
-        if is_required_procedure_or_function(&function_name) {
+        if is_required_procedure_or_function(function_name) {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *n.0.loc(),
                 format!(
                     "cannot declare required {} '{}'",
-                    if is_required_function(&function_name) {
+                    if is_required_function(function_name) {
                         "function"
                     } else {
                         "procedure"
@@ -2687,7 +2660,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
         let formal_parameters = self.gather_formal_parameters(&mut n.1);
         // In a forward declaration, no parameters means 0 parameters.
-        let formal_parameters = formal_parameters.unwrap_or_else(|| vec![]);
+        let formal_parameters = formal_parameters.unwrap_or_default();
         let result_type = self.gather_return_type(&mut n.2);
 
         match redeclaration_status {
@@ -2700,10 +2673,18 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 ) {
                     let prev_sym = self.ctx.get_symbol(prev_sym_id);
                     let prev_sym = prev_sym.borrow();
-                    self.diagnostics.add_with_extra(DiagnosticKind::Error, *n.0.loc(),
-                    format!("function declaration is incompatible with a previous function declaration"),
-                     vec![],
-                     vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), format!("previous declaration"))]);
+                    self.diagnostics.add_with_extra(
+                        DiagnosticKind::Error,
+                        *n.0.loc(),
+                        "function declaration is incompatible with a previous function declaration"
+                            .to_string(),
+                        vec![],
+                        vec![Diagnostic::new(
+                            DiagnosticKind::Info,
+                            prev_sym.get_defining_point().unwrap(),
+                            "previous declaration".to_string(),
+                        )],
+                    );
                 }
                 self.ctx.scope.pop_scope();
                 // Nothing else to do at this point.
@@ -2756,19 +2737,19 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 self.diagnostics.add(
                     DiagnosticKind::Error,
                     *n.0.loc(),
-                    format!("this form of function definition requires an earlier forward function declaration"),
+                    "this form of function definition requires an earlier forward function declaration".to_string(),
                 );
                 return false;
             }
         }
 
-        if is_required_procedure_or_function(&function_name) {
+        if is_required_procedure_or_function(function_name) {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *n.0.loc(),
                 format!(
                     "cannot define required {} '{}'",
-                    if is_required_function(&function_name) {
+                    if is_required_function(function_name) {
                         "function"
                     } else {
                         "procedure"
@@ -2797,7 +2778,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
                     self.ctx
                         .scope
-                        .add_entry(&prev_formal_param.get_name(), *prev_formal_param_sym_id);
+                        .add_entry(prev_formal_param.get_name(), *prev_formal_param_sym_id);
                 }
 
                 let prev_sym = self.ctx.get_symbol(prev_sym_id);
@@ -2858,8 +2839,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         let mut new_type = Type::default();
                         new_type.set_kind(TypeKind::NamedType(type_name.id()));
 
-                        let ty = self.ctx.type_system.new_type(new_type);
-                        ty
+                        self.ctx.type_system.new_type(new_type)
                     };
                     self.ctx.set_ast_type(id, named_type);
                 }
@@ -2890,37 +2870,35 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     );
                 }
             }
-        } else {
-            if context_allows_undeclared_types {
-                // This is a special case in which we see ourselves forced to have a pending type definition
-                // that we will check upon leaving the type definition part.
-                if let Some(symbol_id) = self.lookup_symbol(node.0.get(), node.0.loc()) {
-                    let type_name = self.ctx.get_symbol(symbol_id);
-                    let mut type_name = type_name.borrow_mut();
-                    match type_name.get_kind() {
-                        SymbolKind::ErrorLookup => {
-                            type_name.set_kind(SymbolKind::PendingTypeDefinition);
-                            // We need a type that is not error.
-                            type_name.set_type(self.ctx.type_system.get_none_type());
-                            self.ctx.add_to_pending_definitions(symbol_id);
+        } else if context_allows_undeclared_types {
+            // This is a special case in which we see ourselves forced to have a pending type definition
+            // that we will check upon leaving the type definition part.
+            if let Some(symbol_id) = self.lookup_symbol(node.0.get(), node.0.loc()) {
+                let type_name = self.ctx.get_symbol(symbol_id);
+                let mut type_name = type_name.borrow_mut();
+                match type_name.get_kind() {
+                    SymbolKind::ErrorLookup => {
+                        type_name.set_kind(SymbolKind::PendingTypeDefinition);
+                        // We need a type that is not error.
+                        type_name.set_type(self.ctx.type_system.get_none_type());
+                        self.ctx.add_to_pending_definitions(symbol_id);
 
-                            let mut new_type = Type::default();
-                            new_type.set_kind(TypeKind::NamedType(type_name.id()));
+                        let mut new_type = Type::default();
+                        new_type.set_kind(TypeKind::NamedType(type_name.id()));
 
-                            let ty = self.ctx.type_system.new_type(new_type);
-                            self.ctx.set_ast_type(id, ty);
-                        }
-                        _ => {
-                            panic!("The generated symbol had to be an error lookup!");
-                        }
+                        let ty = self.ctx.type_system.new_type(new_type);
+                        self.ctx.set_ast_type(id, ty);
                     }
-                } else {
-                    panic!("This should have generated a symbol!")
+                    _ => {
+                        panic!("The generated symbol had to be an error lookup!");
+                    }
                 }
             } else {
-                self.ctx
-                    .set_ast_type(id, self.ctx.type_system.get_error_type());
+                panic!("This should have generated a symbol!")
             }
+        } else {
+            self.ctx
+                .set_ast_type(id, self.ctx.type_system.get_error_type());
         }
     }
 
@@ -2941,12 +2919,12 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         self.diagnostics.add_with_extra(
                             DiagnosticKind::Error,
                             sym.borrow().get_defining_point().unwrap(),
-                            format!("only file types are allowed as program parameters"),
+                            "only file types are allowed as program parameters".to_string(),
                             vec![],
                             vec![Diagnostic::new(
                                 DiagnosticKind::Info,
                                 loc,
-                                format!("declaration of program parameter"),
+                                "declaration of program parameter".to_string(),
                             )],
                         );
                     } else {
@@ -2973,7 +2951,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             new_sym.set_name(e.get());
             new_sym.set_kind(SymbolKind::Variable);
             new_sym.set_defining_point(*e.loc());
-            new_sym.set_type(ty.clone());
+            new_sym.set_type(ty);
             new_sym.set_scope(self.ctx.scope.get_current_scope_id());
 
             let new_sym = self.ctx.new_symbol(new_sym);
@@ -3105,12 +3083,12 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 let extra = Diagnostic::new(
                     DiagnosticKind::Info,
                     *index.loc(),
-                    format!("first invalid index",),
+                    "first invalid index".to_string(),
                 );
                 self.diagnostics.add_with_extra(
                     DiagnosticKind::Error,
                     loc_access,
-                    format!("variable does not have array type"),
+                    "variable does not have array type".to_string(),
                     vec![],
                     vec![extra],
                 );
@@ -3186,7 +3164,6 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             );
             self.ctx
                 .set_ast_type(id, self.ctx.type_system.get_error_type());
-            return;
         }
     }
 
@@ -3240,116 +3217,104 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         id: span::SpanId,
     ) -> bool {
         // Mutate ExprVariable to be ExprConstant or ExprFunctionCall as needed.
-        match n {
-            ast::Expr::Variable(assig) => {
-                let assig = assig.0.get();
-                match assig {
-                    ast::Assig::Variable(x) => {
-                        if let Some(sym_id) = self.ctx.scope.lookup(x.0.get()) {
-                            let (sym_kind, sym_type, sym_const, formal_parameters) = {
-                                let var_name = self.ctx.get_symbol(sym_id);
-                                let var_name = var_name.borrow();
-                                (
-                                    var_name.get_kind(),
-                                    var_name.get_type(),
-                                    var_name.get_const(),
-                                    var_name.get_formal_parameters(),
-                                )
-                            };
-                            match sym_kind {
-                                SymbolKind::Const => {
-                                    let new_const_named = span::SpannedBox::new(
-                                        *span,
-                                        ast::Const::Named(ast::ConstNamed(span::Spanned::new(
-                                            *span,
-                                            x.0.get().clone(),
-                                        ))),
-                                    );
-                                    self.ctx.set_ast_symbol(new_const_named.id(), sym_id);
-                                    self.ctx
-                                        .set_ast_type(new_const_named.id(), sym_type.unwrap());
-                                    if let Some(sym_const) = &sym_const {
-                                        self.ctx
-                                            .set_ast_value(new_const_named.id(), sym_const.clone());
-                                    } else {
-                                        assert!(self
-                                            .ctx
-                                            .type_system
-                                            .is_error_type(sym_type.unwrap()));
-                                    }
-
-                                    let new_const =
-                                        ast::Expr::Const(ast::ExprConst(new_const_named));
-                                    self.ctx.set_ast_symbol(id, sym_id);
-                                    self.ctx.set_ast_type(id, sym_type.unwrap());
-                                    if let Some(sym_const) = sym_const {
-                                        self.ctx.set_ast_value(id, sym_const);
-                                    }
-                                    *n = new_const;
-                                    // Don't traverse further.
-                                    return false;
-                                }
-                                SymbolKind::Function => {
-                                    if formal_parameters.unwrap().is_empty() {
-                                        // This may be a function call if the function has zero formal parameters.
-                                        let new_call_expr = ast::ExprFunctionCall(
-                                            span::Spanned::new(*x.0.loc(), x.0.get().clone()),
-                                            vec![],
-                                        );
-                                        self.ctx.set_ast_symbol(new_call_expr.0.id(), sym_id);
-
-                                        let new_call = ast::Expr::FunctionCall(new_call_expr);
-
-                                        let return_symbol_id = {
-                                            let callee_symbol = self.ctx.get_symbol(sym_id);
-                                            let callee_symbol = callee_symbol.borrow();
-                                            callee_symbol.get_return_symbol().unwrap()
-                                        };
-                                        let return_symbol = self.ctx.get_symbol(return_symbol_id);
-                                        let return_symbol = return_symbol.borrow();
-                                        self.ctx
-                                            .set_ast_type(id, return_symbol.get_type().unwrap());
-
-                                        *n = new_call;
-                                        return false;
-                                    }
-                                }
-                                SymbolKind::BoundIdentifier => {
-                                    // Bound identifiers are not variables.
-                                    let new_bound_variable = ast::ExprBoundIdentifier(
-                                        span::Spanned::new(*span, x.0.get().clone()),
-                                    );
-
-                                    self.ctx.set_ast_symbol(id, sym_id);
-                                    self.ctx.set_ast_type(id, sym_type.unwrap());
-
-                                    let new_bound_variable =
-                                        ast::Expr::BoundIdentifier(new_bound_variable);
-                                    *n = new_bound_variable;
-                                    return false;
-                                }
-                                _ => {}
-                            }
-                        } else if is_required_function_zeroadic(x.0.get()) {
-                            // Some required functions can be invoked as zero parameters.
-                            let new_call_expr = ast::ExprFunctionCall(
-                                span::Spanned::new(*x.0.loc(), x.0.get().clone()),
-                                vec![],
+        if let ast::Expr::Variable(assig) = n {
+            let assig = assig.0.get();
+            if let ast::Assig::Variable(x) = assig {
+                if let Some(sym_id) = self.ctx.scope.lookup(x.0.get()) {
+                    let (sym_kind, sym_type, sym_const, formal_parameters) = {
+                        let var_name = self.ctx.get_symbol(sym_id);
+                        let var_name = var_name.borrow();
+                        (
+                            var_name.get_kind(),
+                            var_name.get_type(),
+                            var_name.get_const(),
+                            var_name.get_formal_parameters(),
+                        )
+                    };
+                    match sym_kind {
+                        SymbolKind::Const => {
+                            let new_const_named = span::SpannedBox::new(
+                                *span,
+                                ast::Const::Named(ast::ConstNamed(span::Spanned::new(
+                                    *span,
+                                    x.0.get().clone(),
+                                ))),
                             );
+                            self.ctx.set_ast_symbol(new_const_named.id(), sym_id);
+                            self.ctx
+                                .set_ast_type(new_const_named.id(), sym_type.unwrap());
+                            if let Some(sym_const) = &sym_const {
+                                self.ctx
+                                    .set_ast_value(new_const_named.id(), sym_const.clone());
+                            } else {
+                                assert!(self.ctx.type_system.is_error_type(sym_type.unwrap()));
+                            }
 
-                            let return_type =
-                                self.ctx.required_function_zeroadic_return_type(x.0.get());
-
-                            let new_call = ast::Expr::FunctionCall(new_call_expr);
-                            self.ctx.set_ast_type(id, return_type);
-
-                            *n = new_call;
+                            let new_const = ast::Expr::Const(ast::ExprConst(new_const_named));
+                            self.ctx.set_ast_symbol(id, sym_id);
+                            self.ctx.set_ast_type(id, sym_type.unwrap());
+                            if let Some(sym_const) = sym_const {
+                                self.ctx.set_ast_value(id, sym_const);
+                            }
+                            *n = new_const;
+                            // Don't traverse further.
+                            return false;
                         }
+                        SymbolKind::Function => {
+                            if formal_parameters.unwrap().is_empty() {
+                                // This may be a function call if the function has zero formal parameters.
+                                let new_call_expr = ast::ExprFunctionCall(
+                                    span::Spanned::new(*x.0.loc(), x.0.get().clone()),
+                                    vec![],
+                                );
+                                self.ctx.set_ast_symbol(new_call_expr.0.id(), sym_id);
+
+                                let new_call = ast::Expr::FunctionCall(new_call_expr);
+
+                                let return_symbol_id = {
+                                    let callee_symbol = self.ctx.get_symbol(sym_id);
+                                    let callee_symbol = callee_symbol.borrow();
+                                    callee_symbol.get_return_symbol().unwrap()
+                                };
+                                let return_symbol = self.ctx.get_symbol(return_symbol_id);
+                                let return_symbol = return_symbol.borrow();
+                                self.ctx.set_ast_type(id, return_symbol.get_type().unwrap());
+
+                                *n = new_call;
+                                return false;
+                            }
+                        }
+                        SymbolKind::BoundIdentifier => {
+                            // Bound identifiers are not variables.
+                            let new_bound_variable = ast::ExprBoundIdentifier(span::Spanned::new(
+                                *span,
+                                x.0.get().clone(),
+                            ));
+
+                            self.ctx.set_ast_symbol(id, sym_id);
+                            self.ctx.set_ast_type(id, sym_type.unwrap());
+
+                            let new_bound_variable = ast::Expr::BoundIdentifier(new_bound_variable);
+                            *n = new_bound_variable;
+                            return false;
+                        }
+                        _ => {}
                     }
-                    _ => {}
+                } else if is_required_function_zeroadic(x.0.get()) {
+                    // Some required functions can be invoked as zero parameters.
+                    let new_call_expr = ast::ExprFunctionCall(
+                        span::Spanned::new(*x.0.loc(), x.0.get().clone()),
+                        vec![],
+                    );
+
+                    let return_type = self.ctx.required_function_zeroadic_return_type(x.0.get());
+
+                    let new_call = ast::Expr::FunctionCall(new_call_expr);
+                    self.ctx.set_ast_type(id, return_type);
+
+                    *n = new_call;
                 }
             }
-            _ => {}
         }
         true
     }
@@ -3379,7 +3344,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 self.diagnostics.add(
                     DiagnosticKind::Error,
                     *e.loc(),
-                    format!("expression must be of ordinal type"),
+                    "expression must be of ordinal type".to_string(),
                 );
                 self.ctx
                     .set_ast_type(id, self.ctx.type_system.get_error_type());
@@ -3452,27 +3417,24 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             let scope_symbol = self.ctx.get_symbol(scope_symbol_id);
             let scope_symbol = scope_symbol.borrow();
             if scope_symbol.get_kind() == SymbolKind::Function {
-                match lhs.get_mut() {
-                    ast::Assig::Variable(assig_var) => {
-                        let name = assig_var.0.get();
-                        if let Some(symbol_id) = self.ctx.scope.lookup(&name) {
-                            if symbol_id == scope_symbol_id {
-                                // This is an assignment to the return variable. Fixup.
-                                let return_id = scope_symbol.get_return_symbol().unwrap();
-                                let return_sym = self.ctx.get_symbol(return_id);
-                                let return_sym = return_sym.borrow();
-                                let return_type = return_sym.get_type().unwrap();
+                if let ast::Assig::Variable(assig_var) = lhs.get_mut() {
+                    let name = assig_var.0.get();
+                    if let Some(symbol_id) = self.ctx.scope.lookup(name) {
+                        if symbol_id == scope_symbol_id {
+                            // This is an assignment to the return variable. Fixup.
+                            let return_id = scope_symbol.get_return_symbol().unwrap();
+                            let return_sym = self.ctx.get_symbol(return_id);
+                            let return_sym = return_sym.borrow();
+                            let return_type = return_sym.get_type().unwrap();
 
-                                self.ctx.set_ast_symbol(assig_var.0.id(), return_id);
-                                self.ctx.set_ast_type(assig_var.0.id(), return_type);
+                            self.ctx.set_ast_symbol(assig_var.0.id(), return_id);
+                            self.ctx.set_ast_type(assig_var.0.id(), return_type);
 
-                                self.ctx.set_ast_symbol(lhs.id(), return_id);
-                                self.ctx.set_ast_type(lhs.id(), return_type);
-                                must_walk_lhs = false;
-                            }
+                            self.ctx.set_ast_symbol(lhs.id(), return_id);
+                            self.ctx.set_ast_type(lhs.id(), return_type);
+                            must_walk_lhs = false;
                         }
                     }
-                    _ => {}
                 }
             }
         }
@@ -3502,7 +3464,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 self.diagnostics.add(
                     DiagnosticKind::Error,
                     *node.0.loc(),
-                    format!("this is not a variable"),
+                    "this is not a variable".to_string(),
                 );
                 self.ctx
                     .set_ast_type(id, self.ctx.type_system.get_error_type());
@@ -3559,7 +3521,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *node.0.loc(),
-                format!("the expression of an if-statement must be of boolean type"),
+                "the expression of an if-statement must be of boolean type".to_string(),
             );
         }
     }
@@ -3583,7 +3545,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 self.diagnostics.add_with_extra(
                     DiagnosticKind::Error,
                     *node.1.loc(),
-                    format!("the control-variable of a for-statement must be of ordinal type"),
+                    "the control-variable of a for-statement must be of ordinal type".to_string(),
                     vec![],
                     extra,
                 );
@@ -3620,7 +3582,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *node.0.loc(),
-                format!("the expression of a while-statement must be of boolean type"),
+                "the expression of a while-statement must be of boolean type".to_string(),
             );
         }
     }
@@ -3637,7 +3599,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *node.1.loc(),
-                format!("the expression of a repeat-statement must be of boolean type"),
+                "the expression of a repeat-statement must be of boolean type".to_string(),
             );
         }
     }
@@ -3999,7 +3961,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                 self.diagnostics.add(
                                     DiagnosticKind::Error,
                                     *callee.loc(),
-                                    format!("argument of eof must have file type"),
+                                    "argument of eof must have file type".to_string(),
                                 );
                                 self.ctx
                                     .set_ast_type(id, self.ctx.type_system.get_error_type());
@@ -4010,7 +3972,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                             self.diagnostics.add(
                                 DiagnosticKind::Error,
                                 *span,
-                                format!("too many arguments in call to eof"),
+                                "too many arguments in call to eof".to_string(),
                             );
                             self.ctx
                                 .set_ast_type(id, self.ctx.type_system.get_error_type());
@@ -4031,7 +3993,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                 self.diagnostics.add(
                                     DiagnosticKind::Error,
                                     *args[0].loc(),
-                                    format!("argument of eoln must have textfile type"),
+                                    "argument of eoln must have textfile type".to_string(),
                                 );
                                 self.ctx
                                     .set_ast_type(id, self.ctx.type_system.get_error_type());
@@ -4042,7 +4004,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                             self.diagnostics.add(
                                 DiagnosticKind::Error,
                                 *span,
-                                format!("too many arguments in call to eoln"),
+                                "too many arguments in call to eoln".to_string(),
                             );
                             self.ctx
                                 .set_ast_type(id, self.ctx.type_system.get_error_type());
@@ -4256,7 +4218,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 SymbolKind::Function => {
                     let argument_error = self.common_check_parameters(
                         true,
-                        &callee.get(),
+                        callee.get(),
                         args,
                         *span,
                         callee_symbol_id,
@@ -4351,8 +4313,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         }
 
         let mut all_ok = true;
-        for i in 1..element_types.len() {
-            let (current_element_type, current_element_loc) = element_types[i];
+        // for i in 1..element_types.len() {
+        for &(current_element_type, current_element_loc) in element_types.iter().skip(1) {
             if self.ctx.type_system.is_error_type(current_element_type) {
                 all_ok = false;
             } else if !self
@@ -4439,13 +4401,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             };
             match sym_kind {
                 SymbolKind::Const => {
-                    if sym_value.is_none() {
+                    if let Some(sym_type) = sym_type {
+                        self.ctx.set_ast_symbol(id, sym_id);
+                        self.ctx.set_ast_type(id, sym_type);
+                        self.ctx.set_ast_value(id, sym_value.unwrap());
+                    } else {
                         self.ctx
                             .set_ast_type(id, self.ctx.type_system.get_error_type());
-                    } else {
-                        self.ctx.set_ast_symbol(id, sym_id);
-                        self.ctx.set_ast_type(id, sym_type.unwrap());
-                        self.ctx.set_ast_value(id, sym_value.unwrap());
                     }
                 }
                 SymbolKind::ErrorLookup => {
@@ -4585,7 +4547,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     self.diagnostics.add(
                         DiagnosticKind::Error,
                         *label.loc(),
-                        format!("non-local jump not allowed"),
+                        "non-local jump not allowed".to_string(),
                     );
                 }
             }
@@ -4593,7 +4555,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *label.loc(),
-                format!("undeclared label"),
+                "undeclared label".to_string(),
             );
         }
     }
@@ -4624,7 +4586,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     self.diagnostics.add(
                         DiagnosticKind::Error,
                         *n.0.loc(),
-                        format!("statements can only be prefixed by labels declared in the innermost enclosing block"),
+                        "statements can only be prefixed by labels declared in the innermost enclosing block".to_string(),
                     );
                     wrong_label = true;
                 }
@@ -4633,12 +4595,12 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 self.diagnostics.add_with_extra(
                     DiagnosticKind::Error,
                     *n.0.loc(),
-                    format!("label has already been used as the prefix of a statement"),
+                    "label has already been used as the prefix of a statement".to_string(),
                     vec![],
                     vec![Diagnostic::new(
                         DiagnosticKind::Info,
                         label_sym.get_defining_point().unwrap(),
-                        format!("previous use of this label"),
+                        "previous use of this label".to_string(),
                     )],
                 );
             } else {
@@ -4649,7 +4611,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *n.0.loc(),
-                format!("label has not been declared"),
+                "label has not been declared".to_string(),
             );
         }
     }
@@ -4708,54 +4670,47 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                                 ),
                                             );
                                         }
-                                    } else {
-                                        if !self.ctx.type_system.is_error_type(file_component)
-                                            && !self.ctx.type_system.is_error_type(ty)
-                                            && self.is_assignment_compatible(ty, file_component)
-                                        {
-                                            if !self.ctx.type_system.same_type(ty, file_component) {
-                                                let conversion =
-                                                    SemanticCheckerVisitor::create_conversion_expr(
-                                                        arg.take(),
-                                                    );
-                                                arg.reset(conversion);
-                                                self.ctx.set_ast_type(arg.id(), ty);
-                                            }
-                                        } else if !self
-                                            .ctx
-                                            .type_system
-                                            .is_error_type(file_component)
-                                            && !self.ctx.type_system.is_error_type(ty)
-                                        {
-                                            self.diagnostics.add(
-                                                DiagnosticKind::Error,
-                                                *arg.loc(),
-                                                format!("variable of type {} is not assignment compatible with the file component type {}",
-                                                self.ctx.type_system.get_type_name(ty),
-                                                self.ctx.type_system.get_type_name(file_component))
-                                            );
+                                    } else if !self.ctx.type_system.is_error_type(file_component)
+                                        && !self.ctx.type_system.is_error_type(ty)
+                                        && self.is_assignment_compatible(ty, file_component)
+                                    {
+                                        if !self.ctx.type_system.same_type(ty, file_component) {
+                                            let conversion =
+                                                SemanticCheckerVisitor::create_conversion_expr(
+                                                    arg.take(),
+                                                );
+                                            arg.reset(conversion);
+                                            self.ctx.set_ast_type(arg.id(), ty);
                                         }
+                                    } else if !self.ctx.type_system.is_error_type(file_component)
+                                        && !self.ctx.type_system.is_error_type(ty)
+                                    {
+                                        self.diagnostics.add(
+                                            DiagnosticKind::Error,
+                                            *arg.loc(),
+                                            format!("variable of type {} is not assignment compatible with the file component type {}",
+                                            self.ctx.type_system.get_type_name(ty),
+                                            self.ctx.type_system.get_type_name(file_component))
+                                        );
                                     }
                                 }
                                 _ => {
                                     self.diagnostics.add(
                                         DiagnosticKind::Error,
                                         *arg.loc(),
-                                        format!("must be a variable"),
+                                        "must be a variable".to_string(),
                                     );
                                 }
                             }
                         }
+                    } else if !is_readln {
+                        self.diagnostics.add(
+                            DiagnosticKind::Error,
+                            *span,
+                            "too few arguments in call to read".to_string(),
+                        );
                     } else {
-                        if !is_readln {
-                            self.diagnostics.add(
-                                DiagnosticKind::Error,
-                                *span,
-                                format!("too few arguments in call to read"),
-                            );
-                        } else {
-                            self.ensure_input(span);
-                        }
+                        self.ensure_input(span);
                     }
                 }
                 "write" | "writeln" => {
@@ -4784,15 +4739,12 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                     );
                                 }
                             } else {
-                                match arg.get() {
-                                    ast::Expr::WriteParameter(..) => {
-                                        self.diagnostics.add(
-                                                DiagnosticKind::Error,
-                                                *arg.loc(),
-                                                format!("a write to a non-textfile does not allow this kind of argument")
-                                            );
-                                    }
-                                    _ => {}
+                                if let ast::Expr::WriteParameter(..) = arg.get() {
+                                    self.diagnostics.add(
+                                            DiagnosticKind::Error,
+                                            *arg.loc(),
+                                            "a write to a non-textfile does not allow this kind of argument".to_string()
+                                        );
                                 }
                                 if !self.ctx.type_system.is_error_type(file_component)
                                     && !self.ctx.type_system.is_error_type(ty)
@@ -4808,16 +4760,14 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                 }
                             }
                         }
+                    } else if !is_writeln {
+                        self.diagnostics.add(
+                            DiagnosticKind::Error,
+                            *span,
+                            "too few arguments in call to write".to_string(),
+                        );
                     } else {
-                        if !is_writeln {
-                            self.diagnostics.add(
-                                DiagnosticKind::Error,
-                                *span,
-                                format!("too few arguments in call to write"),
-                            );
-                        } else {
-                            self.ensure_output(span);
-                        }
+                        self.ensure_output(span);
                     }
                 }
                 "new" | "dispose" => {
@@ -4851,23 +4801,21 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                         self.diagnostics.add(
                                             DiagnosticKind::Error,
                                             *arg.loc(),
-                                            format!("must be a variable"),
+                                            "must be a variable".to_string(),
                                         );
                                     }
                                 }
-                            } else {
-                                if !self.ctx.type_system.is_error_type(ty)
-                                    && !self.ctx.type_system.is_pointer_type(ty)
-                                {
-                                    self.diagnostics.add(
-                                        DiagnosticKind::Error,
-                                        *span,
-                                        format!(
+                            } else if !self.ctx.type_system.is_error_type(ty)
+                                && !self.ctx.type_system.is_pointer_type(ty)
+                            {
+                                self.diagnostics.add(
+                                    DiagnosticKind::Error,
+                                    *span,
+                                    format!(
                                         "the argument to {} must be an expression of pointer type",
                                         procedure_name
                                     ),
-                                    );
-                                }
+                                );
                             }
                         }
                     } else {
@@ -4928,43 +4876,41 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     procedure_name
                 ),
             );
-        } else {
-            if let Some(callee_symbol_id) = self.lookup_symbol(callee.get(), callee.loc()) {
-                let callee_symbol_kind = self.ctx.get_symbol(callee_symbol_id).borrow().get_kind();
-                match callee_symbol_kind {
-                    SymbolKind::Procedure => {
-                        if let Some(args) = args {
-                            self.common_check_parameters(
-                                false,
-                                &callee.get(),
-                                args,
-                                *span,
-                                callee_symbol_id,
-                            );
-                        }
+        } else if let Some(callee_symbol_id) = self.lookup_symbol(callee.get(), callee.loc()) {
+            let callee_symbol_kind = self.ctx.get_symbol(callee_symbol_id).borrow().get_kind();
+            match callee_symbol_kind {
+                SymbolKind::Procedure => {
+                    if let Some(args) = args {
+                        self.common_check_parameters(
+                            false,
+                            callee.get(),
+                            args,
+                            *span,
+                            callee_symbol_id,
+                        );
+                    }
 
-                        self.ctx.set_ast_symbol(callee.id(), callee_symbol_id);
-                    }
-                    SymbolKind::ErrorLookup => {
-                        //
-                    }
-                    _ => {
-                        let extra = {
-                            let var_name = self.ctx.get_symbol(callee_symbol_id);
-                            let var_name = var_name.borrow();
-                            self.extra_diag_previous_location(&var_name)
-                        };
-                        self.diagnostics.add_with_extra(
-                        DiagnosticKind::Error,
-                        *callee.loc(),
-                        format!(
-                            "identifier '{}' has not been declared as a procedure in this scope and cannot be called",
-                            callee.get()
-                        ),
-                        vec![],
-                        extra,
-                    );
-                    }
+                    self.ctx.set_ast_symbol(callee.id(), callee_symbol_id);
+                }
+                SymbolKind::ErrorLookup => {
+                    //
+                }
+                _ => {
+                    let extra = {
+                        let var_name = self.ctx.get_symbol(callee_symbol_id);
+                        let var_name = var_name.borrow();
+                        self.extra_diag_previous_location(&var_name)
+                    };
+                    self.diagnostics.add_with_extra(
+                    DiagnosticKind::Error,
+                    *callee.loc(),
+                    format!(
+                        "identifier '{}' has not been declared as a procedure in this scope and cannot be called",
+                        callee.get()
+                    ),
+                    vec![],
+                    extra,
+                );
                 }
             }
         }
@@ -4988,7 +4934,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *case_expr.loc(),
-                format!("expression must be of ordinal type",),
+                "expression must be of ordinal type".to_string(),
             );
             case_expr_err = true;
         }
@@ -5007,7 +4953,8 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     self.diagnostics.add_with_extra(
                         DiagnosticKind::Error,
                         *case_const.loc(),
-                        format!("constant of case must be of same ordinal type as case expression"),
+                        "constant of case must be of same ordinal type as case expression"
+                            .to_string(),
                         vec![*case_expr.loc()],
                         vec![],
                     );
@@ -5018,12 +4965,12 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                             let previous_const = Diagnostic::new(
                                 DiagnosticKind::Info,
                                 *prev_loc,
-                                format!("previous case"),
+                                "previous case".to_string(),
                             );
                             self.diagnostics.add_with_extra(
                                 DiagnosticKind::Error,
                                 *case_const.loc(),
-                                format!("case repeated"),
+                                "case repeated".to_string(),
                                 vec![],
                                 vec![previous_const],
                             );
@@ -5036,12 +4983,12 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                             let previous_const = Diagnostic::new(
                                 DiagnosticKind::Info,
                                 *prev_loc,
-                                format!("previous case"),
+                                "previous case".to_string(),
                             );
                             self.diagnostics.add_with_extra(
                                 DiagnosticKind::Error,
                                 *case_const.loc(),
-                                format!("case repeated"),
+                                "case repeated".to_string(),
                                 vec![],
                                 vec![previous_const],
                             );
@@ -5075,7 +5022,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 self.diagnostics.add(
                     DiagnosticKind::Error,
                     *record_var.loc(),
-                    format!("the type of this variable must be a record type"),
+                    "the type of this variable must be a record type".to_string(),
                 );
             }
 
@@ -5162,7 +5109,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *node.0.loc(),
-                format!("argument must be of real type because frac-width was specified",),
+                "argument must be of real type because frac-width was specified".to_string(),
             );
             self.ctx.type_system.get_error_type()
         } else if !self.ctx.type_system.is_real_type(ty)
@@ -5175,7 +5122,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             self.diagnostics.add(
                     DiagnosticKind::Error,
                     *node.0.loc(),
-                    format!("argument of writeln must be an expression of integer-type, real-type, character-type, string-type, or Boolean-type"),
+                    "argument of writeln must be an expression of integer-type, real-type, character-type, string-type, or Boolean-type".to_string(),
                 );
             self.ctx.type_system.get_error_type()
         } else {
@@ -5284,13 +5231,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             }
         }
 
-        if is_required_procedure_or_function(&function_name) {
+        if is_required_procedure_or_function(function_name) {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *n.0.loc(),
                 format!(
                     "cannot define required {} '{}'",
-                    if is_required_function(&function_name) {
+                    if is_required_function(function_name) {
                         "function"
                     } else {
                         "procedure"
@@ -5306,7 +5253,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
 
         let formal_parameters = self.gather_formal_parameters(&mut n.1);
         // Function definitions always must have parameters. Late ones may not, but these are handled elsewhere.
-        let formal_parameters = formal_parameters.unwrap_or_else(|| vec![]);
+        let formal_parameters = formal_parameters.unwrap_or_default();
         let result_type = self.gather_return_type(&mut n.2);
 
         let function_sym_id = match redeclaration_status {
@@ -5318,10 +5265,18 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 ) {
                     let prev_sym = self.ctx.get_symbol(prev_sym_id);
                     let prev_sym = prev_sym.borrow();
-                    self.diagnostics.add_with_extra(DiagnosticKind::Error, *n.0.loc(),
-                    format!("function definition is incompatible with a previous function declaration"),
-                     vec![],
-                     vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), format!("previous declaration"))]);
+                    self.diagnostics.add_with_extra(
+                        DiagnosticKind::Error,
+                        *n.0.loc(),
+                        "function definition is incompatible with a previous function declaration"
+                            .to_string(),
+                        vec![],
+                        vec![Diagnostic::new(
+                            DiagnosticKind::Info,
+                            prev_sym.get_defining_point().unwrap(),
+                            "previous declaration".to_string(),
+                        )],
+                    );
                     None
                 } else {
                     let prev_sym = self.ctx.get_symbol(prev_sym_id);
@@ -5398,13 +5353,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             }
         }
 
-        if is_required_procedure_or_function(&proc_name) {
+        if is_required_procedure_or_function(proc_name) {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *n.0.loc(),
                 format!(
                     "cannot define required {} '{}'",
-                    if is_required_function(&proc_name) {
+                    if is_required_function(proc_name) {
                         "function"
                     } else {
                         "procedure"
@@ -5431,9 +5386,9 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         let prev_sym = self.ctx.get_symbol(prev_sym_id);
                         let prev_sym = prev_sym.borrow();
                         self.diagnostics.add_with_extra(DiagnosticKind::Error, *n.0.loc(),
-                    format!("procedure definition is incompatible with a previous procedure declaration"),
+                    "procedure definition is incompatible with a previous procedure declaration".to_string(),
                      vec![],
-                     vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), format!("previous declaration"))]);
+                     vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), "previous declaration".to_string())]);
                         None
                     } else {
                         let prev_sym = self.ctx.get_symbol(prev_sym_id);
@@ -5453,20 +5408,19 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                             let mut prev_formal_param = prev_formal_param.borrow_mut();
                             prev_formal_param.set_scope(self.ctx.scope.get_current_scope_id());
                             self.ctx.scope
-                                .add_entry(&prev_formal_param.get_name(), prev_formal_param_sym_id);
+                                .add_entry(prev_formal_param.get_name(), prev_formal_param_sym_id);
                         }
                     }
                     Some(prev_sym_id)
-                }.map(|prev_sym_id| {
+                }.inspect(|&prev_sym_id| {
                     let prev_sym = self.ctx.get_symbol(prev_sym_id);
                     let mut prev_sym = prev_sym.borrow_mut();
                     prev_sym.set_defined(true);
                     prev_sym.set_defining_point(*n.0.loc());
-                    prev_sym_id
                 })
             }
             FunctionProcedureDeclarationStatus::NotDeclared => {
-                let formal_parameters = formal_parameters.unwrap_or_else(|| vec![]);
+                let formal_parameters = formal_parameters.unwrap_or_default();
                 Some(self.create_new_procedure_symbol(
                     proc_decl_scope_id,
                     proc_name,
@@ -5567,7 +5521,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *type_specifier.loc(),
-                format!("type must be an ordinal type"),
+                "type must be an ordinal type".to_string(),
             );
             self.ctx.type_system.get_error_type()
         } else {

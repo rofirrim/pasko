@@ -297,28 +297,26 @@ pub struct FormalParameterVariableConformableArray(
 );
 
 #[derive(Debug)]
-pub struct ConformableArraySchema (
+pub struct ConformableArraySchema(
     pub Option<String>,
     pub Vec<SpannedBox<IndexTypeSpecification>>,
     pub SpannedBox<ConformableArrayElement>,
 );
 
 #[derive(Debug)]
-pub struct IndexTypeSpecification (
+pub struct IndexTypeSpecification(
     pub Spanned<String>,
     pub Spanned<String>,
     pub SpannedBox<TypeIdentifier>,
 );
 
 #[derive(Debug)]
-pub struct ArraySchema (
-    pub SpannedBox<ConformableArraySchema>
-);
+pub struct ArraySchema(pub SpannedBox<ConformableArraySchema>);
 
 #[derive(Debug)]
 pub enum ConformableArrayElement {
     TypeIdentifier(TypeIdentifier),
-    ArraySchema(ArraySchema)
+    ArraySchema(ArraySchema),
 }
 
 #[derive(Debug)]
@@ -379,7 +377,7 @@ pub enum Expr {
     BinOp(ExprBinOp),
     WriteParameter(ExprWriteParameter),
     Conversion(ExprConversion),
-    BoundIdentifier(ExprBoundIdentifier)
+    BoundIdentifier(ExprBoundIdentifier),
 }
 
 #[derive(Debug)]

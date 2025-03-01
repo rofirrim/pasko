@@ -1677,7 +1677,8 @@ define_mutating_visitable!(
 );
 
 // IndexTypeSpecification
-define_visitable!(IndexTypeSpecification,
+define_visitable!(
+    IndexTypeSpecification,
     self,
     v,
     {
@@ -1688,7 +1689,8 @@ define_visitable!(IndexTypeSpecification,
     }
 );
 
-define_mutating_visitable!(IndexTypeSpecification,
+define_mutating_visitable!(
+    IndexTypeSpecification,
     self,
     v,
     {

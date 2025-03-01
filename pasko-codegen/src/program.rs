@@ -82,7 +82,7 @@ impl EntityAnnotations {
         self.annotations.get(&entity).cloned()
     }
 
-    fn new(&mut self, entity: cranelift_codegen::ir::entities::AnyEntity, text: &str) {
+    fn create(&mut self, entity: cranelift_codegen::ir::entities::AnyEntity, text: &str) {
         self.annotations.insert(entity, text.to_string());
     }
 
@@ -90,9 +90,11 @@ impl EntityAnnotations {
         let global_values: HashMap<_, _> = self
             .annotations
             .iter()
-            .filter(|(&e, _)| match e {
-                cranelift_codegen::ir::entities::AnyEntity::GlobalValue(..) => true,
-                _ => false,
+            .filter(|(&e, _)| {
+                matches!(
+                    e,
+                    cranelift_codegen::ir::entities::AnyEntity::GlobalValue(..)
+                )
             })
             .map(|(a, b)| (*a, b.clone()))
             .collect();
@@ -101,14 +103,14 @@ impl EntityAnnotations {
     }
 
     pub fn new_function_ref(&mut self, func_ref: cranelift_codegen::ir::FuncRef, text: &str) {
-        self.new(
+        self.create(
             cranelift_codegen::ir::entities::AnyEntity::FuncRef(func_ref),
             text,
         );
     }
 
     pub fn new_stack_slot(&mut self, stack_slot: cranelift_codegen::ir::StackSlot, text: &str) {
-        self.new(
+        self.create(
             cranelift_codegen::ir::entities::AnyEntity::StackSlot(stack_slot),
             text,
         );
@@ -119,14 +121,14 @@ impl EntityAnnotations {
         global_value: cranelift_codegen::ir::GlobalValue,
         text: &str,
     ) {
-        self.new(
+        self.create(
             cranelift_codegen::ir::entities::AnyEntity::GlobalValue(global_value),
             text,
         );
     }
 
     pub fn new_value(&mut self, value: cranelift_codegen::ir::Value, text: &str) {
-        self.new(
+        self.create(
             cranelift_codegen::ir::entities::AnyEntity::Value(value),
             text,
         );
@@ -257,7 +259,7 @@ impl<'a> CodegenVisitor<'a> {
 
         // Initialize environment
 
-        let visitor = CodegenVisitor {
+        CodegenVisitor {
             object_module: Some(Box::new(object_module)),
             ctx,
             semantic_context,
@@ -278,9 +280,7 @@ impl<'a> CodegenVisitor<'a> {
             input_data_id: None,
             output_data_id: None,
             rt_functions_cache: HashMap::new(),
-        };
-
-        visitor
+        }
     }
 
     pub fn emit_object(&mut self, obj_filename: &str) {
@@ -650,7 +650,7 @@ impl<'a> CodegenVisitor<'a> {
                     .unwrap_or(0usize),
             )
         } else {
-            return 0;
+            0
         }
     }
 
@@ -852,12 +852,10 @@ impl<'a> CodegenVisitor<'a> {
             let symbol = symbol.borrow();
             let scope_of_symbol = symbol.get_scope();
 
-            scope_of_symbol.map_or(None, |scope_of_symbol| {
-                let symbol_of_scope = self
-                    .semantic_context
+            scope_of_symbol.and_then(|scope_of_symbol| {
+                self.semantic_context
                     .scope
-                    .get_innermost_scope_symbol(scope_of_symbol);
-                symbol_of_scope
+                    .get_innermost_scope_symbol(scope_of_symbol)
             })
         };
 
@@ -877,7 +875,8 @@ impl<'a> CodegenVisitor<'a> {
         }
 
         let function_name = get_name_of_symbol(function_symbol_id);
-        let mangled_name = if nesting_path.is_empty() {
+
+        if nesting_path.is_empty() {
             function_name
         } else {
             let result = format!(
@@ -891,9 +890,7 @@ impl<'a> CodegenVisitor<'a> {
                 function_name
             );
             result
-        };
-
-        mangled_name
+        }
     }
 
     fn common_signature_emission_for_functional_symbol(
@@ -1081,13 +1078,13 @@ impl<'a> CodegenVisitor<'a> {
 
     fn common_signature_emission_for_global_function(
         &mut self,
-        function_name: &String,
+        function_name: &str,
         function_symbol_id: SymbolId,
         return_symbol_id: Option<SymbolId>,
     ) -> (cranelift_module::FuncId, Signature) {
         if let Some(item) = self.function_identifiers.get(&function_symbol_id) {
             return (
-                item.clone(),
+                *item,
                 self.function_signatures
                     .get(&function_symbol_id)
                     .unwrap()
@@ -1109,13 +1106,14 @@ impl<'a> CodegenVisitor<'a> {
             .insert(function_symbol_id, func_id);
         self.function_signatures
             .insert(function_symbol_id, sig.clone());
-        self.function_names.insert(func_id, function_name.clone());
+        self.function_names
+            .insert(func_id, function_name.to_string());
         (func_id, sig)
     }
 
     fn common_function_emission(
         &mut self,
-        function_name: &String,
+        function_name: &str,
         function_symbol_id: SymbolId,
         block: &span::SpannedBox<ast::Block>,
     ) {
@@ -1491,7 +1489,7 @@ impl<'a> CodegenVisitor<'a> {
 
     fn add_global_to_dispose(&mut self, sym: SymbolId) {
         debug_assert!(
-            self.globals_to_dispose.iter().find(|&&s| s == sym) == None,
+            !self.globals_to_dispose.iter().any(|&s| s == sym),
             "adding global symbol more than once for disposal"
         );
         self.globals_to_dispose.push(sym);
@@ -1592,7 +1590,7 @@ impl<'a> CodegenVisitor<'a> {
 
     fn verify_ir(&self, func: &cranelift_codegen::ir::Function, function_name: &str) {
         let flags = settings::Flags::new(settings::builder());
-        let res = verify_function(&func, &flags);
+        let res = verify_function(func, &flags);
         if self.ir_dump {
             println!("*** IR for '{}'", function_name);
             let mut s = String::new();
@@ -1621,11 +1619,10 @@ impl<'a> CodegenVisitor<'a> {
         let function_symbol = function_symbol.borrow();
 
         let function_symbol_scope = function_symbol.get_scope().unwrap();
-        let enclosing_symbol_id = self
-            .semantic_context
+
+        self.semantic_context
             .scope
-            .get_innermost_scope_symbol(function_symbol_scope);
-        enclosing_symbol_id
+            .get_innermost_scope_symbol(function_symbol_scope)
     }
 }
 
@@ -1760,10 +1757,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         let program_params_addr = {
             let str_addresses: Vec<_> = program_parameters
                 .iter()
-                .map(|(s, _)| {
-                    let addr_string = function_codegen.emit_string_literal(s);
-                    addr_string
-                })
+                .map(|(s, _)| function_codegen.emit_string_literal(s))
                 .collect();
             function_codegen
                 .emit_stack_ptr_array_null_ended(&str_addresses, "program-parameter-names")

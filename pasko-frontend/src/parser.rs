@@ -8,8 +8,8 @@ use crate::span;
 
 lalrpop_mod!(pasko); // synthesized by LALRPOP
 
-pub fn parse_pasko_program<'input>(
-    input: &'input str,
+pub fn parse_pasko_program(
+    input: &str,
     diagnostics: &mut diagnostics::Diagnostics,
 ) -> Option<span::SpannedBox<ast::Program>> {
     let lex = lexer::Lexer::new(input);

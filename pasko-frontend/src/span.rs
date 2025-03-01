@@ -88,7 +88,7 @@ impl<T> SpannedBox<T> {
         }
     }
     pub fn get(&self) -> &T {
-        &self.child.as_ref().unwrap().get()
+        self.child.as_ref().unwrap().get()
     }
 
     pub fn get_mut(&mut self) -> &mut T {
@@ -158,7 +158,7 @@ impl LineMap {
 
         // The file ends without a newline, make an end.
         if !prev_was_new_line {
-            result.line_end.push(input.bytes().count());
+            result.line_end.push(input.len());
         }
 
         // println!("{result:?}");
@@ -169,7 +169,7 @@ impl LineMap {
     pub fn start_of_line_offset(&self, line: usize) -> Option<usize> {
         assert!(line > 0);
         if line <= self.line_start.len() {
-            return Some(self.line_start[line - 1]);
+            Some(self.line_start[line - 1])
         } else {
             None
         }
@@ -178,7 +178,7 @@ impl LineMap {
     pub fn end_of_line_offset(&self, line: usize) -> Option<usize> {
         assert!(line > 0);
         if line <= self.line_end.len() {
-            return Some(self.line_end[line - 1] - 1);
+            Some(self.line_end[line - 1] - 1)
         } else {
             None
         }
@@ -195,8 +195,8 @@ impl LineMap {
     pub fn offset_to_line_and_col(&self, offset: usize) -> (usize, usize) {
         // println!("offset = {offset} | lines = {:?}", self.line_start);
         let x = self.line_start.partition_point(|x| *x <= offset);
-        let ret = (x, offset - self.line_start[x - 1] + 1);
+
         // println!("{ret:?}");
-        ret
+        (x, offset - self.line_start[x - 1] + 1)
     }
 }

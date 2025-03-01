@@ -5,7 +5,10 @@ pub enum DataLocation {
     // Simple local variables and parameters that can be mapped
     // straightforwardly to Cranelift IR types can use this. They have an
     // optional address in case it is actually needed.
-    Variable(cranelift_frontend::Variable, Option<cranelift_codegen::ir::Value>),
+    Variable(
+        cranelift_frontend::Variable,
+        Option<cranelift_codegen::ir::Value>,
+    ),
     // This entity value is not stored directly in the stack.  Instead we have a variable
     // that contains an address to the value. Loading the value needs a use_var and then a load.
     // This is used for reference parameters and parameters passed by reference.
@@ -36,5 +39,5 @@ pub enum DataLocation {
         env_var_index: usize,
     },
     // Immutable value, without address. Used for bound identifiers of conformable arrays.
-    Value(cranelift_codegen::ir::Value)
+    Value(cranelift_codegen::ir::Value),
 }

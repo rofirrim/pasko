@@ -38,7 +38,7 @@ impl<'a> ASTDumper<'a> {
         id: span::SpanId,
         payload: &str,
     ) {
-        let payload = format!("{}", payload);
+        let payload = payload.to_string();
         self.emit_line_impl(classname, span, id, &payload);
     }
 
@@ -119,19 +119,19 @@ impl<'a> ASTDumper<'a> {
         self.prefix_pop();
     }
 
-    fn walk_vec_child<T: Visitable>(&mut self, n: &Vec<span::SpannedBox<T>>) {
+    fn walk_vec_child<T: Visitable>(&mut self, n: &[span::SpannedBox<T>]) {
         for (idx, c) in n.iter().enumerate() {
             if idx == n.len() - 1 {
-                self.walk_last_child(&c);
+                self.walk_last_child(c);
             } else {
-                self.walk_child(&c);
+                self.walk_child(c);
             }
         }
     }
 
-    fn walk_vec_child_not_last<T: Visitable>(&mut self, n: &Vec<span::SpannedBox<T>>) {
+    fn walk_vec_child_not_last<T: Visitable>(&mut self, n: &[span::SpannedBox<T>]) {
         for c in n.iter() {
-            self.walk_child(&c);
+            self.walk_child(c);
         }
     }
 
@@ -139,9 +139,9 @@ impl<'a> ASTDumper<'a> {
         if let Some(n) = n {
             for (idx, c) in n.iter().enumerate() {
                 if idx == n.len() - 1 {
-                    self.walk_last_child(&c);
+                    self.walk_last_child(c);
                 } else {
-                    self.walk_child(&c);
+                    self.walk_child(c);
                 }
             }
         }
@@ -313,13 +313,10 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             "StmtFor",
             span,
             id,
-            &format!(
-                "{}",
-                match n.0 {
-                    ast::ForKind::To => "to",
-                    ast::ForKind::DownTo => "downto",
-                }
-            ),
+            match n.0 {
+                ast::ForKind::To => "to",
+                ast::ForKind::DownTo => "downto",
+            },
         );
 
         self.walk_child(&n.1);
@@ -439,7 +436,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             "ExprVariable",
             span,
             id,
-            &format!("{}", self.type_to_string(id)),
+            &self.type_to_string(id).to_string(),
         );
 
         self.walk_last_child(&n.0);
@@ -457,7 +454,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             "ExprVariableReference",
             span,
             id,
-            &format!("{}", self.type_to_string(id)),
+            &self.type_to_string(id).to_string(),
         );
 
         self.walk_last_child(&n.0);
@@ -489,7 +486,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             "AssigArrayAccess",
             span,
             id,
-            &format!("{}", self.type_to_string(id)),
+            &self.type_to_string(id).to_string(),
         );
 
         self.walk_child(&n.0);
@@ -527,7 +524,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             "AssigPointerDeref",
             span,
             id,
-            &format!("{}", self.type_to_string(id)),
+            &self.type_to_string(id).to_string(),
         );
 
         self.walk_last_child(&n.0);
@@ -681,12 +678,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
-        self.emit_line_payload(
-            "Conversion",
-            span,
-            id,
-            &format!("{}", self.type_to_string(id)),
-        );
+        self.emit_line_payload("Conversion", span, id, &self.type_to_string(id).to_string());
 
         self.walk_last_child(&n.0);
 
@@ -765,14 +757,12 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             "ArrayType",
             span,
             id,
-            &format!(
-                "{}",
-                if n.0.is_some() {
-                    n.0.as_ref().unwrap().get().clone()
-                } else {
-                    "(unpacked)".to_string()
-                }
-            ),
+            &(if n.0.is_some() {
+                n.0.as_ref().unwrap().get().clone()
+            } else {
+                "(unpacked)".to_string()
+            })
+            .to_string(),
         );
 
         n.1.iter().for_each(|x| {
@@ -807,14 +797,12 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             "EnumeratedType",
             span,
             id,
-            &format!(
-                "{}",
-                n.0.iter()
-                    .map(|x| x.get())
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+            &n.0.iter()
+                .map(|x| x.get())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+                .to_string(),
         );
     }
 
@@ -828,14 +816,12 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             "FileType",
             span,
             id,
-            &format!(
-                "{}",
-                if n.0.is_some() {
-                    n.0.as_ref().unwrap().get().clone()
-                } else {
-                    "(unpacked)".to_string()
-                }
-            ),
+            &(if n.0.is_some() {
+                n.0.as_ref().unwrap().get().clone()
+            } else {
+                "(unpacked)".to_string()
+            })
+            .to_string(),
         );
 
         self.walk_last_child(&n.1);
@@ -866,14 +852,12 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             "RecordType",
             span,
             id,
-            &format!(
-                "{}",
-                if n.0.is_some() {
-                    n.0.as_ref().unwrap().get().clone()
-                } else {
-                    "(unpacked)".to_string()
-                }
-            ),
+            &(if n.0.is_some() {
+                n.0.as_ref().unwrap().get().clone()
+            } else {
+                "(unpacked)".to_string()
+            })
+            .to_string(),
         );
 
         self.walk_last_child(&n.1);
@@ -944,14 +928,11 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             "VariantSelector",
             span,
             id,
-            &format!(
-                "{}",
-                if n.0.is_some() {
-                    n.0.as_ref().unwrap().get()
-                } else {
-                    "[unnamed]"
-                },
-            ),
+            if n.0.is_some() {
+                n.0.as_ref().unwrap().get()
+            } else {
+                "[unnamed]"
+            },
         );
 
         self.walk_last_child(&n.1);
@@ -969,13 +950,11 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             "RecordSection",
             span,
             id,
-            &format!(
-                "{}",
-                n.0.iter()
-                    .map(|x| x.get().clone())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+            &n.0.iter()
+                .map(|x| x.get().clone())
+                .collect::<Vec<_>>()
+                .join(", ")
+                .to_string(),
         );
 
         self.walk_last_child(&n.1);
@@ -993,14 +972,12 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             "SetType",
             span,
             id,
-            &format!(
-                "{}",
-                if n.0.is_some() {
-                    n.0.as_ref().unwrap().get().clone()
-                } else {
-                    "(unpacked)".to_string()
-                }
-            ),
+            &(if n.0.is_some() {
+                n.0.as_ref().unwrap().get().clone()
+            } else {
+                "(unpacked)".to_string()
+            })
+            .to_string(),
         );
 
         self.walk_last_child(&n.1);
@@ -1014,12 +991,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
-        self.emit_line_payload(
-            "ExprRange",
-            span,
-            id,
-            &format!("{}", self.type_to_string(id)),
-        );
+        self.emit_line_payload("ExprRange", span, id, &self.type_to_string(id).to_string());
 
         self.walk_child(&n.0);
         self.walk_last_child(&n.1);
@@ -1037,7 +1009,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             "ExprSetLiteral",
             span,
             id,
-            &format!("{}", self.type_to_string(id)),
+            &self.type_to_string(id).to_string(),
         );
 
         self.walk_vec_child(&n.0);
@@ -1064,7 +1036,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
-        self.emit_line_payload("ConstantDefinition", span, id, &format!("{}", n.0.get()));
+        self.emit_line_payload("ConstantDefinition", span, id, &n.0.get().to_string());
 
         self.walk_last_child(&n.1);
         false
@@ -1086,7 +1058,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
-        self.emit_line_payload("FunctionForward", span, id, &format!("{}", n.0.get()));
+        self.emit_line_payload("FunctionForward", span, id, &n.0.get().to_string());
 
         if let Some(x) = &n.1 {
             x.iter().for_each(|x| self.walk_child(x));
@@ -1102,7 +1074,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
-        self.emit_line_payload("FunctionDefinition", span, id, &format!("{}", n.0.get()));
+        self.emit_line_payload("FunctionDefinition", span, id, &n.0.get().to_string());
 
         if let Some(x) = &n.1 {
             x.iter().for_each(|x| self.walk_child(x));
@@ -1120,12 +1092,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
-        self.emit_line_payload(
-            "FunctionLateDefinition",
-            span,
-            id,
-            &format!("{}", n.0.get()),
-        );
+        self.emit_line_payload("FunctionLateDefinition", span, id, &n.0.get().to_string());
 
         self.walk_last_child(&n.1);
 
@@ -1164,7 +1131,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
-        self.emit_line_payload("ProcedureDefinition", span, id, &format!("{}", n.0.get()));
+        self.emit_line_payload("ProcedureDefinition", span, id, &n.0.get().to_string());
 
         if let Some(x) = &n.1 {
             x.iter().for_each(|x| self.walk_child(x));
@@ -1181,7 +1148,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
-        self.emit_line_payload("ProcedureForward", span, id, &format!("{}", n.0.get()));
+        self.emit_line_payload("ProcedureForward", span, id, &n.0.get().to_string());
 
         self.walk_optional_vec_child(&n.1);
 
@@ -1247,12 +1214,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
-        self.emit_line_payload(
-            "FormalParameterFunction",
-            span,
-            id,
-            &format!("{}", n.0.get()),
-        );
+        self.emit_line_payload("FormalParameterFunction", span, id, &n.0.get().to_string());
 
         if let Some(v) = &n.1 {
             v.iter().for_each(|x| self.walk_child(x));
@@ -1269,12 +1231,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
-        self.emit_line_payload(
-            "FormalParameterProcedure",
-            span,
-            id,
-            &format!("{}", n.0.get()),
-        );
+        self.emit_line_payload("FormalParameterProcedure", span, id, &n.0.get().to_string());
 
         if let Some(v) = &n.1 {
             v.iter().for_each(|x| self.walk_child(x));
@@ -1335,14 +1292,11 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             "ConformableArraySchema",
             span,
             id,
-            &format!(
-                "{}",
-                if n.0.is_some() {
-                    n.0.as_ref().unwrap()
-                } else {
-                    ""
-                }
-            ),
+            if n.0.is_some() {
+                n.0.as_ref().unwrap()
+            } else {
+                ""
+            },
         );
 
         self.walk_vec_child_not_last(&n.1);
@@ -1401,7 +1355,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
-        self.emit_line_payload("TypeDefinition", span, id, &format!("{}", n.0.get()));
+        self.emit_line_payload("TypeDefinition", span, id, &n.0.get().to_string());
 
         self.walk_last_child(&n.1);
 
@@ -1418,13 +1372,11 @@ impl<'a> VisitorMut for ASTDumper<'a> {
             "LabelDeclarationPart",
             span,
             id,
-            &format!(
-                "{}",
-                n.0.iter()
-                    .map(|x| format!("{}", x.get()))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+            &n.0.iter()
+                .map(|x| format!("{}", x.get()))
+                .collect::<Vec<_>>()
+                .join(", ")
+                .to_string(),
         )
     }
 

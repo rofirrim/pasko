@@ -109,24 +109,15 @@ impl Type {
     }
 
     fn is_error_type(&self) -> bool {
-        match self.info.kind {
-            TypeKind::Error => true,
-            _ => false,
-        }
+        matches!(self.info.kind, TypeKind::Error)
     }
 
     fn is_integer_type(&self) -> bool {
-        match self.info.kind {
-            TypeKind::Integer => true,
-            _ => false,
-        }
+        matches!(self.info.kind, TypeKind::Integer)
     }
 
     fn is_enum_type(&self) -> bool {
-        match self.info.kind {
-            TypeKind::Enum(..) => true,
-            _ => false,
-        }
+        matches!(self.info.kind, TypeKind::Enum(..))
     }
 
     fn enum_type_get_num_enumerators(&self) -> i64 {
@@ -137,10 +128,7 @@ impl Type {
     }
 
     fn is_subrange_type(&self) -> bool {
-        match self.info.kind {
-            TypeKind::SubRange(..) => true,
-            _ => false,
-        }
+        matches!(self.info.kind, TypeKind::SubRange(..))
     }
 
     fn subrange_type_get_lower(&self) -> &constant::Constant {
@@ -165,10 +153,7 @@ impl Type {
     }
 
     fn is_array_type(&self) -> bool {
-        match self.info.kind {
-            TypeKind::Array { .. } => true,
-            _ => false,
-        }
+        matches!(self.info.kind, TypeKind::Array { .. })
     }
 
     fn array_type_get_index_type(&self) -> TypeId {
@@ -193,10 +178,7 @@ impl Type {
     }
 
     fn is_conformable_array_type(&self) -> bool {
-        match self.info.kind {
-            TypeKind::ConformableArray { .. } => true,
-            _ => false,
-        }
+        matches!(self.info.kind, TypeKind::ConformableArray { .. })
     }
 
     fn conformable_array_type_get_component_type(&self) -> TypeId {
@@ -228,10 +210,7 @@ impl Type {
     }
 
     fn is_record_type(&self) -> bool {
-        match self.info.kind {
-            TypeKind::Record { .. } => true,
-            _ => false,
-        }
+        matches!(self.info.kind, TypeKind::Record { .. })
     }
 
     fn record_type_is_packed(&self) -> bool {
@@ -277,31 +256,19 @@ impl Type {
     }
 
     fn is_set_type(&self) -> bool {
-        match self.info.kind {
-            TypeKind::Set { .. } => true,
-            _ => false,
-        }
+        matches!(self.info.kind, TypeKind::Set { .. })
     }
 
     fn is_generic_set_type(&self) -> bool {
-        match self.info.kind {
-            TypeKind::GenericSet => true,
-            _ => false,
-        }
+        matches!(self.info.kind, TypeKind::GenericSet)
     }
 
     fn is_pointer_type(&self) -> bool {
-        match self.info.kind {
-            TypeKind::Pointer(..) => true,
-            _ => false,
-        }
+        matches!(self.info.kind, TypeKind::Pointer(..))
     }
 
     fn is_generic_pointer_type(&self) -> bool {
-        match self.info.kind {
-            TypeKind::GenericPointer => true,
-            _ => false,
-        }
+        matches!(self.info.kind, TypeKind::GenericPointer)
     }
 
     fn pointer_type_get_pointee_type(&self) -> TypeId {
@@ -312,24 +279,15 @@ impl Type {
     }
 
     fn is_real_type(&self) -> bool {
-        match self.info.kind {
-            TypeKind::Real => true,
-            _ => false,
-        }
+        matches!(self.info.kind, TypeKind::Real)
     }
 
     fn is_bool_type(&self) -> bool {
-        match self.info.kind {
-            TypeKind::Bool => true,
-            _ => false,
-        }
+        matches!(self.info.kind, TypeKind::Bool)
     }
 
     fn is_char_type(&self) -> bool {
-        match self.info.kind {
-            TypeKind::Char => true,
-            _ => false,
-        }
+        matches!(self.info.kind, TypeKind::Char)
     }
 
     fn get_symbol_of_named_type(&self) -> Option<symbol::SymbolId> {
@@ -340,38 +298,26 @@ impl Type {
     }
 
     fn is_simple_type(&self) -> bool {
-        if self.is_ordinal_type() {
-            return true;
-        }
-        match self.info.kind {
-            TypeKind::Real => true,
-            _ => false,
-        }
+        self.is_ordinal_type() || matches!(self.info.kind, TypeKind::Real)
     }
 
     fn is_ordinal_type(&self) -> bool {
-        match self.info.kind {
+        matches!(
+            self.info.kind,
             TypeKind::Integer
-            | TypeKind::Bool
-            | TypeKind::Char
-            | TypeKind::Enum(..)
-            | TypeKind::SubRange(..) => true,
-            _ => false,
-        }
+                | TypeKind::Bool
+                | TypeKind::Char
+                | TypeKind::Enum(..)
+                | TypeKind::SubRange(..)
+        )
     }
 
     fn is_file_type(&self) -> bool {
-        match self.info.kind {
-            TypeKind::File { .. } | TypeKind::TextFile => true,
-            _ => false,
-        }
+        matches!(self.info.kind, TypeKind::File { .. } | TypeKind::TextFile)
     }
 
     fn is_textfile_type(&self) -> bool {
-        match self.info.kind {
-            TypeKind::TextFile => true,
-            _ => false,
-        }
+        matches!(self.info.kind, TypeKind::TextFile)
     }
 
     fn file_type_get_component_type(&self) -> TypeId {
@@ -584,9 +530,8 @@ impl TypeSystem {
         ));
 
         let new_subrange_type = Rc::new(new_subrange_type);
-        match self.derived_types.get(&new_subrange_type.clone()) {
-            Some(x) => return x.id(),
-            _ => {}
+        if let Some(x) = self.derived_types.get(&new_subrange_type.clone()) {
+            return x.id();
         }
 
         let new_id = new_subrange_type.id();
@@ -608,9 +553,8 @@ impl TypeSystem {
         });
 
         let new_string_type = Rc::new(new_string_type);
-        match self.derived_types.get(&new_string_type.clone()) {
-            Some(x) => return x.id(),
-            _ => {}
+        if let Some(x) = self.derived_types.get(&new_string_type.clone()) {
+            return x.id();
         }
 
         let new_id = new_string_type.id();
@@ -779,9 +723,8 @@ impl TypeSystem {
         new_set_type.set_kind(TypeKind::Set { packed, element });
 
         let new_set_type = Rc::new(new_set_type);
-        match self.derived_types.get(&new_set_type.clone()) {
-            Some(x) => return x.id(),
-            _ => {}
+        if let Some(x) = self.derived_types.get(&new_set_type.clone()) {
+            return x.id();
         }
 
         let new_id = new_set_type.id();
@@ -828,9 +771,8 @@ impl TypeSystem {
         new_pointer_type.set_kind(TypeKind::Pointer(ty));
 
         let new_pointer_type = Rc::new(new_pointer_type);
-        match self.derived_types.get(&new_pointer_type.clone()) {
-            Some(x) => return x.id(),
-            _ => {}
+        if let Some(x) = self.derived_types.get(&new_pointer_type.clone()) {
+            return x.id();
         }
 
         let new_id = new_pointer_type.id();
@@ -859,9 +801,8 @@ impl TypeSystem {
         new_file_type.set_kind(TypeKind::File { packed, component });
 
         let new_file_type = Rc::new(new_file_type);
-        match self.derived_types.get(&new_file_type.clone()) {
-            Some(x) => return x.id(),
-            _ => {}
+        if let Some(x) = self.derived_types.get(&new_file_type.clone()) {
+            return x.id();
         }
 
         let new_id = new_file_type.id();
@@ -901,7 +842,8 @@ impl TypeSystem {
     }
 
     pub fn get_type_name(&self, id: TypeId) -> String {
-        format!("{}", self.get_type_name_impl(id, false, HashSet::new()))
+        self.get_type_name_impl(id, false, HashSet::new())
+            .to_string()
     }
 
     fn print_variant_part(
@@ -941,7 +883,7 @@ impl TypeSystem {
                                             let sym = sym.borrow();
                                             format!(
                                                 "{}: {};",
-                                                sym.get_name().to_string(),
+                                                sym.get_name(),
                                                 self.get_type_name_impl(
                                                     sym.get_type().unwrap(),
                                                     /* skip_alias */ true,
@@ -991,7 +933,7 @@ impl TypeSystem {
             TypeKind::Real => "real".to_string(),
             TypeKind::Bool => "boolean".to_string(),
             TypeKind::SubRange(_host_type, lower, upper) => {
-                format!("{}..{}", lower.to_string(), upper.to_string())
+                format!("{}..{}", lower, upper)
             }
             TypeKind::Char => "char".to_string(),
             TypeKind::Array {
@@ -1105,10 +1047,7 @@ impl TypeSystem {
     }
 
     pub fn is_builtin_type_name(&self, name: &str) -> bool {
-        match name {
-            "integer" | "real" | "boolean" | "char" | "text" => true,
-            _ => false,
-        }
+        matches!(name, "integer" | "real" | "boolean" | "char" | "text")
     }
 
     pub fn is_none_type(&self, a: TypeId) -> bool {
@@ -1195,7 +1134,7 @@ impl TypeSystem {
             });
         }
 
-        return true;
+        true
     }
 
     pub fn is_simple_type(&self, ty: TypeId) -> bool {
@@ -1262,7 +1201,7 @@ impl TypeSystem {
             .checked_sub(lower_bound)
             .and_then(|x| x.checked_add(1))
         {
-            return x;
+            x
         } else {
             panic!(
                 "Overflow while computing the number of elements of ordinal type {}",

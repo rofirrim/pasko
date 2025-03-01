@@ -237,9 +237,7 @@ impl<'input> Iterator for Lexer<'input> {
         loop {
             let s = self.peek();
             self.skip();
-            if s.is_none() {
-                return None;
-            }
+            s?;
             let (offset, c) = s.unwrap();
 
             match c {
@@ -252,7 +250,7 @@ impl<'input> Iterator for Lexer<'input> {
                         return Some(Err(LexicalError {
                             start: offset,
                             end: offset_end,
-                            message: format!("unterminated comment"),
+                            message: "unterminated comment".to_string(),
                         }));
                     }
                 }
@@ -320,7 +318,7 @@ impl<'input> Iterator for Lexer<'input> {
                                 return Some(Err(LexicalError {
                                     start: offset,
                                     end: offset_end,
-                                    message: format!("unterminated comment"),
+                                    message: "unterminated comment".to_string(),
                                 }));
                             }
                             // Nothing else to do at this point.
@@ -359,7 +357,7 @@ impl<'input> Iterator for Lexer<'input> {
                                     // 42.1
                                     // 42.. is not a valid real
                                     // 42.) would not be a valid real either an in fact it must be lexed as 42]
-                                    '0' <= c3 && c3 <= '9'
+                                    c3.is_ascii_digit()
                                 } else {
                                     false
                                 };
@@ -469,16 +467,15 @@ impl<'input> Iterator for Lexer<'input> {
                         return Some(Err(LexicalError {
                             start: offset,
                             end: offset_end,
-                            message: format!("unterminated string literal"),
+                            message: "unterminated string literal".to_string(),
                         }));
                     }
-                    if tmp.len() == 0 {
+                    if tmp.is_empty() {
                         return Some(Err(LexicalError {
                             start: offset,
                             end: offset_end,
-                            message: format!(
-                                "a string literal must contain at least one character"
-                            ),
+                            message: "a string literal must contain at least one character"
+                                .to_string(),
                         }));
                     }
                     return Some(Ok((offset, Tok::StringLiteral(tmp), offset_end)));

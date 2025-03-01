@@ -122,7 +122,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
     pub fn finish_function(&mut self) {
         self.block_stack.pop();
-        assert!(self.block_stack.len() == 0);
+        assert!(self.block_stack.is_empty());
 
         let mut builder = self.builder_obj.take().unwrap();
 
@@ -167,7 +167,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         c: pasko_frontend::constant::Constant,
     ) -> cranelift_codegen::ir::Value {
         match c {
-            Constant::Integer(x) => self.emit_const_integer(x as i64),
+            Constant::Integer(x) => self.emit_const_integer(x),
             Constant::Real(x) => self.emit_const_real(x),
             Constant::Bool(x) => self.emit_const_bool(x),
             Constant::String(s) => self.emit_string_literal(&s),
@@ -225,14 +225,13 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     .insert(data_id, format!("[string: '{}']", s));
 
                 let mut data_desc = cranelift_module::DataDescription::new();
-                let mut unicode_points = s.chars().map(|x| u32::from(x)).collect::<Vec<_>>();
+                let mut unicode_points = s.chars().map(u32::from).collect::<Vec<_>>();
                 // FIXME: We should not need to emit a NULL byte anymore.
                 unicode_points.push(0); // NULL.
                 let bytes = unicode_points
                     .iter()
                     // FIXME: endianness is dependent of the platform
-                    .map(|x| x.to_le_bytes())
-                    .flatten()
+                    .flat_map(|x| x.to_le_bytes())
                     .collect::<Vec<_>>();
                 data_desc.define(bytes.into_boxed_slice());
 
@@ -716,10 +715,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
     }
 
     fn expr_is_variable(&self, expr_value: &span::SpannedBox<ast::Expr>) -> bool {
-        match expr_value.get() {
-            ast::Expr::Variable(..) | ast::Expr::VariableReference(..) => true,
-            _ => false,
-        }
+        matches!(
+            expr_value.get(),
+            ast::Expr::Variable(..) | ast::Expr::VariableReference(..)
+        )
     }
 
     // This function does not walk expr_value!
@@ -1059,7 +1058,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             std::collections::hash_map::Entry::Vacant(entry) => {
                 let object_module = self.codegen.object_module.as_ref().unwrap();
                 let func = &mut self.builder_obj.as_mut().unwrap().func;
-                let gv = object_module.declare_data_in_func(data_id, *func);
+                let gv = object_module.declare_data_in_func(data_id, func);
 
                 if let Some(global_name) = self.codegen.global_names.get(&data_id) {
                     self.codegen.annotations.new_global_value(gv, global_name);
@@ -1128,7 +1127,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     .object_module
                     .as_mut()
                     .unwrap()
-                    .declare_func_in_func(func_id, *func);
+                    .declare_func_in_func(func_id, func);
 
                 entry.insert(func_ref);
                 func_ref
@@ -1146,10 +1145,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
     fn call_pass_arguments<F>(
         &mut self,
         callee_sym_id: pasko_frontend::symbol::SymbolId,
-        args: &Vec<(
+        args: &[(
             &span::SpannedBox<ast::Expr>,
             pasko_frontend::symbol::SymbolId,
-        )>,
+        )],
         environment: Option<F>,
         arg_return: Option<cranelift_codegen::ir::Value>,
     ) -> Vec<cranelift_codegen::ir::Value>
@@ -1175,7 +1174,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         }
         let mut passed_args: Vec<_> = args
             .iter()
-            .map(|item| {
+            .flat_map(|item| {
                 let (arg, param) = item;
 
                 let param_sym = self.codegen.semantic_context.get_symbol(*param);
@@ -1305,7 +1304,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     }
                 }
             })
-            .flatten()
             .collect();
 
         result.append(&mut passed_args);
@@ -1313,7 +1311,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         // Now pass the bound identifiers, if any.
         let mut bound_args: Vec<_> = args
             .iter()
-            .map(|item| {
+            .flat_map(|item| {
                 let (arg, param) = item;
 
                 let param_sym = self.codegen.semantic_context.get_symbol(*param);
@@ -1367,13 +1365,8 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .type_system
                                 .is_conformable_array_type(arg_ty)
                             {
-                                match param_kind {
-                                    ParameterKind::ValueConformableArray => {
-                                        unreachable!(
-                                            "conformable arrays cannot be passed by value!"
-                                        );
-                                    }
-                                    _ => {}
+                                if param_kind == ParameterKind::ValueConformableArray {
+                                    unreachable!("conformable arrays cannot be passed by value!");
                                 }
                                 let lower_bound = self
                                     .codegen
@@ -1410,7 +1403,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     }
                 }
             })
-            .flatten()
             .collect();
 
         result.append(&mut bound_args);
@@ -1553,7 +1545,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                             false,
                         );
                     } else {
-                        assert!(results.len() == 0);
+                        assert!(results.is_empty());
                     }
                 },
                 Some({
@@ -1598,7 +1590,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                                 false,
                             );
                         } else {
-                            assert!(results.len() == 0);
+                            assert!(results.is_empty());
                         }
                     }
                 }),
@@ -1784,7 +1776,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
     pub fn add_symbol_to_dispose(&mut self, sym: pasko_frontend::symbol::SymbolId) {
         debug_assert!(
-            self.symbols_to_dispose.iter().find(|&&s| s == sym) == None,
+            !self.symbols_to_dispose.iter().any(|&s| s == sym),
             "adding twice a symbol for disposal"
         );
         self.symbols_to_dispose.push(sym);
@@ -1991,7 +1983,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             let sym = self.codegen.semantic_context.get_symbol(sym_id);
             let sym = sym.borrow();
             let ty = sym.get_type().unwrap();
-            let data_loc = self.codegen.data_location.get(&sym_id).unwrap().clone();
+            let data_loc = *self.codegen.data_location.get(&sym_id).unwrap();
 
             let addr = self.get_address_of_data_location(data_loc);
 
@@ -2064,9 +2056,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
         let enclosing_symbol_id = self.codegen.get_enclosing_function(function_symbol_id);
         // If this is not a nested function, no need to initialise anything.
-        if enclosing_symbol_id.is_none() {
-            return None;
-        }
+        enclosing_symbol_id?;
 
         let enclosing_symbol_id = enclosing_symbol_id.unwrap();
         let enclosing_symbol = self
@@ -2152,7 +2142,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             let pointer_type = self.codegen.pointer_type;
 
             let new_environment_ss =
-                self.allocate_storage_in_stack(num_items_env as u32 * pointer_type.bytes() as u32);
+                self.allocate_storage_in_stack(num_items_env as u32 * pointer_type.bytes());
             self.codegen
                 .annotations
                 .new_stack_slot(new_environment_ss, "[nested-environment]");
@@ -2208,27 +2198,24 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(id) {
             if let Some(dl) = self.codegen.data_location.get(&sym_id).cloned() {
                 // First check if this variable has an address. If not, get one.
-                match dl {
-                    DataLocation::Variable(var, None) => {
-                        // This variable does not have an address. Allocate it first.
-                        let sym = self.codegen.semantic_context.get_symbol(sym_id);
-                        let sym = sym.borrow();
-                        let ty = sym.get_type().unwrap();
-                        let stack_slot = self.allocate_storage_for_type_in_stack(ty);
-                        self.codegen.annotations.new_stack_slot(
-                            stack_slot,
-                            &format!("[by reference argument: {}]", sym.get_name()),
-                        );
-                        let pointer_type = self.codegen.pointer_type;
-                        let stack_slot_address =
-                            self.builder().ins().stack_addr(pointer_type, stack_slot, 0);
-                        // Update the location with the address.
-                        self.codegen.data_location.insert(
-                            sym_id,
-                            DataLocation::Variable(var, Some(stack_slot_address)),
-                        );
-                    }
-                    _ => {}
+                if let DataLocation::Variable(var, None) = dl {
+                    // This variable does not have an address. Allocate it first.
+                    let sym = self.codegen.semantic_context.get_symbol(sym_id);
+                    let sym = sym.borrow();
+                    let ty = sym.get_type().unwrap();
+                    let stack_slot = self.allocate_storage_for_type_in_stack(ty);
+                    self.codegen.annotations.new_stack_slot(
+                        stack_slot,
+                        &format!("[by reference argument: {}]", sym.get_name()),
+                    );
+                    let pointer_type = self.codegen.pointer_type;
+                    let stack_slot_address =
+                        self.builder().ins().stack_addr(pointer_type, stack_slot, 0);
+                    // Update the location with the address.
+                    self.codegen.data_location.insert(
+                        sym_id,
+                        DataLocation::Variable(var, Some(stack_slot_address)),
+                    );
                 }
 
                 // Write to memory the current value of the variable.
@@ -2263,17 +2250,16 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         }
 
         // Regular variables already have address in the stack.
-        let addr = self.get_value(id);
-        addr
+
+        self.get_value(id)
     }
 
     fn get_address_or_variable(&self, id: pasko_frontend::span::SpanId) -> AddressOrVariable {
         if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(id) {
             let dl = *self.codegen.data_location.get(&sym_id).unwrap();
             // First check if this variable has an address. If not, get one.
-            match dl {
-                DataLocation::Variable(var, ..) => return AddressOrVariable::Variable(var, sym_id),
-                _ => {}
+            if let DataLocation::Variable(var, ..) = dl {
+                return AddressOrVariable::Variable(var, sym_id);
             }
         }
 
@@ -2989,10 +2975,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             let args = {
                 if let Some(args) = args {
                     assert!(args.len() == callee_parameters.len());
-                    args.iter()
-                        .zip(callee_parameters)
-                        .map(|(value, param)| (value, param))
-                        .collect::<Vec<_>>()
+                    args.iter().zip(callee_parameters).collect::<Vec<_>>()
                 } else {
                     vec![]
                 }
@@ -3024,7 +3007,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         _span: &span::SpanLoc,
         id: span::SpanId,
     ) {
-        let v = self.emit_const_integer(*n.0.get() as i64);
+        let v = self.emit_const_integer(*n.0.get());
         self.set_value(id, v);
     }
 
@@ -3101,10 +3084,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         let num_total_members = n.0.len();
         let num_range_members =
             n.0.iter()
-                .filter(|member| match member.get() {
-                    ast::Expr::Range(..) => true,
-                    _ => false,
-                })
+                .filter(|member| matches!(member.get(), ast::Expr::Range(..)))
                 .count();
         let num_expr_members = num_total_members - num_range_members;
 
@@ -3140,7 +3120,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 .ins()
                 .call(func_ref, &[number_of_elements_value, stack_addr])
         } else {
-            let zero = self.emit_const_integer(0 as i64);
+            let zero = self.emit_const_integer(0_i64);
             let func_id = self.codegen.get_runtime_function(RuntimeFunctionId::SetNew);
             let func_ref = self.get_function_reference(func_id);
             self.builder().ins().call(func_ref, &[zero, zero])
@@ -3170,15 +3150,11 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 self.builder()
                     .ins()
                     .stack_addr(pointer, element_stack_slot, 0);
-            let one = self.emit_const_integer(1 as i64);
+            let one = self.emit_const_integer(1_i64);
 
             n.0.iter()
-                .filter(|member| match member.get() {
-                    ast::Expr::Range(..) => true,
-                    _ => false,
-                })
+                .filter(|member| matches!(member.get(), ast::Expr::Range(..)))
                 .for_each(|member| {
-                    //
                     match member.get() {
                         ast::Expr::Range(range) => {
                             let ast::ExprRange(lower_bound, upper_bound) = range;
@@ -3280,19 +3256,16 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         // Special handling for variables.
         if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(n.0.id()) {
-            if let Some(dl) = self.codegen.data_location.get(&sym_id).cloned() {
-                match dl {
-                    DataLocation::Variable(var, ..) => {
-                        let val = self.get_value(n.1.id());
-                        self.builder().def_var(var, val);
-                        let sym = self.codegen.semantic_context.get_symbol(sym_id);
-                        let sym = sym.borrow();
-                        self.codegen.annotations.new_value(val, sym.get_name());
-                        // And we are done.
-                        return false;
-                    }
-                    _ => {}
-                }
+            if let Some(DataLocation::Variable(var, ..)) =
+                self.codegen.data_location.get(&sym_id).cloned()
+            {
+                let val = self.get_value(n.1.id());
+                self.builder().def_var(var, val);
+                let sym = self.codegen.semantic_context.get_symbol(sym_id);
+                let sym = sym.borrow();
+                self.codegen.annotations.new_value(val, sym.get_name());
+                // And we are done.
+                return false;
             }
         }
 
@@ -3322,18 +3295,13 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         // Special handling of variables.
         if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(n.0.id()) {
             let dl = self.codegen.data_location.get(&sym_id).cloned();
-            if let Some(dl) = dl {
-                match dl {
-                    DataLocation::Variable(var, ..) => {
-                        let v = self.builder().use_var(var);
-                        let symbol = self.codegen.semantic_context.get_symbol(sym_id);
-                        let symbol = symbol.borrow();
-                        self.codegen.annotations.new_value(v, symbol.get_name());
-                        self.set_value(id, v);
-                        return false;
-                    }
-                    _ => {}
-                }
+            if let Some(DataLocation::Variable(var, ..)) = dl {
+                let v = self.builder().use_var(var);
+                let symbol = self.codegen.semantic_context.get_symbol(sym_id);
+                let symbol = symbol.borrow();
+                self.codegen.annotations.new_value(v, symbol.get_name());
+                self.set_value(id, v);
+                return false;
             }
         }
 
@@ -3375,19 +3343,11 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         let sym = sym.borrow();
 
         // Variables do not have address.
-        match sym.get_kind() {
-            symbol::SymbolKind::Variable => {
-                // Some symbols like input and output don't have data loctation
-                if let Some(dl) = self.codegen.data_location.get(&sym_id) {
-                    match dl {
-                        DataLocation::Variable(..) => {
-                            return;
-                        }
-                        _ => {}
-                    }
-                }
+        if sym.get_kind() == symbol::SymbolKind::Variable {
+            // Some symbols like input and output don't have data location
+            if let Some(DataLocation::Variable(..)) = self.codegen.data_location.get(&sym_id) {
+                return;
             }
-            _ => {}
         };
 
         let addr_value = match sym.get_kind() {
@@ -3416,8 +3376,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     .unwrap();
 
                 let offset = self.get_offset_of_field(record_type, associated_field_id);
-                let addr = self.add_offset_to_address(associated_record_addr, offset);
-                addr
+
+                self.add_offset_to_address(associated_record_addr, offset)
             }
             _ => {
                 panic!(
@@ -3509,46 +3469,44 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         ),
                         lower_bound,
                     )
+                } else if self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .is_array_type(current_array_component_type)
+                {
+                    let index_type = self
+                        .codegen
+                        .semantic_context
+                        .type_system
+                        .array_type_get_index_type(current_array_component_type);
+                    let extent = self
+                        .codegen
+                        .semantic_context
+                        .type_system
+                        .ordinal_type_extent(index_type);
+                    let extent = self.emit_const_integer(extent);
+                    (extent, lower_bound)
+                } else if self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .is_conformable_array_type(current_array_component_type)
+                {
+                    let upper_bound = {
+                        let sym_id = self
+                            .codegen
+                            .semantic_context
+                            .type_system
+                            .conformable_array_type_get_upper(current_array_component_type);
+                        self.get_value_of_bound_identifier(sym_id)
+                    };
+                    let extent = self.builder().ins().isub(upper_bound, lower_bound);
+                    let one = self.emit_const_integer(1);
+                    let extent = self.builder().ins().iadd(extent, one);
+                    (extent, lower_bound)
                 } else {
-                    if self
-                        .codegen
-                        .semantic_context
-                        .type_system
-                        .is_array_type(current_array_component_type)
-                    {
-                        let index_type = self
-                            .codegen
-                            .semantic_context
-                            .type_system
-                            .array_type_get_index_type(current_array_component_type);
-                        let extent = self
-                            .codegen
-                            .semantic_context
-                            .type_system
-                            .ordinal_type_extent(index_type);
-                        let extent = self.emit_const_integer(extent);
-                        (extent, lower_bound)
-                    } else if self
-                        .codegen
-                        .semantic_context
-                        .type_system
-                        .is_conformable_array_type(current_array_component_type)
-                    {
-                        let upper_bound = {
-                            let sym_id = self
-                                .codegen
-                                .semantic_context
-                                .type_system
-                                .conformable_array_type_get_upper(current_array_component_type);
-                            self.get_value_of_bound_identifier(sym_id)
-                        };
-                        let extent = self.builder().ins().isub(upper_bound, lower_bound);
-                        let one = self.emit_const_integer(1);
-                        let extent = self.builder().ins().iadd(extent, one);
-                        (extent, lower_bound)
-                    } else {
-                        panic!("Expecting an array type");
-                    }
+                    panic!("Expecting an array type");
                 };
 
                 let mut index_type_sizes = acc.1;
@@ -3690,21 +3648,15 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 let sym = sym.borrow();
 
                 // Pointer variables hold the address in their value.
-                match sym.get_kind() {
-                    symbol::SymbolKind::Variable => {
-                        // Some symbols like input and output don't have data loctation
-                        if let Some(dl) = self.codegen.data_location.get(&sym_id).cloned() {
-                            match dl {
-                                DataLocation::Variable(var, ..) => {
-                                    let value = self.builder().use_var(var);
-                                    self.set_value(id, value);
-                                    return false;
-                                }
-                                _ => {}
-                            }
-                        }
+                if sym.get_kind() == symbol::SymbolKind::Variable {
+                    // Some symbols like input and output don't have data loctation
+                    if let Some(DataLocation::Variable(var, ..)) =
+                        self.codegen.data_location.get(&sym_id).cloned()
+                    {
+                        let value = self.builder().use_var(var);
+                        self.set_value(id, value);
+                        return false;
                     }
-                    _ => {}
                 };
             }
 
@@ -4456,9 +4408,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 }
             } else if self.codegen.semantic_context.type_system.is_array_type(ty)
                 || self.codegen.semantic_context.type_system.is_record_type(ty)
+                || self.codegen.semantic_context.type_system.is_set_type(ty)
             {
-                self.allocate_value_in_stack(sym_id);
-            } else if self.codegen.semantic_context.type_system.is_set_type(ty) {
                 self.allocate_value_in_stack(sym_id);
             } else {
                 panic!(
@@ -4469,7 +4420,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
             if self.codegen.type_contains_set_types(ty) {
                 // Initialize set_types
-                let location = self.codegen.data_location.get(&sym_id).unwrap().clone();
+                let location = *self.codegen.data_location.get(&sym_id).unwrap();
                 match location {
                     DataLocation::StackVarValue(stack_slot) => {
                         let pointer_type = self.codegen.pointer_type;
@@ -4744,11 +4695,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     .is_pointer_type(callee_return_type);
 
             assert!(args.len() == callee_parameters.len());
-            let args: Vec<_> = args
-                .iter()
-                .zip(callee_parameters)
-                .map(|(value, param)| (value, param))
-                .collect();
+            let args: Vec<_> = args.iter().zip(callee_parameters).collect();
 
             let (arg_return, return_stack_addr) = if return_type_is_simple {
                 (None, None)

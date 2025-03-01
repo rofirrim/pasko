@@ -46,7 +46,7 @@ pub enum ParameterKind {
     Procedure,
     Function,
     ValueConformableArray,
-    VariableConformableArray
+    VariableConformableArray,
 }
 
 #[derive(Debug, Default)]
@@ -75,6 +75,12 @@ pub struct Symbol {
     id: SymbolId,
     external_id: Cell<usize>,
     info: SymbolInfo,
+}
+
+impl Default for Symbol {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Symbol {
@@ -112,7 +118,7 @@ impl Symbol {
     }
 
     pub fn get_type(&self) -> Option<TypeId> {
-        self.info.ty.clone()
+        self.info.ty
     }
 
     pub fn set_type(&mut self, ty: TypeId) {
@@ -128,7 +134,7 @@ impl Symbol {
     }
 
     pub fn get_defining_point(&self) -> Option<span::SpanLoc> {
-        self.info.def_loc.clone()
+        self.info.def_loc
     }
 
     pub fn set_defining_point(&mut self, span: span::SpanLoc) {
@@ -149,7 +155,7 @@ impl Symbol {
     }
 
     pub fn has_external_id(&self) -> bool {
-        return self.get_external_id() != usize::MAX;
+        self.get_external_id() != usize::MAX
     }
 
     pub fn get_external_id(&self) -> usize {
