@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::num::NonZero;
 
+use crate::visitor;
+
 use pasko_frontend::ast::{self, Program};
 use pasko_frontend::span::{SpanId, SpannedBox};
 
@@ -76,14 +78,14 @@ impl<'a> ProgramPointsBuilder<'a> {
     }
 }
 
-impl<'a> pasko_frontend::visitor::VisitorMut for ProgramPointsBuilder<'a> {
+impl<'a> visitor::VisitorMut<'a> for ProgramPointsBuilder<'a> {
     fn visit_pre_expr(
         &mut self,
-        _n: &ast::Expr,
+        n: &'a ast::Expr,
         _span: &pasko_frontend::span::SpanLoc,
         _id: pasko_frontend::span::SpanId,
     ) -> bool {
-        // self.points.add_expr(n);
+        self.points.add_expr(n);
         false
     }
 }
