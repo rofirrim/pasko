@@ -105,3 +105,180 @@ impl Hash for Constant {
         }
     }
 }
+
+impl Constant {
+    pub fn is_zero(&self) -> bool {
+        match self {
+            Constant::Integer(x) => *x == 0,
+            Constant::Real(x) => *x == 0.0,
+            _ => {
+                return false;
+            }
+        }
+    }
+
+    pub fn is_positive(&self) -> bool {
+        match self {
+            Constant::Integer(x) => *x > 0,
+            Constant::Real(x) => *x > 0.0,
+            _ => {
+                return false;
+            }
+        }
+    }
+
+    pub fn is_negative(&self) -> bool {
+        !self.is_zero() && !self.is_positive()
+    }
+
+    // Boolean operations.
+    pub fn and(a: &Constant, b: &Constant) -> Option<Constant> {
+        if let (Constant::Bool(a_val), Constant::Bool(b_val)) = (a, b) {
+            Some(Constant::Bool(*a_val && *b_val))
+        } else {
+            None
+        }
+    }
+
+    pub fn or(a: &Constant, b: &Constant) -> Option<Constant> {
+        if let (Constant::Bool(a_val), Constant::Bool(b_val)) = (a, b) {
+            Some(Constant::Bool(*a_val || *b_val))
+        } else {
+            None
+        }
+    }
+
+    pub fn not(a: &Constant) -> Option<Constant> {
+        if let Constant::Bool(a_val) = a {
+            Some(Constant::Bool(!*a_val))
+        } else {
+            None
+        }
+    }
+
+    // Relational operations.
+    pub fn equal(a: &Constant, b: &Constant) -> Option<Constant> {
+        match (a, b) {
+            (Constant::Bool(a_val), Constant::Bool(b_val)) => Some(Constant::Bool(a_val == b_val)),
+            (Constant::Real(a_val), Constant::Real(b_val)) => Some(Constant::Bool(a_val == b_val)),
+            (Constant::Integer(a_val), Constant::Integer(b_val)) => {
+                Some(Constant::Bool(a_val == b_val))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn not_equal(a: &Constant, b: &Constant) -> Option<Constant> {
+        match (a, b) {
+            (Constant::Bool(a_val), Constant::Bool(b_val)) => Some(Constant::Bool(a_val != b_val)),
+            (Constant::Real(a_val), Constant::Real(b_val)) => Some(Constant::Bool(a_val != b_val)),
+            (Constant::Integer(a_val), Constant::Integer(b_val)) => {
+                Some(Constant::Bool(a_val != b_val))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn less(a: &Constant, b: &Constant) -> Option<Constant> {
+        match (a, b) {
+            (Constant::Real(a_val), Constant::Real(b_val)) => Some(Constant::Bool(a_val < b_val)),
+            (Constant::Integer(a_val), Constant::Integer(b_val)) => {
+                Some(Constant::Bool(a_val < b_val))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn less_or_equal(a: &Constant, b: &Constant) -> Option<Constant> {
+        match (a, b) {
+            (Constant::Real(a_val), Constant::Real(b_val)) => Some(Constant::Bool(a_val <= b_val)),
+            (Constant::Integer(a_val), Constant::Integer(b_val)) => {
+                Some(Constant::Bool(a_val <= b_val))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn greater(a: &Constant, b: &Constant) -> Option<Constant> {
+        match (a, b) {
+            (Constant::Real(a_val), Constant::Real(b_val)) => Some(Constant::Bool(a_val > b_val)),
+            (Constant::Integer(a_val), Constant::Integer(b_val)) => {
+                Some(Constant::Bool(a_val > b_val))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn greater_or_equal(a: &Constant, b: &Constant) -> Option<Constant> {
+        match (a, b) {
+            (Constant::Real(a_val), Constant::Real(b_val)) => Some(Constant::Bool(a_val >= b_val)),
+            (Constant::Integer(a_val), Constant::Integer(b_val)) => {
+                Some(Constant::Bool(a_val >= b_val))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn normalize_real(x: f64) -> Option<f64> {
+        if x.is_nan() || x.is_infinite() {
+            None
+        } else {
+            Some(x)
+        }
+    }
+
+    // Basic arithmetic.
+    pub fn add(a: &Constant, b: &Constant) -> Option<Constant> {
+        match (a, b) {
+            (Constant::Real(a_val), Constant::Real(b_val)) => {
+                Self::normalize_real(a_val + b_val).map(Constant::Real)
+            }
+            (Constant::Integer(a_val), Constant::Integer(b_val)) => {
+                a_val.checked_add(*b_val).map(Constant::Integer)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn sub(a: &Constant, b: &Constant) -> Option<Constant> {
+        match (a, b) {
+            (Constant::Real(a_val), Constant::Real(b_val)) => {
+                Self::normalize_real(a_val - b_val).map(Constant::Real)
+            }
+            (Constant::Integer(a_val), Constant::Integer(b_val)) => {
+                a_val.checked_sub(*b_val).map(Constant::Integer)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn mul(a: &Constant, b: &Constant) -> Option<Constant> {
+        match (a, b) {
+            (Constant::Real(a_val), Constant::Real(b_val)) => {
+                Self::normalize_real(a_val * b_val).map(Constant::Real)
+            }
+            (Constant::Integer(a_val), Constant::Integer(b_val)) => {
+                a_val.checked_mul(*b_val).map(Constant::Integer)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn idiv(a: &Constant, b: &Constant) -> Option<Constant> {
+        match (a, b) {
+            (Constant::Integer(a_val), Constant::Integer(b_val)) => {
+                a_val.checked_div(*b_val).map(Constant::Integer)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn div(a: &Constant, b: &Constant) -> Option<Constant> {
+        match (a, b) {
+            (Constant::Real(a_val), Constant::Real(b_val)) => {
+                Self::normalize_real(a_val / b_val).map(Constant::Real)
+            }
+            _ => None,
+        }
+    }
+}

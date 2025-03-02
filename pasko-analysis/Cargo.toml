@@ -1,0 +1,7 @@
+[package]
+name = "pasko-analysis"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pasko-frontend = { path = "../pasko-frontend" }

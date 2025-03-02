@@ -621,6 +621,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pasko-analysis"
+version = "0.1.0"
+dependencies = [
+ "pasko-frontend",
+]
+
+[[package]]
 name = "pasko-codegen"
 version = "0.1.0"
 dependencies = [

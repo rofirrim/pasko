@@ -1,4 +1,4 @@
 [workspace]
-members = ["pasko-frontend", "pasko-codegen", "pasko-driver", "pasko-testing"]
+members = ["pasko-frontend", "pasko-codegen", "pasko-driver", "pasko-testing", "pasko-analysis"]
 resolver = "2"
 exclude = ["pasko-fuzzing"]
