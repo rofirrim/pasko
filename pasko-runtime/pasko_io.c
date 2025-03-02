@@ -537,6 +537,9 @@ void __pasko_read_textfile_newline(pasko_file_t *f) {
     __pasko_buffer_char_skip(f->read_buffer);
     v = __pasko_buffer_char_peek(f->read_buffer);
   }
+  if (v == '\n') {
+    __pasko_buffer_char_skip(f->read_buffer);
+  }
   if (v == UTF8_EOF) {
     __pasko_runtime_error("end of file while advancing newline");
   }
