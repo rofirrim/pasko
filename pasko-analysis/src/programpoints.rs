@@ -103,6 +103,9 @@ impl<'a> ProgramPoint<'a> {
             &ast::Expr::Variable(ast::ExprVariable(assig)) => {
                 write!(f, "load ${:05}", assig.id().get_number())?;
             }
+            &ast::Expr::VariableReference(ast::ExprVariableReference(assig)) => {
+                write!(f, "${:05}", assig.id().get_number())?;
+            }
             &ast::Expr::Const(ast::ExprConst(my_const)) => match my_const.get() {
                 ast::Const::Integer(x) => {
                     write!(f, "{}", x.0.get())?;
