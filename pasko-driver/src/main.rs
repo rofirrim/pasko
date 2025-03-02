@@ -6,6 +6,7 @@ use std::process::ExitCode;
 
 use pasko_codegen::{self};
 use pasko_frontend::{self, dump, visitor::Visitable};
+use pasko_analysis::programpoints::{ProgramPointsBuilder, ProgramPoints};
 
 mod diagnostics;
 
@@ -67,6 +68,13 @@ struct DebugFlags {
         help = "The compiler must fail during semantic checking"
     )]
     must_fail_semantic: bool,
+
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "The compiler runs an analysis pipeline before codegen"
+    )]
+    run_analysis_pipeline: bool,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -182,6 +190,18 @@ fn main() -> ExitCode {
             }
         }
         return ExitCode::from(diagnostics);
+    }
+
+    if cli.debug_flags.run_analysis_pipeline {
+        let program = program.get();
+        let program_block = &program.1.get().0;
+        let stmt = &program_block.get().5.get().0;
+    
+        let pb = ProgramPointsBuilder::new();
+        let pb = pb.build(stmt);
+
+        println!("{}", pb);
+        return ExitCode::SUCCESS;
     }
 
     let mut object_filename = cli.file.clone();

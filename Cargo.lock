@@ -647,6 +647,7 @@ dependencies = [
  "clap",
  "env_logger",
  "log",
+ "pasko-analysis",
  "pasko-codegen",
  "pasko-frontend",
 ]

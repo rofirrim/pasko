@@ -1,2 +1,2 @@
 mod visitor;
-mod programpoints;
+pub mod programpoints;
