@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::num::NonZero;
 
 use crate::visitor;
+use crate::visitor::Visitable;
 
 use pasko_frontend::ast::{self, Program};
 use pasko_frontend::span::{SpanId, SpannedBox};
@@ -15,18 +16,19 @@ pub struct ProgramPoints<'a> {
 }
 
 pub enum ProgramPoint<'a> {
-    Stmt(&'a ast::Stmt),
-    Expr(&'a ast::Expr),
-    BranchIf(&'a ast::Expr, ProgramCounter),
+    Stmt(SpanId, &'a ast::Stmt),
+    Expr(SpanId, &'a ast::Expr),
+    BranchIf(SpanId, &'a ast::Expr, ProgramCounter),
     Branch(ProgramCounter),
+    NoOperation, // Can we remove this?
 }
 
 impl<'a> ProgramPoints<'a> {
-    fn add_expr(&mut self, expr: &'a ast::Expr) {
-        self.program_points.push(ProgramPoint::Expr(expr))
+    fn add_expr(&mut self, id: SpanId, expr: &'a ast::Expr) {
+        self.program_points.push(ProgramPoint::Expr(id, expr))
     }
-    fn add_stmt(&mut self, stmt: &'a ast::Stmt) {
-        self.program_points.push(ProgramPoint::Stmt(stmt))
+    fn add_stmt(&mut self, id: SpanId, stmt: &'a ast::Stmt) {
+        self.program_points.push(ProgramPoint::Stmt(id, stmt))
     }
 
     // Adds a goto to fixup later
@@ -39,8 +41,9 @@ impl<'a> ProgramPoints<'a> {
 
     // Adds a conditional goto to fixup later
     #[must_use]
-    fn add_goto_if(&mut self, expr: &'a ast::Expr) -> usize {
-        self.program_points.push(ProgramPoint::BranchIf(expr, 0));
+    fn add_goto_if(&mut self, id: SpanId, expr: &'a ast::Expr) -> usize {
+        self.program_points
+            .push(ProgramPoint::BranchIf(id, expr, 0));
 
         self.program_points.len()
     }
@@ -50,13 +53,19 @@ impl<'a> ProgramPoints<'a> {
             ProgramPoint::Branch(x) => {
                 *x = target_pc;
             }
-            ProgramPoint::BranchIf(_, x) => {
+            ProgramPoint::BranchIf(_, _, x) => {
                 *x = target_pc;
             }
             _ => {
                 panic!("Instruction is not a branch");
             }
         }
+    }
+
+    // This always inserts a nop
+    fn set_branch_target_to_current_point(&mut self, pc: ProgramCounter) {
+        self.program_points.push(ProgramPoint::NoOperation);
+        self.set_branch_target(pc, self.program_points.len() - 1);
     }
 }
 
@@ -83,9 +92,39 @@ impl<'a> visitor::VisitorMut<'a> for ProgramPointsBuilder<'a> {
         &mut self,
         n: &'a ast::Expr,
         _span: &pasko_frontend::span::SpanLoc,
-        _id: pasko_frontend::span::SpanId,
+        id: pasko_frontend::span::SpanId,
     ) -> bool {
-        self.points.add_expr(n);
+        self.points.add_expr(id, n);
         false
+    }
+
+    fn visit_post_stmt(
+        &mut self,
+        n: &'a ast::Stmt,
+        _span: &pasko_frontend::span::SpanLoc,
+        id: pasko_frontend::span::SpanId,
+    ) {
+        match &n {
+            &ast::Stmt::If(stmt_if) => {
+                // Foo
+                let cond_expr = &stmt_if.0;
+                let then_stmt = &stmt_if.1;
+                let else_stmt = &stmt_if.2;
+                self.points.add_expr(cond_expr.id(), cond_expr.get());
+                if let Some(else_stmt) = else_stmt {
+                } else {
+                    let true_branch = self.points.add_goto_if(cond_expr.id(), cond_expr.get());
+                    let end_branch = self.points.add_goto();
+                    self.points.set_branch_target_to_current_point(true_branch);
+                    then_stmt
+                        .get()
+                        .walk_mut(self, then_stmt.loc(), then_stmt.id());
+                    self.points.set_branch_target_to_current_point(end_branch);
+                }
+            }
+            _ => {
+                self.points.add_stmt(id, n);
+            }
+        }
     }
 }
