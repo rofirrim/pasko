@@ -2552,7 +2552,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 }
                             };
                             match arg.get() {
-                                ast::Expr::Variable(expr_var) => {
+                                ast::Expr::VariableReference(expr_var) => {
                                     let var = &expr_var.0;
 
                                     var.get().walk_mut(self, var.loc(), var.id());

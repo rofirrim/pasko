@@ -4703,6 +4703,23 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                 }
                             }
                         }
+                        for arg in &mut args[first_arg..] {
+                            let mut arg = arg.get_mut();
+                            arg = match arg {
+                                ast::Expr::Conversion(e) => e.0.get_mut(),
+                                _ => { arg }
+                            };
+                            match arg {
+                                ast::Expr::Variable(var) => {
+                                    let assig = var.0.take();
+
+                                    *arg = ast::Expr::VariableReference(
+                                        ast::ExprVariableReference(SpannedBox::from(assig)),
+                                    );
+                                },
+                                _ => {}
+                            }
+                        }
                     } else if !is_readln {
                         self.diagnostics.add(
                             DiagnosticKind::Error,
