@@ -46,7 +46,7 @@ end.
 
 CHECK: *** IR for 'foo'
 CHECK-NEXT: function u0:0() system_v {
-CHECK-NEXT:     ss0 = explicit_slot 32 ; r2
+CHECK-NEXT:     ss0 = explicit_slot 32, align = 8 ; r2
 CHECK-EMPTY: 
 CHECK-NEXT: block0:
 CHECK-NEXT:     v0 = f64const 0x1.2000000000000p2

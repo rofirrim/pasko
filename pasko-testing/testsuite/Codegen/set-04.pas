@@ -20,9 +20,9 @@ end.
 
 CHECK: *** IR for 'foo'
 CHECK-NEXT: function u0:0() system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8 ; a
-CHECK-NEXT:     ss1 = explicit_slot 8 ; [set-constructor-tmp-set]
-CHECK-NEXT:     ss2 = explicit_slot 8 ; [set-constructor-ith-element]
+CHECK-NEXT:     ss0 = explicit_slot 8, align = 8 ; a
+CHECK-NEXT:     ss1 = explicit_slot 8, align = 8 ; [set-constructor-tmp-set]
+CHECK-NEXT:     ss2 = explicit_slot 8, align = 8 ; [set-constructor-ith-element]
 CHECK-NEXT:     sig0 = (i64, i64) -> i64 system_v
 CHECK-NEXT:     sig1 = (i64, i64) -> i64 system_v
 CHECK-NEXT:     sig2 = (i64) system_v

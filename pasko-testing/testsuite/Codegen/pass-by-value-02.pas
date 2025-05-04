@@ -35,8 +35,8 @@ end.
 
 CHECK: *** IR for 'sink_2'
 CHECK-NEXT: function u0:0(i64) system_v {
-CHECK-NEXT:     ss0 = explicit_slot 24 ; x
-CHECK-NEXT:     ss1 = explicit_slot 24 ; [set-constructor]
+CHECK-NEXT:     ss0 = explicit_slot 24, align = 8 ; x
+CHECK-NEXT:     ss1 = explicit_slot 24, align = 8 ; [set-constructor]
 CHECK-NEXT:     sig0 = (i64, i64) -> i64 system_v
 CHECK-NEXT:     sig1 = (i64) system_v
 CHECK-NEXT:     fn0 = u0:1 sig0 ; __pasko_set_new
@@ -87,8 +87,8 @@ CHECK-NEXT: *** IR for 'sink_2' seems OK
 
 CHECK: *** IR for 'source_2'
 CHECK-NEXT: function u0:3() system_v {
-CHECK-NEXT:     ss0 = explicit_slot 24 ; x
-CHECK-NEXT:     ss1 = explicit_slot 24 ; [copy-in]
+CHECK-NEXT:     ss0 = explicit_slot 24, align = 8 ; x
+CHECK-NEXT:     ss1 = explicit_slot 24, align = 8 ; [copy-in]
 CHECK-NEXT:     sig0 = (i64) -> i64 system_v
 CHECK-NEXT:     sig1 = (i64) system_v
 CHECK-NEXT:     sig2 = (i64) system_v

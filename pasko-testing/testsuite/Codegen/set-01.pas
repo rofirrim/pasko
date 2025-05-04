@@ -24,8 +24,8 @@ end.
 
 CHECK: *** IR for 'foo_val'
 CHECK-NEXT: function u0:0(i64) system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8 ; a
-CHECK-NEXT:     ss1 = explicit_slot 8 ; [set-constructor]
+CHECK-NEXT:     ss0 = explicit_slot 8, align = 8 ; a
+CHECK-NEXT:     ss1 = explicit_slot 8, align = 8 ; [set-constructor]
 CHECK-NEXT:     sig0 = (i64, i64) -> i64 system_v
 CHECK-NEXT:     sig1 = (i64) system_v
 CHECK-NEXT:     fn0 = u0:1 sig0 ; __pasko_set_new
@@ -51,7 +51,7 @@ CHECK-NEXT: *** IR for 'foo_val' seems OK
 
 CHECK: *** IR for 'foo_ref'
 CHECK-NEXT: function u0:3(i64) system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8 ; [set-constructor]
+CHECK-NEXT:     ss0 = explicit_slot 8, align = 8 ; [set-constructor]
 CHECK-NEXT:     sig0 = (i64, i64) -> i64 system_v
 CHECK-NEXT:     sig1 = (i64) system_v
 CHECK-NEXT:     fn0 = u0:1 sig0 ; __pasko_set_new
@@ -74,8 +74,8 @@ CHECK-NEXT: *** IR for 'foo_ref' seems OK
 
 CHECK: *** IR for 'main'
 CHECK-NEXT: function u0:4(i32, i64) -> i32 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8 ; [null-ended-array: program-parameter-names]
-CHECK-NEXT:     ss1 = explicit_slot 8 ; [null-ended-array: global-files]
+CHECK-NEXT:     ss0 = explicit_slot 8, align = 8 ; [null-ended-array: program-parameter-names]
+CHECK-NEXT:     ss1 = explicit_slot 8, align = 8 ; [null-ended-array: global-files]
 CHECK-NEXT:     gv0 = symbol colocated userextname4 ; [input-textfile]
 CHECK-NEXT:     gv1 = symbol colocated userextname5 ; [output-textfile]
 CHECK-NEXT:     sig0 = (i32, i64, i32, i64, i32, i64) system_v

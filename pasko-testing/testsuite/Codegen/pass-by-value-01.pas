@@ -65,7 +65,7 @@ CHECK-NEXT: *** IR for 'source_1' seems OK
 
 CHECK: *** IR for 'sink_2'
 CHECK-NEXT: function u0:2(i64) system_v {
-CHECK-NEXT:     ss0 = explicit_slot 16 ; x
+CHECK-NEXT:     ss0 = explicit_slot 16, align = 8 ; x
 CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i64):
 CHECK-NEXT:     v1 = iconst.i64 8
@@ -82,8 +82,8 @@ CHECK-NEXT: *** IR for 'sink_2' seems OK
 
 CHECK: *** IR for 'source_2'
 CHECK-NEXT: function u0:3() system_v {
-CHECK-NEXT:     ss0 = explicit_slot 16 ; x
-CHECK-NEXT:     ss1 = explicit_slot 16 ; [copy-in]
+CHECK-NEXT:     ss0 = explicit_slot 16, align = 8 ; x
+CHECK-NEXT:     ss1 = explicit_slot 16, align = 8 ; [copy-in]
 CHECK-NEXT:     sig0 = (i64, i64, i64) -> i64 system_v
 CHECK-NEXT:     sig1 = (i64) system_v
 CHECK-NEXT:     fn0 = %Memcpy sig0

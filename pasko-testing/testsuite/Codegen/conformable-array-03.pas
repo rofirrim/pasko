@@ -121,7 +121,7 @@ CHECK-NEXT: *** IR for 'mymain1' seems OK
 
 CHECK: *** IR for 'mymain2'
 CHECK-NEXT: function u0:3() system_v {
-CHECK-NEXT:     ss0 = explicit_slot 2320 ; [copy-in]
+CHECK-NEXT:     ss0 = explicit_slot 2320, align = 8 ; [copy-in]
 CHECK-NEXT:     gv0 = symbol colocated userextname0 ; a
 CHECK-NEXT:     sig0 = (i64, i64, i64) -> i64 system_v
 CHECK-NEXT:     sig1 = (i64, i64, i64, i64, i64) system_v

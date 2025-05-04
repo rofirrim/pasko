@@ -6,9 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-cranelift-frontend = "0.104"
-cranelift-codegen = { version = "0.104", features = ["x86", "arm64", "riscv64", "trace-log"] }
-cranelift-object = "0.104"
-cranelift-module = "0.104"
-cranelift-entity = "0.104"
+cranelift-frontend = "0.119"
+cranelift-codegen = { version = "0.119", features = ["x86", "arm64", "riscv64", "trace-log"] }
+cranelift-object = "0.119"
+cranelift-module = "0.119"
+cranelift-entity = "0.119"
 pasko-frontend = { path = "../pasko-frontend" }

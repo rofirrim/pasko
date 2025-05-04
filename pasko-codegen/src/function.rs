@@ -289,7 +289,11 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         self.builder_obj
             .as_mut()
             .unwrap()
-            .create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, size))
+            .create_sized_stack_slot(StackSlotData::new(
+                StackSlotKind::ExplicitSlot,
+                size,
+                /* 64 */ 3,
+            ))
     }
 
     pub fn allocate_storage_for_type_in_stack(&mut self, ty: TypeId) -> StackSlot {
@@ -4337,7 +4341,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         // FIXME: This is a bit radical, think of something more user-friendly.
         self.builder()
             .ins()
-            .trap(cranelift_codegen::ir::TrapCode::UnreachableCodeReached);
+            .trap(cranelift_codegen::ir::TrapCode::unwrap_user(1));
 
         self.block_stack.pop();
         self.block_stack.push(after_case);

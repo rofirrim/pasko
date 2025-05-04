@@ -45,8 +45,8 @@ CHECK-NEXT: *** IR for 'foo' seems OK
 
 CHECK: *** IR for 'main'
 CHECK-NEXT: function u0:1(i32, i64) -> i32 system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8 ; [null-ended-array: program-parameter-names]
-CHECK-NEXT:     ss1 = explicit_slot 8 ; [null-ended-array: global-files]
+CHECK-NEXT:     ss0 = explicit_slot 8, align = 8 ; [null-ended-array: program-parameter-names]
+CHECK-NEXT:     ss1 = explicit_slot 8, align = 8 ; [null-ended-array: global-files]
 CHECK-NEXT:     gv0 = symbol colocated userextname4 ; [input-textfile]
 CHECK-NEXT:     gv1 = symbol colocated userextname5 ; [output-textfile]
 CHECK-NEXT:     gv2 = symbol colocated userextname6 ; a

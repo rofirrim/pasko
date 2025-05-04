@@ -76,9 +76,9 @@ CHECK-NEXT: *** IR for '_level0_level1_level2' seems OK
 
 CHECK: *** IR for '_level0_level1'
 CHECK-NEXT: function u0:1(i64) system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8 ; y0
-CHECK-NEXT:     ss1 = explicit_slot 8 ; y1
-CHECK-NEXT:     ss2 = explicit_slot 24 ; [nested-environment]
+CHECK-NEXT:     ss0 = explicit_slot 8, align = 8 ; y0
+CHECK-NEXT:     ss1 = explicit_slot 8, align = 8 ; y1
+CHECK-NEXT:     ss2 = explicit_slot 24, align = 8 ; [nested-environment]
 CHECK-NEXT:     sig0 = (i64) system_v
 CHECK-NEXT:     fn0 = colocated u0:0 sig0 ; _level0_level1_level2
 CHECK-EMPTY:
@@ -109,9 +109,9 @@ CHECK-NEXT: *** IR for '_level0_level1' seems OK
 
 CHECK: *** IR for 'level0'
 CHECK-NEXT: function u0:2() system_v {
-CHECK-NEXT:     ss0 = explicit_slot 8 ; x0
-CHECK-NEXT:     ss1 = explicit_slot 8 ; x1
-CHECK-NEXT:     ss2 = explicit_slot 24 ; [nested-environment]
+CHECK-NEXT:     ss0 = explicit_slot 8, align = 8 ; x0
+CHECK-NEXT:     ss1 = explicit_slot 8, align = 8 ; x1
+CHECK-NEXT:     ss2 = explicit_slot 24, align = 8 ; [nested-environment]
 CHECK-NEXT:     sig0 = (i64) system_v
 CHECK-NEXT:     fn0 = colocated u0:1 sig0 ; _level0_level1
 CHECK-EMPTY:

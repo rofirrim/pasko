@@ -27,7 +27,7 @@ end.
 
 CHECK: *** IR for 'foo_2'
 CHECK-NEXT: function u0:0() system_v {
-CHECK-NEXT:     ss0 = explicit_slot 88 ; r
+CHECK-NEXT:     ss0 = explicit_slot 88, align = 8 ; r
 CHECK-EMPTY:
 CHECK-NEXT: block0:
 CHECK-NEXT:     v0 = iconst.i8 1

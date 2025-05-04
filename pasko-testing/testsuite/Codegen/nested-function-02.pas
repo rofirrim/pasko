@@ -42,7 +42,7 @@ end.
 
 CHECK: *** IR for 'test'
 CHECK-NEXT: function u0:0(i64, i64, i64, i64) system_v {
-CHECK-NEXT:     ss0 = explicit_slot 16 ; [function] one_function
+CHECK-NEXT:     ss0 = explicit_slot 16, align = 8 ; [function] one_function
 CHECK-NEXT:     ss1 = explicit_slot 8
 CHECK-NEXT:     sig0 = (i64) -> i64 system_v
 CHECK-NEXT:     sig1 = () -> i64 system_v
