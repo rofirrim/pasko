@@ -2,7 +2,9 @@
 
 use cranelift_codegen::ir::function::FunctionParameters;
 use cranelift_codegen::settings::Configurable;
+use cranelift_codegen::timing::process_file;
 use cranelift_codegen::write::PlainWriter;
+use gimli::write::LineString;
 use pasko_frontend::ast::{self, FormalParameter};
 use pasko_frontend::semantic::SemanticContext;
 use pasko_frontend::span;
@@ -34,16 +36,176 @@ use std::io::BufWriter;
 use std::io::Write as IoWrite;
 
 use std::cell::RefCell;
+use std::path;
 use std::thread::current;
 
 use crate::datalocation::DataLocation;
 use crate::function::FunctionCodegenVisitor;
 use crate::runtime::RuntimeFunctionId;
 
+use gimli;
+
 #[derive(Debug, Clone)]
 struct SizeAndAlignment {
     size: usize,
     align: usize,
+}
+
+struct DebugContext {
+    endian: gimli::RunTimeEndian,
+
+    dwarf: gimli::write::DwarfUnit,
+    unit_range_list: gimli::write::RangeList,
+    // created_files: FxHashMap<(StableSourceFileId, SourceFileHash), FileId>,
+    stack_pointer_register: gimli::Register,
+    array_size_type: gimli::write::UnitEntryId,
+    file_id: gimli::write::FileId,
+}
+
+#[derive(Clone)]
+struct DebugReloc {
+    offset: u32,
+    size: u8,
+    name: DebugRelocName,
+    addend: i64,
+    kind: object::RelocationKind,
+}
+
+#[derive(Clone)]
+enum DebugRelocName {
+    Section(gimli::SectionId),
+    Symbol(usize),
+}
+
+/// A [`Writer`] that collects all necessary relocations.
+#[derive(Clone)]
+struct WriterRelocate {
+    relocs: Vec<DebugReloc>,
+    writer: gimli::write::EndianVec<gimli::RunTimeEndian>,
+}
+
+impl WriterRelocate {
+    fn new(endian: gimli::RunTimeEndian) -> Self {
+        WriterRelocate {
+            relocs: Vec::new(),
+            writer: gimli::write::EndianVec::new(endian),
+        }
+    }
+}
+
+impl gimli::write::Writer for WriterRelocate {
+    type Endian = gimli::RunTimeEndian;
+
+    fn endian(&self) -> Self::Endian {
+        self.writer.endian()
+    }
+
+    fn len(&self) -> usize {
+        self.writer.len()
+    }
+
+    fn write(&mut self, bytes: &[u8]) -> gimli::write::Result<()> {
+        self.writer.write(bytes)
+    }
+
+    fn write_at(&mut self, offset: usize, bytes: &[u8]) -> gimli::write::Result<()> {
+        self.writer.write_at(offset, bytes)
+    }
+
+    fn write_address(&mut self, address: gimli::write::Address, size: u8) -> gimli::write::Result<()> {
+        match address {
+            gimli::write::Address::Constant(val) => self.write_udata(val, size),
+            gimli::write::Address::Symbol { symbol, addend } => {
+                let offset = self.len() as u64;
+                self.relocs.push(DebugReloc {
+                    offset: offset as u32,
+                    size,
+                    name: DebugRelocName::Symbol(symbol),
+                    addend,
+                    kind: object::RelocationKind::Absolute,
+                });
+                self.write_udata(0, size)
+            }
+        }
+    }
+
+    fn write_offset(&mut self, val: usize, section: gimli::SectionId, size: u8) -> gimli::write::Result<()> {
+        let offset = self.len() as u32;
+        self.relocs.push(DebugReloc {
+            offset,
+            size,
+            name: DebugRelocName::Section(section),
+            addend: val as i64,
+            kind: object::RelocationKind::Absolute,
+        });
+        self.write_udata(0, size)
+    }
+
+    fn write_offset_at(
+        &mut self,
+        offset: usize,
+        val: usize,
+        section: gimli::SectionId,
+        size: u8,
+    ) -> gimli::write::Result<()> {
+        self.relocs.push(DebugReloc {
+            offset: offset as u32,
+            size,
+            name: DebugRelocName::Section(section),
+            addend: val as i64,
+            kind: object::RelocationKind::Absolute,
+        });
+        self.write_udata_at(offset, 0, size)
+    }
+
+    fn write_eh_pointer(&mut self, address: gimli::write::Address, eh_pe: gimli::DwEhPe, size: u8) -> gimli::write::Result<()> {
+        match address {
+            // Address::Constant arm copied from gimli
+            gimli::write::Address::Constant(val) => {
+                // Indirect doesn't matter here.
+                let val = match eh_pe.application() {
+                    gimli::DW_EH_PE_absptr => val,
+                    gimli::DW_EH_PE_pcrel => {
+                        // FIXME better handling of sign
+                        let offset = self.len() as u64;
+                        offset.wrapping_sub(val)
+                    }
+                    _ => {
+                        return Err(gimli::write::Error::UnsupportedPointerEncoding(eh_pe));
+                    }
+                };
+                self.write_eh_pointer_data(val, eh_pe.format(), size)
+            }
+            gimli::write::Address::Symbol { symbol, addend } => match eh_pe.application() {
+                gimli::DW_EH_PE_pcrel => {
+                    let size = match eh_pe.format() {
+                        gimli::DW_EH_PE_sdata4 => 4,
+                        gimli::DW_EH_PE_sdata8 => 8,
+                        _ => return Err(gimli::write::Error::UnsupportedPointerEncoding(eh_pe)),
+                    };
+                    self.relocs.push(DebugReloc {
+                        offset: self.len() as u32,
+                        size,
+                        name: DebugRelocName::Symbol(symbol),
+                        addend,
+                        kind: object::RelocationKind::Relative,
+                    });
+                    self.write_udata(0, size)
+                }
+                gimli::DW_EH_PE_absptr => {
+                    self.relocs.push(DebugReloc {
+                        offset: self.len() as u32,
+                        size: size.into(),
+                        name: DebugRelocName::Symbol(symbol),
+                        addend,
+                        kind: object::RelocationKind::Absolute,
+                    });
+                    self.write_udata(0, size.into())
+                }
+                _ => Err(gimli::write::Error::UnsupportedPointerEncoding(eh_pe)),
+            },
+        }
+    }
 }
 
 pub struct CodegenVisitor<'a> {
@@ -61,6 +223,8 @@ pub struct CodegenVisitor<'a> {
     pub offset_cache: RefCell<HashMap<SymbolId, usize>>,
     pub annotations: EntityAnnotations,
 
+    source_filename: &'a path::Path,
+    linemap: &'a span::LineMap,
     ir_dump: bool,
     globals_to_dispose: Vec<SymbolId>,
     size_align_cache: RefCell<HashMap<TypeId, SizeAndAlignment>>,
@@ -70,6 +234,8 @@ pub struct CodegenVisitor<'a> {
     output_data_id: Option<cranelift_module::DataId>,
 
     rt_functions_cache: HashMap<RuntimeFunctionId, cranelift_module::FuncId>,
+
+    debug_context: Option<DebugContext>,
 }
 
 #[derive(Default)]
@@ -235,6 +401,8 @@ impl<'a> CodegenVisitor<'a> {
     pub fn new(
         target: Option<String>,
         semantic_context: &'a SemanticContext,
+        source_filename: &'a path::Path,
+        linemap: &'a span::LineMap,
         ir_dump: bool,
     ) -> CodegenVisitor<'a> {
         let mut flag_builder = settings::builder();
@@ -273,6 +441,8 @@ impl<'a> CodegenVisitor<'a> {
             offset_cache: RefCell::new(HashMap::new()),
             annotations: EntityAnnotations::default(),
             // Private
+            source_filename,
+            linemap,
             ir_dump,
             globals_to_dispose: vec![],
             size_align_cache: RefCell::new(HashMap::new()),
@@ -280,16 +450,241 @@ impl<'a> CodegenVisitor<'a> {
             input_data_id: None,
             output_data_id: None,
             rt_functions_cache: HashMap::new(),
+            debug_context: None,
         }
     }
 
     pub fn emit_object(&mut self, obj_filename: &str) {
-        let object_product = self.object_module.take().unwrap().finish();
+        let mut object_product = self.object_module.take().unwrap().finish();
+
+        self.emit_debug_information(&mut object_product);
 
         let result = object_product.emit().unwrap();
 
-        let mut file = File::create(obj_filename).unwrap();
-        file.write_all(&result).unwrap();
+        {
+            let mut file = File::create(obj_filename).unwrap();
+            file.write_all(&result).unwrap();
+        }
+    }
+
+    fn init_debug_context(&mut self) -> DebugContext {
+        // Inspired by rustc_codegen_cranelift
+        let encoding = gimli::Encoding {
+            format: gimli::Format::Dwarf32,
+            version: 4,
+            address_size: self.pointer_type.bytes() as u8,
+        };
+
+        let endian = gimli::RunTimeEndian::Little;
+
+        // FIXME: Stack register
+        let stack_pointer_register = gimli::X86_64::RSP;
+
+        let mut dwarf = gimli::write::DwarfUnit::new(encoding);
+
+        let producer = "pasko".to_string();
+        // FIXME: Compute this in the driver.
+        let comp_dir = std::env::current_dir().unwrap();
+        let comp_dir = comp_dir.to_string_lossy().to_string();
+        let file_name = "hello.pas".to_string();
+
+        let file_info = None;
+        let line_program = gimli::write::LineProgram::new(
+            encoding,
+            gimli::LineEncoding::default(),
+            gimli::write::LineString::new(comp_dir.as_bytes(), encoding, &mut dwarf.line_strings),
+            gimli::write::LineString::new(file_name.as_bytes(), encoding, &mut dwarf.line_strings),
+            file_info,
+        );
+        dwarf.unit.line_program = line_program;
+
+        {
+            let file_name = dwarf.strings.add(file_name);
+            let comp_dir = dwarf.strings.add(comp_dir);
+
+            let root = dwarf.unit.root();
+            let root = dwarf.unit.get_mut(root);
+
+            root.set(
+                gimli::DW_AT_producer,
+                gimli::write::AttributeValue::StringRef(dwarf.strings.add(producer)),
+            );
+            root.set(
+                gimli::DW_AT_language,
+                gimli::write::AttributeValue::Language(gimli::DW_LANG_Pascal83),
+            );
+            root.set(
+                gimli::DW_AT_name,
+                gimli::write::AttributeValue::StringRef(file_name),
+            );
+            root.set(
+                gimli::DW_AT_comp_dir,
+                gimli::write::AttributeValue::StringRef(comp_dir),
+            );
+            root.set(
+                gimli::DW_AT_low_pc,
+                gimli::write::AttributeValue::Address(gimli::write::Address::Constant(0)),
+            );
+        }
+
+        let array_size_type = dwarf.unit.add(dwarf.unit.root(), gimli::DW_TAG_base_type);
+        let array_size_type_entry = dwarf.unit.get_mut(array_size_type);
+        array_size_type_entry.set(
+            gimli::DW_AT_name,
+            gimli::write::AttributeValue::StringRef(dwarf.strings.add("__ARRAY_SIZE_TYPE__")),
+        );
+        array_size_type_entry.set(
+            gimli::DW_AT_encoding,
+            gimli::write::AttributeValue::Encoding(gimli::DW_ATE_unsigned),
+        );
+        array_size_type_entry.set(
+            gimli::DW_AT_byte_size,
+            gimli::write::AttributeValue::Udata(self.pointer_type.bytes() as u64),
+        );
+
+        let default_dir = dwarf.unit.line_program.default_directory();
+        use std::os::unix::ffi::OsStrExt;
+        let file_id = dwarf.unit.line_program.add_file(
+            LineString::new(
+                self.source_filename.as_os_str().as_bytes(),
+                encoding,
+                &mut dwarf.line_strings,
+            ),
+            default_dir,
+            None,
+        );
+
+        DebugContext {
+            endian,
+            dwarf,
+            unit_range_list: gimli::write::RangeList(Vec::new()),
+            stack_pointer_register,
+            array_size_type,
+            file_id,
+        }
+    }
+
+    fn emit_debug_information(&self, product: &mut cranelift_object::ObjectProduct) {
+        let debug_context = self.debug_context.as_mut().unwrap();
+
+        let unit_range_list_id = debug_context
+            .dwarf
+            .unit
+            .ranges
+            .add(debug_context.unit_range_list.clone());
+        let root = debug_context.dwarf.unit.root();
+        let root = debug_context.dwarf.unit.get_mut(root);
+        root.set(
+            gimli::DW_AT_ranges,
+            gimli::write::AttributeValue::RangeListRef(unit_range_list_id),
+        );
+
+        let mut sections = gimli::write::Sections::new(WriterRelocate::new(debug_context.endian));
+        debug_context.dwarf.write(&mut sections).unwrap();
+
+        let mut section_map = HashMap::default();
+        let _: gimli::write::Result<()> = sections.for_each_mut(|id, section| {
+            if !section.writer.slice().is_empty() {
+                let section_id = product.add_debug_section(id, section.writer.take());
+                section_map.insert(id, section_id);
+            }
+            Ok(())
+        });
+
+        let _: gimli::write::Result<()> = sections.for_each(|id, section| {
+            if let Some(section_id) = section_map.get(&id) {
+                for reloc in &section.relocs {
+                    product.add_debug_reloc(&section_map, section_id, reloc);
+                }
+            }
+            Ok(())
+        });
+    }
+
+    fn address_for_func(func_id: cranelift_module::FuncId) -> gimli::write::Address {
+        let symbol = func_id.as_u32();
+        assert!(symbol & 1 << 31 == 0);
+        gimli::write::Address::Symbol {
+            symbol: symbol as usize,
+            addend: 0,
+        }
+    }
+
+    fn create_debug_lines(
+        &mut self,
+        func_id: cranelift_module::FuncId,
+        function_name: &str,
+        function_location: &span::SpanLoc,
+    ) {
+        // Inspired by rustc_codegen_cranelift
+        let create_row_for_span =
+            |debug_context: &mut DebugContext, source_loc: (gimli::write::FileId, u64, u64)| {
+                let (file_id, line, col) = source_loc;
+
+                debug_context.dwarf.unit.line_program.row().file = file_id;
+                debug_context.dwarf.unit.line_program.row().line = line;
+                debug_context.dwarf.unit.line_program.row().column = col;
+                debug_context.dwarf.unit.line_program.generate_row();
+            };
+
+        let debug_context = self.debug_context.as_mut().unwrap();
+
+        // FIXME: nested functions!!!
+        let root = debug_context.dwarf.unit.root();
+        let entry_id = debug_context.dwarf.unit.add(root, gimli::DW_TAG_subprogram);
+        let entry = debug_context.dwarf.unit.get_mut(entry_id);
+        let name_id = debug_context.dwarf.strings.add(function_name);
+        entry.set(
+            gimli::DW_AT_name,
+            gimli::write::AttributeValue::StringRef(name_id),
+        );
+
+        debug_context
+            .dwarf
+            .unit
+            .line_program
+            .begin_sequence(Some(Self::address_for_func(func_id)));
+
+        let mut func_end = 0;
+
+        let mcr = self.ctx.compiled_code().unwrap();
+        for &cranelift_codegen::MachSrcLoc { start, end, loc } in mcr.buffer.get_srclocs_sorted() {
+            debug_context.dwarf.unit.line_program.row().address_offset = u64::from(start);
+            if !loc.is_default() {
+                let line = self.linemap.offset_to_line(loc.bits() as usize) as u64;
+                let col = self.linemap.offset_to_column(loc.bits() as usize) as u64;
+
+                let source_loc = (debug_context.file_id, line, col);
+                create_row_for_span(debug_context, source_loc);
+            } else {
+                let loc = function_location.begin();
+                let line = self.linemap.offset_to_line(loc) as u64;
+                let col = self.linemap.offset_to_column(loc) as u64;
+                let function_source_loc = (debug_context.file_id, line, col);
+                create_row_for_span(debug_context, function_source_loc);
+            }
+            func_end = end;
+        }
+
+        debug_context
+            .dwarf
+            .unit
+            .line_program
+            .end_sequence(u64::from(func_end));
+
+        let func_end = mcr.buffer.total_size();
+
+        assert_ne!(func_end, 0);
+
+        let entry = debug_context.dwarf.unit.get_mut(entry_id);
+        entry.set(
+            gimli::DW_AT_low_pc,
+            gimli::write::AttributeValue::Address(Self::address_for_func(func_id)),
+        );
+        entry.set(
+            gimli::DW_AT_high_pc,
+            gimli::write::AttributeValue::Udata(u64::from(func_end)),
+        );
     }
 
     fn register_import(&mut self, name: &str, sig: Signature) -> Option<cranelift_module::FuncId> {
@@ -1485,6 +1880,12 @@ impl<'a> CodegenVisitor<'a> {
             .unwrap()
             .define_function(func_id, &mut self.ctx)
             .unwrap();
+
+        self.create_debug_lines(
+            func_id,
+            function_name,
+            function_symbol.get_defining_point().as_ref().unwrap(),
+        );
     }
 
     fn add_global_to_dispose(&mut self, sym: SymbolId) {
@@ -1633,6 +2034,8 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
+        self.debug_context = Some(self.init_debug_context());
+
         // ProgramHeading is ignored
         n.1.get().walk_mut(self, n.1.loc(), n.1.id());
 

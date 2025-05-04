@@ -1,4 +1,5 @@
 use clap::{Args, Parser, ValueEnum};
+use pasko_frontend::span;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -197,11 +198,14 @@ fn main() -> ExitCode {
 
     let ir_dump = cli.mode == Mode::IRDump;
 
+    let linemap = span::LineMap::new(&input);
+
     pasko_codegen::codegen::codegen(
         cli.target,
         &program,
         &semantic_context,
-        &object_filename,
+        &cli.file.as_path(),
+        &object_filename, &linemap,
         ir_dump,
     );
 
