@@ -2,6 +2,7 @@
 
 use cranelift_codegen::ir::function::FunctionParameters;
 use cranelift_codegen::settings::Configurable;
+use cranelift_codegen::timing::process_file;
 use cranelift_codegen::write::PlainWriter;
 use pasko_frontend::ast::{self, FormalParameter};
 use pasko_frontend::semantic::SemanticContext;
@@ -34,17 +35,22 @@ use std::io::BufWriter;
 use std::io::Write as IoWrite;
 
 use std::cell::RefCell;
+use std::path;
 use std::thread::current;
 
 use crate::datalocation::DataLocation;
+use crate::debuginfo::*;
 use crate::function::FunctionCodegenVisitor;
 use crate::runtime::RuntimeFunctionId;
 
 #[derive(Debug, Clone)]
-struct SizeAndAlignment {
-    size: usize,
-    align: usize,
+pub struct SizeAndAlignment {
+    pub size: usize,
+    pub align: usize,
 }
+
+pub type SizeAndAlignmentCache = RefCell<HashMap<TypeId, SizeAndAlignment>>;
+pub type OffsetCache = RefCell<HashMap<SymbolId, usize>>;
 
 pub struct CodegenVisitor<'a> {
     pub object_module: Option<Box<cranelift_object::ObjectModule>>,
@@ -58,18 +64,23 @@ pub struct CodegenVisitor<'a> {
     pub function_signatures: HashMap<SymbolId, Signature>,
     pub function_names: HashMap<cranelift_module::FuncId, String>,
     pub global_names: HashMap<cranelift_module::DataId, String>,
-    pub offset_cache: RefCell<HashMap<SymbolId, usize>>,
+    pub size_align_cache: SizeAndAlignmentCache,
+    pub offset_cache: OffsetCache,
     pub annotations: EntityAnnotations,
+    pub emit_debug: bool,
 
+    source_filename: &'a path::Path,
+    linemap: &'a span::LineMap,
     ir_dump: bool,
     globals_to_dispose: Vec<SymbolId>,
-    size_align_cache: RefCell<HashMap<TypeId, SizeAndAlignment>>,
     trivially_copiable_cache: RefCell<HashMap<TypeId, bool>>,
 
     input_data_id: Option<cranelift_module::DataId>,
     output_data_id: Option<cranelift_module::DataId>,
 
     rt_functions_cache: HashMap<RuntimeFunctionId, cranelift_module::FuncId>,
+
+    debug_context: Option<DebugContext>,
 }
 
 #[derive(Default)]
@@ -235,14 +246,19 @@ impl<'a> CodegenVisitor<'a> {
     pub fn new(
         target: Option<String>,
         semantic_context: &'a SemanticContext,
+        source_filename: &'a path::Path,
+        linemap: &'a span::LineMap,
+        emit_debug: bool,
         ir_dump: bool,
     ) -> CodegenVisitor<'a> {
         let mut flag_builder = settings::builder();
         let target = target.unwrap_or_else(|| get_host_target().to_string());
         let isa_builder = cranelift_codegen::isa::lookup_by_name(&target).unwrap();
         flag_builder.set("is_pic", "true").unwrap();
-        flag_builder.set("opt_level", "speed").unwrap();
-        flag_builder.enable("enable_alias_analysis").unwrap();
+        if !emit_debug {
+            flag_builder.set("opt_level", "speed").unwrap();
+            flag_builder.enable("enable_alias_analysis").unwrap();
+        }
         let isa = isa_builder
             .finish(settings::Flags::new(flag_builder))
             .unwrap();
@@ -272,7 +288,10 @@ impl<'a> CodegenVisitor<'a> {
             global_names: HashMap::new(),
             offset_cache: RefCell::new(HashMap::new()),
             annotations: EntityAnnotations::default(),
+            emit_debug,
             // Private
+            source_filename,
+            linemap,
             ir_dump,
             globals_to_dispose: vec![],
             size_align_cache: RefCell::new(HashMap::new()),
@@ -280,16 +299,86 @@ impl<'a> CodegenVisitor<'a> {
             input_data_id: None,
             output_data_id: None,
             rt_functions_cache: HashMap::new(),
+            debug_context: None,
         }
     }
 
     pub fn emit_object(&mut self, obj_filename: &str) {
-        let object_product = self.object_module.take().unwrap().finish();
+        let mut object_product = self.object_module.take().unwrap().finish();
+
+        if self.emit_debug {
+            self.emit_debug_information(&mut object_product);
+        }
 
         let result = object_product.emit().unwrap();
 
-        let mut file = File::create(obj_filename).unwrap();
-        file.write_all(&result).unwrap();
+        {
+            let mut file = File::create(obj_filename).unwrap();
+            file.write_all(&result).unwrap();
+        }
+    }
+
+    fn init_debug_context(&mut self) -> DebugContext {
+        DebugContext::init_debug_context(self.source_filename, self.pointer_type.bytes() as u8)
+    }
+
+    fn emit_debug_information(&mut self, product: &mut cranelift_object::ObjectProduct) {
+        if !self.emit_debug {
+            return;
+        }
+        let debug_context = self.debug_context.as_mut().unwrap();
+        debug_context.emit_debug_information(product);
+    }
+
+    fn create_debug_lines(
+        &mut self,
+        function_symbol_id: Option<SymbolId>,
+        func_id: cranelift_module::FuncId,
+        function_location: &span::SpanLoc,
+    ) {
+        if !self.emit_debug {
+            return;
+        }
+        let debug_context = self.debug_context.as_mut().unwrap();
+        debug_context.create_debug_lines(
+            self.semantic_context,
+            function_symbol_id,
+            func_id,
+            function_location,
+            self.ctx.compiled_code().unwrap(),
+            self.linemap,
+        );
+    }
+
+    fn create_local_locations(
+        &mut self,
+        function_symbol_id: Option<SymbolId>,
+        func_id: cranelift_module::FuncId,
+    ) {
+        if !self.emit_debug {
+            return;
+        }
+
+        let value_labels_ranges = &self
+            .ctx
+            .compiled_code()
+            .as_ref()
+            .unwrap()
+            .value_labels_ranges;
+
+        let isa = self.object_module.as_ref().unwrap().isa();
+
+        let debug_context = self.debug_context.as_mut().unwrap();
+        debug_context.create_local_locations(
+            function_symbol_id,
+            self.semantic_context,
+            isa,
+            func_id,
+            value_labels_ranges,
+            self.linemap,
+            &self.size_align_cache,
+            &self.offset_cache,
+        );
     }
 
     fn register_import(&mut self, name: &str, sig: Signature) -> Option<cranelift_module::FuncId> {
@@ -611,6 +700,7 @@ impl<'a> CodegenVisitor<'a> {
     }
 
     fn size_and_align_in_bytes(&self, ty: TypeId) -> SizeAndAlignment {
+        let ty = self.semantic_context.type_system.ultimate_type(ty);
         // Query if already cached.
         if let Some(s) = self.size_align_cache.borrow().get(&ty) {
             return s.clone();
@@ -1116,6 +1206,7 @@ impl<'a> CodegenVisitor<'a> {
         function_name: &str,
         function_symbol_id: SymbolId,
         block: &span::SpannedBox<ast::Block>,
+        function_span: &span::SpanLoc,
     ) {
         let block = block.get();
 
@@ -1289,6 +1380,12 @@ impl<'a> CodegenVisitor<'a> {
         }
 
         let mut func = Function::with_name_signature(UserFuncName::user(0, func_id.as_u32()), sig);
+        func.collect_debug_info();
+        {
+            let id = function_span.begin() as u32;
+            func.params
+                .ensure_base_srcloc(cranelift_codegen::ir::SourceLoc::new(id));
+        }
         let mut func_builder_ctx = FunctionBuilderContext::new();
         let builder = FunctionBuilder::new(&mut func, &mut func_builder_ctx);
 
@@ -1485,6 +1582,14 @@ impl<'a> CodegenVisitor<'a> {
             .unwrap()
             .define_function(func_id, &mut self.ctx)
             .unwrap();
+
+        self.create_debug_lines(
+            Some(function_symbol_id), // pasko_frontend
+            func_id,                  // cranelift_codegen
+            function_symbol.get_defining_point().as_ref().unwrap(),
+        );
+
+        self.create_local_locations(Some(function_symbol_id), func_id);
     }
 
     fn add_global_to_dispose(&mut self, sym: SymbolId) {
@@ -1633,6 +1738,10 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
+        if self.emit_debug {
+            self.debug_context = Some(self.init_debug_context());
+        }
+
         // ProgramHeading is ignored
         n.1.get().walk_mut(self, n.1.loc(), n.1.id());
 
@@ -1642,7 +1751,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
     fn visit_pre_program_block(
         &mut self,
         n: &ast::ProgramBlock,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
         let block = n.0.get(); // Block
@@ -1686,6 +1795,12 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             .declare_function("main", Linkage::Export, &sig)
             .unwrap();
         let mut func = Function::with_name_signature(UserFuncName::user(0, func_id.as_u32()), sig);
+        func.collect_debug_info();
+        {
+            let id = span.begin() as u32;
+            func.params
+                .ensure_base_srcloc(cranelift_codegen::ir::SourceLoc::new(id));
+        }
 
         // Obtain early reference to __pasko_init and __pasko_finish
         let pasko_init_id = self.get_runtime_function(RuntimeFunctionId::Init);
@@ -1865,18 +1980,20 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             .define_function(func_id, &mut self.ctx)
             .unwrap();
 
+        self.create_debug_lines(None, func_id, statements.loc());
+
         false
     }
 
     fn visit_pre_procedure_definition(
         &mut self,
         n: &ast::ProcedureDefinition,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
         let procedure_id = self.semantic_context.get_ast_symbol(n.0.id()).unwrap();
         let mangled_name = self.compute_function_mangled_name(procedure_id);
-        self.common_function_emission(&mangled_name, procedure_id, &n.2);
+        self.common_function_emission(&mangled_name, procedure_id, &n.2, span);
         false
     }
 
@@ -1895,12 +2012,12 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
     fn visit_pre_function_definition(
         &mut self,
         n: &ast::FunctionDefinition,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
         let function_id = self.semantic_context.get_ast_symbol(n.0.id()).unwrap();
         let mangled_name = self.compute_function_mangled_name(function_id);
-        self.common_function_emission(&mangled_name, function_id, &n.3);
+        self.common_function_emission(&mangled_name, function_id, &n.3, span);
         false
     }
 
@@ -1976,14 +2093,15 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                     .object_module
                     .as_mut()
                     .unwrap()
-                    .declare_anonymous_data(true, false)
+                    .declare_data(sym.get_name(), Linkage::Local, true, false)
                     .unwrap();
                 self.global_names.insert(data_id, sym.get_name().clone());
 
                 let mut data_desc = DataDescription::new();
                 let size_in_bytes = self.size_in_bytes(ty);
                 data_desc.define_zeroinit(size_in_bytes);
-                data_desc.set_align(self.align_in_bytes(ty) as u64);
+                let align = self.align_in_bytes(ty) as u64;
+                data_desc.set_align(align);
 
                 self.object_module
                     .as_mut()
@@ -1996,6 +2114,21 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
 
                 if self.type_contains_set_types(ty) {
                     self.add_global_to_dispose(sym_id);
+                }
+
+                if self.emit_debug {
+                    let debug_context = self.debug_context.as_mut().unwrap();
+                    debug_context.define_global_variable(
+                        self.semantic_context,
+                        sym.get_name(),
+                        ty,
+                        align,
+                        data_id,
+                        sym.get_defining_point().as_ref().unwrap(),
+                        self.linemap,
+                        &self.size_align_cache,
+                        &self.offset_cache,
+                    );
                 }
             } else {
                 panic!(

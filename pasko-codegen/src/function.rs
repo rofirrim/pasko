@@ -16,6 +16,7 @@ use pasko_frontend::constant::Constant;
 use pasko_frontend::semantic;
 use pasko_frontend::semantic::SemanticContext;
 use pasko_frontend::span;
+use pasko_frontend::span::SpanId;
 use pasko_frontend::symbol;
 use pasko_frontend::symbol::ParameterKind;
 use pasko_frontend::symbol::SymbolId;
@@ -341,6 +342,8 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
         let new_variable = Variable::new(self.next_variable());
         let ty = self.codegen.type_to_cranelift_type(symbol_type);
+        // Make sure we compute the size.
+        self.codegen.size_in_bytes(symbol_type);
         self.builder().declare_var(new_variable, ty);
 
         self.codegen
@@ -910,6 +913,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             }
             DataLocation::Variable(var, ..) => {
                 builder.def_var(*var, param_value);
+                builder.set_val_label(
+                    param_value,
+                    cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()),
+                );
                 let sym = self.codegen.semantic_context.get_symbol(sym_id);
                 let sym = sym.borrow();
                 self.codegen
@@ -920,6 +927,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             }
             DataLocation::VariableAddress(var) => {
                 builder.def_var(*var, param_value);
+                builder.set_val_label(
+                    param_value,
+                    cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()),
+                );
                 let sym = self.codegen.semantic_context.get_symbol(sym_id);
                 let sym = sym.borrow();
                 self.codegen
@@ -974,6 +985,8 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         match location {
             DataLocation::Variable(var, ..) => {
                 let v = self.builder().use_var(var);
+                self.builder()
+                    .set_val_label(v, cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()));
                 let symbol = self.codegen.semantic_context.get_symbol(sym_id);
                 let symbol = symbol.borrow();
                 self.codegen.annotations.new_value(v, symbol.get_name());
@@ -1681,6 +1694,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     let ty = sym.get_type().unwrap();
                     let val = self.load_value_from_address(address, ty);
                     self.builder().def_var(var, val);
+                    self.builder().set_val_label(
+                        val,
+                        cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()),
+                    );
                     self.codegen.annotations.new_value(val, sym.get_name());
                 }
                 _ => panic!("Unexpected data location"),
@@ -2230,6 +2247,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                         let sym = sym.borrow();
                         let ty = sym.get_type().unwrap();
                         let value = self.builder().use_var(var);
+                        self.builder().set_val_label(
+                            value,
+                            cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()),
+                        );
                         self.store_value_into_address(
                             stack_slot_address,
                             ty,
@@ -2280,6 +2301,8 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         match addr_or_var {
             AddressOrVariable::Variable(var, sym_id) => {
                 let v = self.builder().use_var(*var);
+                self.builder()
+                    .set_val_label(v, cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()));
                 let symbol = self.codegen.semantic_context.get_symbol(*sym_id);
                 let symbol = symbol.borrow();
                 self.codegen.annotations.new_value(v, symbol.get_name());
@@ -2299,6 +2322,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         match addr_or_var {
             AddressOrVariable::Variable(var, sym_id) => {
                 self.builder().def_var(*var, value);
+                self.builder().set_val_label(
+                    value,
+                    cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()),
+                );
                 let symbol = self.codegen.semantic_context.get_symbol(*sym_id);
                 let symbol = symbol.borrow();
                 self.codegen.annotations.new_value(value, symbol.get_name());
@@ -2319,28 +2346,43 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
         offset
     }
+
+    fn set_srcloc(&mut self, span: &span::SpanLoc) {
+        let id = span.begin() as u32;
+        self.builder()
+            .set_srcloc(cranelift_codegen::ir::SourceLoc::new(id));
+        // let (line, col) = self.codegen.linemap.offset_to_line_and_col(span.begin());
+        // println!("Setting location to {line}:{col}");
+    }
+
+    fn set_srcloc_end(&mut self, span: &span::SpanLoc) {
+        let id = span.end() as u32;
+        self.builder()
+            .set_srcloc(cranelift_codegen::ir::SourceLoc::new(id));
+        // let (line, col) = self.codegen.linemap.offset_to_line_and_col(span.end());
+        // println!("Setting end location to {line}:{col}");
+    }
 }
 
 impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_stmt_compound(
         &mut self,
         n: &ast::StmtCompound,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
         n.0.iter()
             .for_each(|c| c.get().walk_mut(self, c.loc(), c.id()));
+        self.set_srcloc_end(span);
         false
     }
 
     fn visit_pre_stmt_procedure_call(
         &mut self,
         n: &ast::StmtProcedureCall,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
-        // Only writeln is supported atm
-
         let procedure_name = n.0.get().as_str();
 
         if pasko_frontend::semantic::is_required_procedure(procedure_name) {
@@ -2348,6 +2390,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 "write" | "writeln" => {
                     let is_writeln = procedure_name == "writeln";
                     // Compute first argument if any.
+                    self.set_srcloc(span);
                     let (file_argument, is_textfile, file_type) = self.compute_first_argument(&n.1);
 
                     // is_writeln implies is_textfile
@@ -2402,6 +2445,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 }
                             };
 
+                            self.set_srcloc(span);
                             if !is_textfile {
                                 let component_ty = self
                                     .codegen
@@ -2539,6 +2583,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 "read" | "readln" => {
                     let is_readln = procedure_name == "readln";
                     // Compute first argument if any.
+                    self.set_srcloc(span);
                     let (file_argument, is_textfile, file_type) = self.compute_first_argument(&n.1);
 
                     // is_readln implies is_textfile
@@ -2568,6 +2613,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                         .get_ast_type(var.id())
                                         .unwrap();
 
+                                    self.set_srcloc(span);
                                     if !is_textfile {
                                         let component_ty = self
                                             .codegen
@@ -2736,6 +2782,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                             }
                         };
 
+                        self.set_srcloc(span);
                         let size_bytes = self.codegen.size_in_bytes(var_ty) as i64;
                         let size_bytes = self.emit_const_integer(size_bytes);
 
@@ -2763,12 +2810,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         let arg = &args[0];
                         arg.get().walk_mut(self, arg.loc(), arg.id());
 
-                        // let pointer_ty = self
-                        //     .codegen
-                        //     .semantic_context
-                        //     .get_ast_type(arg.id())
-                        //     .unwrap();
-
+                        self.set_srcloc(span);
                         let arg_value = self.get_value(arg.id());
 
                         let func_id = self
@@ -2785,6 +2827,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         assert!(args.len() == 1);
                         let arg = &args[0];
                         arg.get().walk_mut(self, arg.loc(), arg.id());
+
                         let (value, is_textfile) = {
                             let ty = self
                                 .codegen
@@ -2801,6 +2844,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                             )
                         };
 
+                        self.set_srcloc(span);
                         let func_id = if is_textfile {
                             self.codegen
                                 .get_runtime_function(RuntimeFunctionId::RewriteTextfile)
@@ -2832,6 +2876,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                             )
                         };
 
+                        self.set_srcloc(span);
                         let (func_id, args) = if is_textfile {
                             (
                                 self.codegen
@@ -2875,6 +2920,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                             )
                         };
 
+                        self.set_srcloc(span);
                         let (func_id, args) = if is_textfile {
                             (
                                 self.codegen
@@ -2918,6 +2964,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                             )
                         };
 
+                        self.set_srcloc(span);
                         let (func_id, args) = if is_textfile {
                             (
                                 self.codegen
@@ -2949,7 +2996,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 }
             }
 
-            // Reload variables that had to be copied to memory so they can be passed by references.
+            // Reload variables that had to be copied to memory so they can be passed by reference.
             self.reload_variables();
         } else {
             let args = &n.1;
@@ -2997,9 +3044,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_expr_const(
         &mut self,
         n: &ast::ExprConst,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
+        self.set_srcloc(span);
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
         self.set_value(id, self.get_value(n.0.id()));
         false
@@ -3008,14 +3056,16 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_const_integer(
         &mut self,
         n: &ast::ConstInteger,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         id: span::SpanId,
     ) {
+        self.set_srcloc(span);
         let v = self.emit_const_integer(*n.0.get());
         self.set_value(id, v);
     }
 
-    fn visit_const_real(&mut self, n: &ast::ConstReal, _span: &span::SpanLoc, id: span::SpanId) {
+    fn visit_const_real(&mut self, n: &ast::ConstReal, span: &span::SpanLoc, id: span::SpanId) {
+        self.set_srcloc(span);
         let v = self.emit_const_real(*n.0.get());
         self.set_value(id, v);
     }
@@ -3023,9 +3073,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_const_string_literal(
         &mut self,
         n: &ast::ConstStringLiteral,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         id: span::SpanId,
     ) {
+        self.set_srcloc(span);
         let literal_ty = self.codegen.semantic_context.get_ast_type(id).unwrap();
 
         if self
@@ -3059,7 +3110,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         }
     }
 
-    fn visit_const_nil(&mut self, _n: &ast::ConstNil, _span: &span::SpanLoc, id: span::SpanId) {
+    fn visit_const_nil(&mut self, _n: &ast::ConstNil, span: &span::SpanLoc, id: span::SpanId) {
+        self.set_srcloc(span);
         let pointer_type = self.codegen.pointer_type;
         let v = self.builder().ins().iconst(pointer_type, 0);
         self.set_value(id, v);
@@ -3078,13 +3130,14 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_expr_set_literal(
         &mut self,
         n: &ast::ExprSetLiteral,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
         n.0.iter().for_each(|e| {
             e.get().walk_mut(self, e.loc(), e.id());
         });
 
+        self.set_srcloc(span);
         let num_total_members = n.0.len();
         let num_range_members =
             n.0.iter()
@@ -3242,7 +3295,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         false
     }
 
-    fn visit_const_named(&mut self, _n: &ast::ConstNamed, _span: &span::SpanLoc, id: span::SpanId) {
+    fn visit_const_named(&mut self, _n: &ast::ConstNamed, span: &span::SpanLoc, id: span::SpanId) {
+        self.set_srcloc(span);
         let v = self.codegen.semantic_context.get_ast_value(id).unwrap();
         let value = self.emit_const(v);
         self.set_value(id, value);
@@ -3251,13 +3305,13 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_stmt_assignment(
         &mut self,
         n: &ast::StmtAssignment,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
         n.1.get().walk_mut(self, n.1.loc(), n.1.id());
-
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
 
+        self.set_srcloc(span);
         // Special handling for variables.
         if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(n.0.id()) {
             if let Some(DataLocation::Variable(var, ..)) =
@@ -3265,6 +3319,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             {
                 let val = self.get_value(n.1.id());
                 self.builder().def_var(var, val);
+                self.builder()
+                    .set_val_label(val, cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()));
                 let sym = self.codegen.semantic_context.get_symbol(sym_id);
                 let sym = sym.borrow();
                 self.codegen.annotations.new_value(val, sym.get_name());
@@ -3291,16 +3347,21 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_expr_variable(
         &mut self,
         n: &ast::ExprVariable,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
 
+        self.set_srcloc(span);
         // Special handling of variables.
         if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(n.0.id()) {
             let dl = self.codegen.data_location.get(&sym_id).cloned();
             if let Some(DataLocation::Variable(var, ..)) = dl {
                 let v = self.builder().use_var(var);
+                self.builder().set_val_label(
+                    v,
+                    cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()),
+                );
                 let symbol = self.codegen.semantic_context.get_symbol(sym_id);
                 let symbol = symbol.borrow();
                 self.codegen.annotations.new_value(v, symbol.get_name());
@@ -3325,11 +3386,12 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_expr_variable_reference(
         &mut self,
         n: &ast::ExprVariableReference,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
 
+        self.set_srcloc(span);
         let addr = self.get_address_for_variable_reference(n.0.id(), true);
         self.set_value(id, addr);
 
@@ -3339,9 +3401,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_assig_variable(
         &mut self,
         _n: &ast::AssigVariable,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         id: span::SpanId,
     ) {
+        self.set_srcloc(span);
         let sym_id = self.codegen.semantic_context.get_ast_symbol(id).unwrap();
         let sym = self.codegen.semantic_context.get_symbol(sym_id);
         let sym = sym.borrow();
@@ -3397,9 +3460,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_expr_bound_identifier(
         &mut self,
         _n: &ast::ExprBoundIdentifier,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         id: span::SpanId,
     ) {
+        self.set_srcloc(span);
         let sym_id = self.codegen.semantic_context.get_ast_symbol(id).unwrap();
 
         let value = self.get_value_of_bound_identifier(sym_id);
@@ -3409,7 +3473,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_assig_array_access(
         &mut self,
         n: &ast::AssigArrayAccess,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
         // Walk the left hand side.
@@ -3548,6 +3612,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         let linear_index_bytes = linear_index_bytes.unwrap();
 
+        self.set_srcloc(span);
         let addr = self.builder().ins().iadd(array_addr, linear_index_bytes);
 
         self.set_value(id, addr);
@@ -3558,10 +3623,12 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_assig_field_access(
         &mut self,
         n: &ast::AssigFieldAccess,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
+
+        self.set_srcloc(span);
         let record_addr = self.get_value(n.0.id());
 
         let record_type = self
@@ -3587,11 +3654,12 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_assig_pointer_deref(
         &mut self,
         n: &ast::AssigPointerDeref,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
 
+        self.set_srcloc(span);
         let pointee_type = self
             .codegen
             .semantic_context
@@ -3653,7 +3721,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
                 // Pointer variables hold the address in their value.
                 if sym.get_kind() == symbol::SymbolKind::Variable {
-                    // Some symbols like input and output don't have data loctation
+                    // Some symbols like input and output don't have data location
                     if let Some(DataLocation::Variable(var, ..)) =
                         self.codegen.data_location.get(&sym_id).cloned()
                     {
@@ -3682,11 +3750,12 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_expr_parentheses(
         &mut self,
         n: &ast::ExprParentheses,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
 
+        self.set_srcloc(span);
         self.set_value(id, self.get_value(n.0.id()));
 
         false
@@ -3695,11 +3764,12 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_expr_un_op(
         &mut self,
         n: &ast::ExprUnOp,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
         n.1.get().walk_mut(self, n.1.loc(), n.1.id());
 
+        self.set_srcloc(span);
         let operator = n.0.get();
         let op_value = self.get_value(n.1.id());
 
@@ -3733,12 +3803,13 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_expr_bin_op(
         &mut self,
         n: &ast::ExprBinOp,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
         n.1.get().walk_mut(self, n.1.loc(), n.1.id());
         n.2.get().walk_mut(self, n.2.loc(), n.2.id());
 
+        self.set_srcloc(span);
         let operator = n.0.get();
         let lhs_value = self.get_value(n.1.id());
         let rhs_value = self.get_value(n.2.id());
@@ -4012,11 +4083,12 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_expr_conversion(
         &mut self,
         n: &ast::ExprConversion,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
         n.0.get().walk_mut(self, n.0.loc(), n.0.id());
 
+        self.set_srcloc(span);
         let dest_ty = self.codegen.semantic_context.get_ast_type(id).unwrap();
         let src_ty = self
             .codegen
@@ -4035,9 +4107,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_stmt_if(
         &mut self,
         n: &ast::StmtIf,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
+        self.set_srcloc(span);
         let cond = &n.0;
         let then_part = &n.1;
         let else_part = &n.2;
@@ -4046,6 +4119,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         cond.get().walk_mut(self, cond.loc(), cond.id());
         self.dispose_temporaries();
 
+        self.set_srcloc(span);
         let cond_val = self.get_value(cond.id());
 
         self.emit_if_then_else(
@@ -4070,9 +4144,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_stmt_repeat_until(
         &mut self,
         n: &ast::StmtRepeatUntil,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
+        self.set_srcloc(span);
         let body = &n.0;
         let cond = &n.1;
 
@@ -4092,6 +4167,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         cond.get().walk_mut(self, cond.loc(), cond.id());
         self.dispose_temporaries();
 
+        self.set_srcloc(span);
         let cond_value = self.get_value(cond.id());
 
         self.builder()
@@ -4108,9 +4184,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_stmt_while_do(
         &mut self,
         n: &ast::StmtWhileDo,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
+        self.set_srcloc(span);
         let cond = &n.0;
         let stmt = &n.1;
 
@@ -4127,6 +4204,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         cond.get().walk_mut(self, cond.loc(), cond.id());
         self.dispose_temporaries();
 
+        self.set_srcloc(span);
         let cond_val = self.get_value(cond.id());
 
         let while_body_block = self.builder().create_block();
@@ -4141,6 +4219,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         stmt.get().walk_mut(self, stmt.loc(), stmt.id());
 
+        self.set_srcloc(span);
         self.builder().ins().jump(while_check_block, &[]);
         self.block_stack.pop();
 
@@ -4154,7 +4233,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_stmt_for(
         &mut self,
         n: &ast::StmtFor,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
         let for_kind = &n.0;
@@ -4170,6 +4249,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         end.get().walk_mut(self, end.loc(), end.id());
         self.dispose_temporaries();
 
+        self.set_srcloc(span);
         let start_val = self.get_value(start.id());
         let end_val = self.get_value(end.id());
 
@@ -4200,6 +4280,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         ind_var.get().walk_mut(self, ind_var.loc(), ind_var.id());
         let addr_or_var = self.get_address_or_variable(ind_var.id());
 
+        self.set_srcloc(span);
         let ind_var_ty = self
             .codegen
             .semantic_context
@@ -4223,6 +4304,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .get()
             .walk_mut(self, statement.loc(), statement.id());
 
+        self.set_srcloc(span);
         // Load the value of the induction variable
         let ind_var_value = self.get_value_from_address_or_variable(&addr_or_var, ind_var_ty);
 
@@ -4269,9 +4351,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_stmt_case(
         &mut self,
         n: &ast::StmtCase,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
+        self.set_srcloc(span);
         let case_expr = &n.0;
 
         case_expr
@@ -4279,6 +4362,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .walk_mut(self, case_expr.loc(), case_expr.id());
         self.dispose_temporaries();
 
+        self.set_srcloc(span);
         let case_val = self.get_value(case_expr.id());
 
         let case_elems = &n.1;
@@ -4330,6 +4414,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             case_stmt
                 .get()
                 .walk_mut(self, case_stmt.loc(), case_stmt.id());
+            self.set_srcloc(span);
             self.builder().ins().jump(after_case, &[]);
         }
 
@@ -4354,9 +4439,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_stmt_with(
         &mut self,
         n: &ast::StmtWith,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
+        self.set_srcloc(span);
         let variables = &n.0;
 
         for variable in variables {
@@ -4366,15 +4452,17 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
         let stmt = &n.1;
         stmt.get().walk_mut(self, stmt.loc(), stmt.id());
+
         false
     }
 
     fn visit_pre_variable_declaration(
         &mut self,
         n: &ast::VariableDeclaration,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
+        self.set_srcloc(span);
         for sym in n.0.iter() {
             let sym_id = self
                 .codegen
@@ -4447,9 +4535,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_stmt_label(
         &mut self,
         n: &ast::StmtLabel,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
+        self.set_srcloc(span);
         // Get the target block.
         let labeled_block = self.get_or_create_block_for_label(*n.0.get());
 
@@ -4466,7 +4555,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         false
     }
 
-    fn visit_stmt_goto(&mut self, n: &ast::StmtGoto, _span: &span::SpanLoc, _id: span::SpanId) {
+    fn visit_stmt_goto(&mut self, n: &ast::StmtGoto, span: &span::SpanLoc, _id: span::SpanId) {
+        self.set_srcloc(span);
         // Get the target block.
         let labeled_block = self.get_or_create_block_for_label(*n.0.get());
 
@@ -4483,15 +4573,15 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
     fn visit_pre_expr_function_call(
         &mut self,
         n: &ast::ExprFunctionCall,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
         let args = &n.1;
-
         args.iter().for_each(|arg| {
             arg.get().walk_mut(self, arg.loc(), arg.id());
         });
 
+        self.set_srcloc(span);
         let callee = &n.0;
         if pasko_frontend::semantic::is_required_function(callee.get()) {
             let function_name = callee.get().as_str();

@@ -9,7 +9,7 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
-pub struct TypeId(utils::Identifier);
+pub struct TypeId(pub utils::Identifier);
 
 impl From<TypeId> for utils::Identifier {
     fn from(id: TypeId) -> utils::Identifier {
@@ -123,6 +123,13 @@ impl Type {
     fn enum_type_get_num_enumerators(&self) -> i64 {
         match &self.info.kind {
             TypeKind::Enum(v) => v.len() as i64,
+            _ => panic!("Not an enum"),
+        }
+    }
+
+    fn enum_type_get_enumerators(&self) -> Vec<SymbolId> {
+        match &self.info.kind {
+            TypeKind::Enum(v) => v.clone(),
             _ => panic!("Not an enum"),
         }
     }
@@ -461,6 +468,13 @@ impl TypeSystem {
         let ty = self.get_type_internal(ty);
 
         ty.is_enum_type()
+    }
+
+    pub fn enum_type_get_enumerators(&self, ty: TypeId) -> Vec<SymbolId> {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.enum_type_get_enumerators()
     }
 
     pub fn is_subrange_type(&self, ty: TypeId) -> bool {
@@ -839,6 +853,20 @@ impl TypeSystem {
         } else {
             ty.file_type_get_component_type()
         }
+    }
+
+    pub fn is_named_type(&self, id: TypeId) -> bool {
+        let ty = self.get_type_internal(id);
+        match ty.get_kind() {
+            TypeKind::NamedType(..) => true,
+            _ => false,
+        }
+    }
+
+    pub fn named_type_get_symbol(&self, id: TypeId) -> SymbolId {
+        self.get_type_internal(id)
+            .get_symbol_of_named_type()
+            .unwrap()
     }
 
     pub fn get_type_name(&self, id: TypeId) -> String {

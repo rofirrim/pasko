@@ -1,4 +1,5 @@
 use clap::{Args, Parser, ValueEnum};
+use pasko_frontend::span;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -13,7 +14,7 @@ mod diagnostics;
 #[command(name = "pasko")]
 #[command(author = "Roger Ferrer <rofirrim@gmail.com>")]
 #[command(version = "0.1")]
-#[command(about = "pasko driver", long_about = None)]
+#[command(about = "pasko compiler driver", long_about = None)]
 struct Cli {
     #[arg(help = "Input file to compile")]
     file: PathBuf,
@@ -40,6 +41,9 @@ struct Cli {
 
     #[arg(long, help = "Target to generate code for")]
     target: Option<String>,
+
+    #[arg(short = 'g', default_value_t = false, help = "Emit debug information (disables optimization)")]
+    emit_debug: bool,
 
     #[command(flatten, next_help_heading = "Debug / Testing")]
     debug_flags: DebugFlags,
@@ -197,11 +201,16 @@ fn main() -> ExitCode {
 
     let ir_dump = cli.mode == Mode::IRDump;
 
+    let linemap = span::LineMap::new(&input);
+
     pasko_codegen::codegen::codegen(
         cli.target,
         &program,
         &semantic_context,
+        &cli.file.as_path(),
         &object_filename,
+        &linemap,
+        cli.emit_debug,
         ir_dump,
     );
 

@@ -33,10 +33,20 @@ pub fn codegen(
     target: Option<String>,
     program: &span::SpannedBox<ast::Program>,
     semantic_context: &semantic::SemanticContext,
+    source_filename: &Path,
     object_filename: &Path,
+    linemap: &span::LineMap,
+    emit_debug: bool,
     ir_dump: bool,
 ) {
-    let mut codegen_visitor = CodegenVisitor::new(target, semantic_context, ir_dump);
+    let mut codegen_visitor = CodegenVisitor::new(
+        target,
+        semantic_context,
+        source_filename,
+        linemap,
+        emit_debug,
+        ir_dump,
+    );
 
     program
         .get()
