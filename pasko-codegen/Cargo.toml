@@ -13,4 +13,4 @@ cranelift-module = "0.119"
 cranelift-entity = "0.119"
 pasko-frontend = { path = "../pasko-frontend" }
 gimli = "0.31.1"
-object = "0.32.2"
+object = "0.36"
