@@ -88,7 +88,10 @@ impl WriteDebugInfo for cranelift_object::ObjectProduct {
         }
         .into_bytes();
 
-        let segment = self.object.segment_name(object::write::StandardSegment::Debug).to_vec();
+        let segment = self
+            .object
+            .segment_name(object::write::StandardSegment::Debug)
+            .to_vec();
         // FIXME use SHT_X86_64_UNWIND for .eh_frame
         let section_id = self.object.add_section(
             segment,
@@ -101,9 +104,14 @@ impl WriteDebugInfo for cranelift_object::ObjectProduct {
                 object::SectionKind::Debug
             },
         );
-        self.object
-            .section_mut(section_id)
-            .set_data(data, if id == gimli::SectionId::EhFrame { 8 } else { 1 });
+        self.object.section_mut(section_id).set_data(
+            data,
+            if id == gimli::SectionId::EhFrame {
+                8
+            } else {
+                1
+            },
+        );
         let symbol_id = self.object.section_symbol(section_id);
         (section_id, symbol_id)
     }
@@ -123,7 +131,9 @@ impl WriteDebugInfo for cranelift_object::ObjectProduct {
                 } else {
                     self.data_symbol(DataId::from_u32(id & !(1 << 31)))
                 };
-                self.object.symbol_section_and_offset(symbol_id).unwrap_or((symbol_id, 0))
+                self.object
+                    .symbol_section_and_offset(symbol_id)
+                    .unwrap_or((symbol_id, 0))
             }
         };
         self.object
@@ -194,7 +204,11 @@ impl gimli::write::Writer for WriterRelocate {
         self.writer.write_at(offset, bytes)
     }
 
-    fn write_address(&mut self, address: gimli::write::Address, size: u8) -> gimli::write::Result<()> {
+    fn write_address(
+        &mut self,
+        address: gimli::write::Address,
+        size: u8,
+    ) -> gimli::write::Result<()> {
         match address {
             gimli::write::Address::Constant(val) => self.write_udata(val, size),
             gimli::write::Address::Symbol { symbol, addend } => {
@@ -211,7 +225,12 @@ impl gimli::write::Writer for WriterRelocate {
         }
     }
 
-    fn write_offset(&mut self, val: usize, section: gimli::SectionId, size: u8) -> gimli::write::Result<()> {
+    fn write_offset(
+        &mut self,
+        val: usize,
+        section: gimli::SectionId,
+        size: u8,
+    ) -> gimli::write::Result<()> {
         let offset = self.len() as u32;
         self.relocs.push(DebugReloc {
             offset,
@@ -240,7 +259,12 @@ impl gimli::write::Writer for WriterRelocate {
         self.write_udata_at(offset, 0, size)
     }
 
-    fn write_eh_pointer(&mut self, address: gimli::write::Address, eh_pe: gimli::DwEhPe, size: u8) -> gimli::write::Result<()> {
+    fn write_eh_pointer(
+        &mut self,
+        address: gimli::write::Address,
+        eh_pe: gimli::DwEhPe,
+        size: u8,
+    ) -> gimli::write::Result<()> {
         match address {
             // Address::Constant arm copied from gimli
             gimli::write::Address::Constant(val) => {
@@ -304,6 +328,7 @@ pub struct CodegenVisitor<'a> {
     pub global_names: HashMap<cranelift_module::DataId, String>,
     pub offset_cache: RefCell<HashMap<SymbolId, usize>>,
     pub annotations: EntityAnnotations,
+    pub emit_debug: bool,
 
     source_filename: &'a path::Path,
     linemap: &'a span::LineMap,
@@ -485,14 +510,17 @@ impl<'a> CodegenVisitor<'a> {
         semantic_context: &'a SemanticContext,
         source_filename: &'a path::Path,
         linemap: &'a span::LineMap,
+        emit_debug: bool,
         ir_dump: bool,
     ) -> CodegenVisitor<'a> {
         let mut flag_builder = settings::builder();
         let target = target.unwrap_or_else(|| get_host_target().to_string());
         let isa_builder = cranelift_codegen::isa::lookup_by_name(&target).unwrap();
         flag_builder.set("is_pic", "true").unwrap();
-        flag_builder.set("opt_level", "speed").unwrap();
-        flag_builder.enable("enable_alias_analysis").unwrap();
+        if !emit_debug {
+            flag_builder.set("opt_level", "speed").unwrap();
+            flag_builder.enable("enable_alias_analysis").unwrap();
+        }
         let isa = isa_builder
             .finish(settings::Flags::new(flag_builder))
             .unwrap();
@@ -522,6 +550,7 @@ impl<'a> CodegenVisitor<'a> {
             global_names: HashMap::new(),
             offset_cache: RefCell::new(HashMap::new()),
             annotations: EntityAnnotations::default(),
+            emit_debug,
             // Private
             source_filename,
             linemap,
@@ -539,7 +568,9 @@ impl<'a> CodegenVisitor<'a> {
     pub fn emit_object(&mut self, obj_filename: &str) {
         let mut object_product = self.object_module.take().unwrap().finish();
 
-        self.emit_debug_information(&mut object_product);
+        if self.emit_debug {
+            self.emit_debug_information(&mut object_product);
+        }
 
         let result = object_product.emit().unwrap();
 
@@ -647,6 +678,9 @@ impl<'a> CodegenVisitor<'a> {
     }
 
     fn emit_debug_information(&mut self, product: &mut cranelift_object::ObjectProduct) {
+        if !self.emit_debug {
+            return;
+        }
         let debug_context = self.debug_context.as_mut().unwrap();
 
         let unit_range_list_id = debug_context
@@ -698,6 +732,9 @@ impl<'a> CodegenVisitor<'a> {
         function_name: &str,
         function_location: &span::SpanLoc,
     ) {
+        if !self.emit_debug {
+            return;
+        }
         // Inspired by rustc_codegen_cranelift
         let create_row_for_span =
             |debug_context: &mut DebugContext, source_loc: (gimli::write::FileId, u64, u64)| {
@@ -729,22 +766,16 @@ impl<'a> CodegenVisitor<'a> {
 
         let mut func_end = 0;
 
+        let mut current_loc = function_location.begin();
         let mcr = self.ctx.compiled_code().unwrap();
         for &cranelift_codegen::MachSrcLoc { start, end, loc } in mcr.buffer.get_srclocs_sorted() {
             debug_context.dwarf.unit.line_program.row().address_offset = u64::from(start);
             if !loc.is_default() {
-                let line = self.linemap.offset_to_line(loc.bits() as usize) as u64;
-                let col = self.linemap.offset_to_column(loc.bits() as usize) as u64;
-
-                let source_loc = (debug_context.file_id, line, col);
-                create_row_for_span(debug_context, source_loc);
-            } else {
-                let loc = function_location.begin();
-                let line = self.linemap.offset_to_line(loc) as u64;
-                let col = self.linemap.offset_to_column(loc) as u64;
-                let function_source_loc = (debug_context.file_id, line, col);
-                create_row_for_span(debug_context, function_source_loc);
+                current_loc = loc.bits() as usize;
             }
+            let (line, col) = self.linemap.offset_to_line_and_col(current_loc);
+            let source_loc = (debug_context.file_id, line as u64, col as u64);
+            create_row_for_span(debug_context, source_loc);
             func_end = end;
         }
 
@@ -2116,7 +2147,9 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
-        self.debug_context = Some(self.init_debug_context());
+        if self.emit_debug {
+            self.debug_context = Some(self.init_debug_context());
+        }
 
         // ProgramHeading is ignored
         n.1.get().walk_mut(self, n.1.loc(), n.1.id());
@@ -2349,6 +2382,8 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             .unwrap()
             .define_function(func_id, &mut self.ctx)
             .unwrap();
+
+        self.create_debug_lines(func_id, "main", statements.loc());
 
         false
     }
