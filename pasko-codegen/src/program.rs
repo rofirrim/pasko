@@ -4,7 +4,6 @@ use cranelift_codegen::ir::function::FunctionParameters;
 use cranelift_codegen::settings::Configurable;
 use cranelift_codegen::timing::process_file;
 use cranelift_codegen::write::PlainWriter;
-use gimli::write::LineString;
 use pasko_frontend::ast::{self, FormalParameter};
 use pasko_frontend::semantic::SemanticContext;
 use pasko_frontend::span;

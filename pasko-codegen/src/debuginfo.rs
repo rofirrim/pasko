@@ -1,8 +1,10 @@
+use cranelift_codegen::ir::function;
 use cranelift_module::DataId;
 use gimli;
-use std::collections::HashMap;
-use std::path::Path;
 use pasko_frontend::span;
+use std::collections::HashMap;
+use std::fmt::Debug;
+use std::path::Path;
 
 pub struct DebugContext {
     endian: gimli::RunTimeEndian,
@@ -286,14 +288,15 @@ pub fn init_debug_context(source_filename: &Path, address_size: u8) -> DebugCont
     // FIXME: Compute this in the driver.
     let comp_dir = std::env::current_dir().unwrap();
     let comp_dir = comp_dir.to_string_lossy().to_string();
-    let file_name = "hello.pas".to_string();
+
+    let file_name = source_filename.as_os_str().as_bytes();
 
     let file_info = None;
     let line_program = gimli::write::LineProgram::new(
         encoding,
         gimli::LineEncoding::default(),
         gimli::write::LineString::new(comp_dir.as_bytes(), encoding, &mut dwarf.line_strings),
-        gimli::write::LineString::new(file_name.as_bytes(), encoding, &mut dwarf.line_strings),
+        gimli::write::LineString::new(file_name, encoding, &mut dwarf.line_strings),
         file_info,
     );
     dwarf.unit.line_program = line_program;
@@ -345,11 +348,7 @@ pub fn init_debug_context(source_filename: &Path, address_size: u8) -> DebugCont
     let default_dir = dwarf.unit.line_program.default_directory();
     use std::os::unix::ffi::OsStrExt;
     let file_id = dwarf.unit.line_program.add_file(
-        gimli::write::LineString::new(
-            source_filename.as_os_str().as_bytes(),
-            encoding,
-            &mut dwarf.line_strings,
-        ),
+        gimli::write::LineString::new(file_name, encoding, &mut dwarf.line_strings),
         default_dir,
         None,
     );
@@ -420,6 +419,8 @@ pub fn create_debug_lines(
     linemap: &span::LineMap,
 ) {
     // Inspired by rustc_codegen_cranelift
+    let entry_id = define_function(debug_context, function_name, function_location, linemap);
+
     let create_row_for_span =
         |debug_context: &mut DebugContext, source_loc: (gimli::write::FileId, u64, u64)| {
             let (file_id, line, col) = source_loc;
@@ -429,16 +430,6 @@ pub fn create_debug_lines(
             debug_context.dwarf.unit.line_program.row().column = col;
             debug_context.dwarf.unit.line_program.generate_row();
         };
-
-    // FIXME: nested functions!!!
-    let root = debug_context.dwarf.unit.root();
-    let entry_id = debug_context.dwarf.unit.add(root, gimli::DW_TAG_subprogram);
-    let entry = debug_context.dwarf.unit.get_mut(entry_id);
-    let name_id = debug_context.dwarf.strings.add(function_name);
-    entry.set(
-        gimli::DW_AT_name,
-        gimli::write::AttributeValue::StringRef(name_id),
-    );
 
     debug_context
         .dwarf
@@ -480,4 +471,45 @@ pub fn create_debug_lines(
         gimli::DW_AT_high_pc,
         gimli::write::AttributeValue::Udata(u64::from(func_end)),
     );
+}
+
+fn define_function(
+    debug_context: &mut DebugContext,
+    function_name: &str,
+    function_location: &span::SpanLoc,
+    linemap: &span::LineMap,
+) -> gimli::write::UnitEntryId {
+    let line = linemap.offset_to_line(function_location.begin());
+
+    // FIXME: nested functions!!!
+    let root = debug_context.dwarf.unit.root();
+    let entry_id = debug_context.dwarf.unit.add(root, gimli::DW_TAG_subprogram);
+    let entry = debug_context.dwarf.unit.get_mut(entry_id);
+    let name_id = debug_context.dwarf.strings.add(function_name);
+    entry.set(
+        gimli::DW_AT_name,
+        gimli::write::AttributeValue::StringRef(name_id),
+    );
+
+    entry.set(
+        gimli::DW_AT_decl_file,
+        gimli::write::AttributeValue::FileIndex(Some(debug_context.file_id)),
+    );
+    entry.set(
+        gimli::DW_AT_decl_line,
+        gimli::write::AttributeValue::Udata(line as u64),
+    );
+
+    let mut frame_base_expr = gimli::write::Expression::new();
+    frame_base_expr.op_reg(debug_context.stack_pointer_register);
+    entry.set(
+        gimli::DW_AT_frame_base,
+        gimli::write::AttributeValue::Exprloc(frame_base_expr),
+    );
+
+    entry_id
+}
+
+pub fn define_global_variable() {
+    //
 }
