@@ -2042,14 +2042,15 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                     .object_module
                     .as_mut()
                     .unwrap()
-                    .declare_anonymous_data(true, false)
+                    .declare_data(sym.get_name(), Linkage::Local, true, false)
                     .unwrap();
                 self.global_names.insert(data_id, sym.get_name().clone());
 
                 let mut data_desc = DataDescription::new();
                 let size_in_bytes = self.size_in_bytes(ty);
                 data_desc.define_zeroinit(size_in_bytes);
-                data_desc.set_align(self.align_in_bytes(ty) as u64);
+                let align = self.align_in_bytes(ty) as u64;
+                data_desc.set_align(align);
 
                 self.object_module
                     .as_mut()
@@ -2062,6 +2063,19 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
 
                 if self.type_contains_set_types(ty) {
                     self.add_global_to_dispose(sym_id);
+                }
+
+                if self.emit_debug {
+                    define_global_variable(
+                        self.semantic_context,
+                        self.debug_context.as_mut().unwrap(),
+                        sym.get_name(),
+                        ty,
+                        align,
+                        data_id,
+                        sym.get_defining_point().as_ref().unwrap(),
+                        self.linemap,
+                    );
                 }
             } else {
                 panic!(

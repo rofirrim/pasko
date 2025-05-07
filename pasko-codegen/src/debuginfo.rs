@@ -1,7 +1,7 @@
 use cranelift_codegen::ir::function;
 use cranelift_module::DataId;
 use gimli;
-use pasko_frontend::span;
+use pasko_frontend::{semantic, span};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::Path;
@@ -510,6 +510,188 @@ fn define_function(
     entry_id
 }
 
-pub fn define_global_variable() {
-    //
+fn address_for_data(data_id: cranelift_module::DataId) -> gimli::write::Address {
+    let symbol = data_id.as_u32();
+    assert!(symbol & 1 << 31 == 0);
+    gimli::write::Address::Symbol {
+        symbol: (symbol | 1 << 31) as usize,
+        addend: 0,
+    }
+}
+
+pub fn define_global_variable(
+    semantic_context: &pasko_frontend::semantic::SemanticContext,
+    debug_context: &mut DebugContext,
+    symbol_name: &String,
+    symbol_type: pasko_frontend::typesystem::TypeId,
+    align: u64,
+    data_id: cranelift_module::DataId,
+    defining_point: &span::SpanLoc,
+    linemap: &span::LineMap,
+) {
+    let scope = debug_context.dwarf.unit.root();
+
+    let line = linemap.offset_to_line(defining_point.begin());
+    let entry_id = debug_context.dwarf.unit.add(scope, gimli::DW_TAG_variable);
+
+    let type_id = debug_type(debug_context, semantic_context, symbol_type);
+
+    let entry = debug_context.dwarf.unit.get_mut(entry_id);
+    let name_id = debug_context.dwarf.strings.add(symbol_name.as_str());
+    entry.set(
+        gimli::DW_AT_name,
+        gimli::write::AttributeValue::StringRef(name_id),
+    );
+
+    entry.set(
+        gimli::DW_AT_decl_file,
+        gimli::write::AttributeValue::FileIndex(Some(debug_context.file_id)),
+    );
+    entry.set(
+        gimli::DW_AT_decl_line,
+        gimli::write::AttributeValue::Udata(line as u64),
+    );
+
+    entry.set(
+        gimli::DW_AT_alignment,
+        gimli::write::AttributeValue::Udata(align),
+    );
+
+    let mut expr = gimli::write::Expression::new();
+    expr.op_addr(address_for_data(data_id));
+    entry.set(
+        gimli::DW_AT_location,
+        gimli::write::AttributeValue::Exprloc(expr),
+    );
+
+    entry.set(
+        gimli::DW_AT_type,
+        gimli::write::AttributeValue::UnitRef(type_id),
+    );
+}
+
+pub fn debug_type(
+    debug_context: &mut DebugContext,
+    semantic_context: &pasko_frontend::semantic::SemanticContext,
+    ty: pasko_frontend::typesystem::TypeId,
+) -> gimli::write::UnitEntryId {
+    if semantic_context.type_system.is_integer_type(ty) {
+        return basic_type(debug_context, "integer", 8, gimli::DW_ATE_signed);
+    } else if semantic_context.type_system.is_bool_type(ty) {
+        return basic_type(debug_context, "boolean", 1, gimli::DW_ATE_boolean);
+    } else if semantic_context.type_system.is_real_type(ty) {
+        return basic_type(debug_context, "real", 8, gimli::DW_ATE_float);
+    } else if semantic_context.type_system.is_char_type(ty) {
+        return basic_type(debug_context, "char", 4, gimli::DW_ATE_UTF);
+    } else if semantic_context.type_system.is_pointer_type(ty) {
+        return basic_type(debug_context, "pointer", 8, gimli::DW_ATE_address);
+    } else if semantic_context.type_system.is_subrange_type(ty) {
+        return subrange_type(debug_context, semantic_context, ty);
+    } else if semantic_context.type_system.is_enum_type(ty) {
+        return enum_type(debug_context, semantic_context, ty);
+    } else {
+        panic!(
+            "Unsupported type during debugging {}",
+            semantic_context.type_system.get_type_name(ty)
+        );
+    }
+}
+
+fn basic_type(
+    debug_context: &mut DebugContext,
+    name: &str,
+    bytes: u64,
+    encoding: gimli::constants::DwAte,
+) -> gimli::write::UnitEntryId {
+    let type_id = debug_context
+        .dwarf
+        .unit
+        .add(debug_context.dwarf.unit.root(), gimli::DW_TAG_base_type);
+    let type_entry = debug_context.dwarf.unit.get_mut(type_id);
+    type_entry.set(
+        gimli::DW_AT_name,
+        gimli::write::AttributeValue::StringRef(debug_context.dwarf.strings.add(name)),
+    );
+    type_entry.set(
+        gimli::DW_AT_encoding,
+        gimli::write::AttributeValue::Encoding(encoding),
+    );
+    type_entry.set(
+        gimli::DW_AT_byte_size,
+        gimli::write::AttributeValue::Udata(bytes),
+    );
+    type_id
+}
+
+fn subrange_type(
+    debug_context: &mut DebugContext,
+    semantic_context: &pasko_frontend::semantic::SemanticContext,
+    ty: pasko_frontend::typesystem::TypeId,
+) -> gimli::write::UnitEntryId {
+    let base_type = basic_type(debug_context, "integer", 8, gimli::DW_ATE_signed);
+    let lower = semantic_context.type_system.ordinal_type_lower_bound(ty);
+    let upper = semantic_context.type_system.ordinal_type_upper_bound(ty);
+    let type_id = debug_context
+        .dwarf
+        .unit
+        .add(debug_context.dwarf.unit.root(), gimli::DW_TAG_subrange_type);
+    let entry = debug_context.dwarf.unit.get_mut(type_id);
+    entry.set(
+        gimli::DW_AT_type,
+        gimli::write::AttributeValue::UnitRef(base_type),
+    );
+    entry.set(
+        gimli::DW_AT_lower_bound,
+        gimli::write::AttributeValue::Sdata(lower),
+    );
+    entry.set(
+        gimli::DW_AT_upper_bound,
+        gimli::write::AttributeValue::Sdata(upper),
+    );
+    type_id
+}
+
+fn enum_type(
+    debug_context: &mut DebugContext,
+    semantic_context: &pasko_frontend::semantic::SemanticContext,
+    ty: pasko_frontend::typesystem::TypeId,
+) -> gimli::write::UnitEntryId {
+    let base_type = basic_type(debug_context, "integer", 8, gimli::DW_ATE_signed);
+    let type_id = debug_context.dwarf.unit.add(
+        debug_context.dwarf.unit.root(),
+        gimli::DW_TAG_enumeration_type,
+    );
+
+    let enumerators = semantic_context.type_system.enum_type_get_enumerators(ty);
+    enumerators
+        .iter()
+        .enumerate()
+        .for_each(|(value, enumerator)| {
+            let enum_entry = debug_context
+                .dwarf
+                .unit
+                .add(type_id, gimli::DW_TAG_enumerator);
+            let entry = debug_context.dwarf.unit.get_mut(enum_entry);
+            let enumerator_sym = semantic_context.get_symbol(*enumerator);
+            let enumerator_sym = enumerator_sym.borrow();
+            let enumerator_name = enumerator_sym.get_name();
+            entry.set(
+                gimli::DW_AT_name,
+                gimli::write::AttributeValue::StringRef(
+                    debug_context.dwarf.strings.add(enumerator_name.as_str()),
+                ),
+            );
+            entry.set(
+                gimli::DW_AT_const_value,
+                gimli::write::AttributeValue::Sdata(value as i64),
+            );
+        });
+
+    let entry = debug_context.dwarf.unit.get_mut(type_id);
+    entry.set(
+        gimli::DW_AT_type,
+        gimli::write::AttributeValue::UnitRef(base_type),
+    );
+
+    type_id
 }

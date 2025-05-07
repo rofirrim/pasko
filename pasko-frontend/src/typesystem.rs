@@ -127,6 +127,13 @@ impl Type {
         }
     }
 
+    fn enum_type_get_enumerators(&self) -> Vec<SymbolId> {
+        match &self.info.kind {
+            TypeKind::Enum(v) => v.clone(),
+            _ => panic!("Not an enum"),
+        }
+    }
+
     fn is_subrange_type(&self) -> bool {
         matches!(self.info.kind, TypeKind::SubRange(..))
     }
@@ -462,6 +469,14 @@ impl TypeSystem {
 
         ty.is_enum_type()
     }
+
+    pub fn enum_type_get_enumerators(&self, ty: TypeId) -> Vec<SymbolId> {
+        let ty = self.ultimate_type(ty);
+        let ty = self.get_type_internal(ty);
+
+        ty.enum_type_get_enumerators()
+    }
+
 
     pub fn is_subrange_type(&self, ty: TypeId) -> bool {
         let ty = self.ultimate_type(ty);
