@@ -586,9 +586,11 @@ pub fn debug_type(
     } else if semantic_context.type_system.is_pointer_type(ty) {
         return basic_type(debug_context, "pointer", 8, gimli::DW_ATE_address);
     } else if semantic_context.type_system.is_subrange_type(ty) {
-        return subrange_type(debug_context, semantic_context, ty);
+        return subrange_type(debug_context, semantic_context, ty, None);
     } else if semantic_context.type_system.is_enum_type(ty) {
-        return enum_type(debug_context, semantic_context, ty);
+        return enum_type(debug_context, semantic_context, ty, None);
+    } else if semantic_context.type_system.is_array_type(ty) {
+        return array_type(debug_context, semantic_context, ty);
     } else {
         panic!(
             "Unsupported type during debugging {}",
@@ -627,14 +629,15 @@ fn subrange_type(
     debug_context: &mut DebugContext,
     semantic_context: &pasko_frontend::semantic::SemanticContext,
     ty: pasko_frontend::typesystem::TypeId,
+    parent: Option<gimli::write::UnitEntryId>,
 ) -> gimli::write::UnitEntryId {
     let base_type = basic_type(debug_context, "integer", 8, gimli::DW_ATE_signed);
     let lower = semantic_context.type_system.ordinal_type_lower_bound(ty);
     let upper = semantic_context.type_system.ordinal_type_upper_bound(ty);
-    let type_id = debug_context
-        .dwarf
-        .unit
-        .add(debug_context.dwarf.unit.root(), gimli::DW_TAG_subrange_type);
+    let type_id = debug_context.dwarf.unit.add(
+        parent.unwrap_or_else(|| debug_context.dwarf.unit.root()),
+        gimli::DW_TAG_subrange_type,
+    );
     let entry = debug_context.dwarf.unit.get_mut(type_id);
     entry.set(
         gimli::DW_AT_type,
@@ -655,10 +658,11 @@ fn enum_type(
     debug_context: &mut DebugContext,
     semantic_context: &pasko_frontend::semantic::SemanticContext,
     ty: pasko_frontend::typesystem::TypeId,
+    parent: Option<gimli::write::UnitEntryId>,
 ) -> gimli::write::UnitEntryId {
     let base_type = basic_type(debug_context, "integer", 8, gimli::DW_ATE_signed);
     let type_id = debug_context.dwarf.unit.add(
-        debug_context.dwarf.unit.root(),
+        parent.unwrap_or_else(|| debug_context.dwarf.unit.root()),
         gimli::DW_TAG_enumeration_type,
     );
 
@@ -694,4 +698,42 @@ fn enum_type(
     );
 
     type_id
+}
+
+fn array_type(
+    debug_context: &mut DebugContext,
+    semantic_context: &pasko_frontend::semantic::SemanticContext,
+    ty: pasko_frontend::typesystem::TypeId,
+) -> gimli::write::UnitEntryId {
+    let type_id = debug_context
+        .dwarf
+        .unit
+        .add(debug_context.dwarf.unit.root(), gimli::DW_TAG_array_type);
+    let mut component_type = ty;
+    while semantic_context.type_system.is_array_type(component_type) {
+        let index_type = semantic_context.type_system.array_type_get_index_type(ty);
+        if semantic_context.type_system.is_enum_type(index_type) {
+            enum_type(debug_context, semantic_context, index_type, Some(type_id));
+        } else if semantic_context.type_system.is_subrange_type(index_type) {
+            subrange_type(debug_context, semantic_context, index_type, Some(type_id));
+        } else {
+            panic!("Unexpected type for array index");
+        }
+        component_type = semantic_context
+            .type_system
+            .array_type_get_component_type(component_type);
+    }
+    let base_type = debug_type(debug_context, semantic_context, component_type);
+
+    let entry = debug_context.dwarf.unit.get_mut(type_id);
+    entry.set(
+        gimli::DW_AT_type,
+        gimli::write::AttributeValue::UnitRef(base_type),
+    );
+    entry.set(
+        gimli::DW_AT_ordering,
+        gimli::write::AttributeValue::Ordering(gimli::DW_ORD_row_major),
+    );
+
+type_id
 }
