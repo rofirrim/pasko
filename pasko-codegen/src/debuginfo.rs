@@ -15,6 +15,8 @@ pub struct DebugContext {
     stack_pointer_register: gimli::Register,
     array_size_type: gimli::write::UnitEntryId,
     file_id: gimli::write::FileId,
+
+    type_map: HashMap<pasko_frontend::typesystem::TypeId, gimli::write::UnitEntryId>,
 }
 trait WriteDebugInfo {
     type SectionId: Copy;
@@ -360,6 +362,7 @@ pub fn init_debug_context(source_filename: &Path, address_size: u8) -> DebugCont
         stack_pointer_register,
         array_size_type,
         file_id,
+        type_map: HashMap::new(),
     }
 }
 
@@ -575,31 +578,38 @@ pub fn debug_type(
     semantic_context: &pasko_frontend::semantic::SemanticContext,
     ty: pasko_frontend::typesystem::TypeId,
 ) -> gimli::write::UnitEntryId {
-    if semantic_context.type_system.is_integer_type(ty) {
-        return basic_type(debug_context, "integer", 8, gimli::DW_ATE_signed);
-    } else if semantic_context.type_system.is_bool_type(ty) {
-        return basic_type(debug_context, "boolean", 1, gimli::DW_ATE_boolean);
-    } else if semantic_context.type_system.is_real_type(ty) {
-        return basic_type(debug_context, "real", 8, gimli::DW_ATE_float);
-    } else if semantic_context.type_system.is_char_type(ty) {
-        return basic_type(debug_context, "char", 4, gimli::DW_ATE_UTF);
-    } else if semantic_context.type_system.is_pointer_type(ty) {
-        return basic_type(debug_context, "pointer", 8, gimli::DW_ATE_address);
+    if let Some(entry_id) = debug_context.type_map.get(&ty) {
+        return *entry_id;
+    }
+
+    let type_id = if semantic_context.type_system.is_named_type(ty) {
+        typedef_type(debug_context, semantic_context, ty)
+    } else if semantic_context.type_system.is_integer_type(ty)
+        || semantic_context.type_system.is_bool_type(ty)
+        || semantic_context.type_system.is_real_type(ty)
+        || semantic_context.type_system.is_char_type(ty)
+        || semantic_context.type_system.is_pointer_type(ty)
+    {
+        basic_type(debug_context, semantic_context, ty)
     } else if semantic_context.type_system.is_subrange_type(ty) {
-        return subrange_type(debug_context, semantic_context, ty, None);
+        subrange_type(debug_context, semantic_context, ty, None)
     } else if semantic_context.type_system.is_enum_type(ty) {
-        return enum_type(debug_context, semantic_context, ty, None);
+        enum_type(debug_context, semantic_context, ty, None)
     } else if semantic_context.type_system.is_array_type(ty) {
-        return array_type(debug_context, semantic_context, ty);
+        array_type(debug_context, semantic_context, ty)
     } else {
         panic!(
             "Unsupported type during debugging {}",
             semantic_context.type_system.get_type_name(ty)
         );
-    }
+    };
+
+    debug_context.type_map.insert(ty, type_id);
+
+    type_id
 }
 
-fn basic_type(
+fn basic_type_impl(
     debug_context: &mut DebugContext,
     name: &str,
     bytes: u64,
@@ -625,13 +635,39 @@ fn basic_type(
     type_id
 }
 
+fn basic_type(
+    debug_context: &mut DebugContext,
+    semantic_context: &pasko_frontend::semantic::SemanticContext,
+    ty: pasko_frontend::typesystem::TypeId,
+) -> gimli::write::UnitEntryId {
+    let type_id = if semantic_context.type_system.is_integer_type(ty) {
+        basic_type_impl(debug_context, "integer", 8, gimli::DW_ATE_signed)
+    } else if semantic_context.type_system.is_bool_type(ty) {
+        basic_type_impl(debug_context, "boolean", 1, gimli::DW_ATE_boolean)
+    } else if semantic_context.type_system.is_real_type(ty) {
+        basic_type_impl(debug_context, "real", 8, gimli::DW_ATE_float)
+    } else if semantic_context.type_system.is_char_type(ty) {
+        basic_type_impl(debug_context, "char", 4, gimli::DW_ATE_UTF)
+    } else if semantic_context.type_system.is_pointer_type(ty) {
+        basic_type_impl(debug_context, "pointer", 8, gimli::DW_ATE_address)
+    } else {
+        panic!("Unexpected basic type");
+    };
+
+    type_id
+}
+
 fn subrange_type(
     debug_context: &mut DebugContext,
     semantic_context: &pasko_frontend::semantic::SemanticContext,
     ty: pasko_frontend::typesystem::TypeId,
     parent: Option<gimli::write::UnitEntryId>,
 ) -> gimli::write::UnitEntryId {
-    let base_type = basic_type(debug_context, "integer", 8, gimli::DW_ATE_signed);
+    let base_type = debug_type(
+        debug_context,
+        semantic_context,
+        semantic_context.type_system.get_integer_type(),
+    );
     let lower = semantic_context.type_system.ordinal_type_lower_bound(ty);
     let upper = semantic_context.type_system.ordinal_type_upper_bound(ty);
     let type_id = debug_context.dwarf.unit.add(
@@ -660,7 +696,11 @@ fn enum_type(
     ty: pasko_frontend::typesystem::TypeId,
     parent: Option<gimli::write::UnitEntryId>,
 ) -> gimli::write::UnitEntryId {
-    let base_type = basic_type(debug_context, "integer", 8, gimli::DW_ATE_signed);
+    let base_type = debug_type(
+        debug_context,
+        semantic_context,
+        semantic_context.type_system.get_integer_type(),
+    );
     let type_id = debug_context.dwarf.unit.add(
         parent.unwrap_or_else(|| debug_context.dwarf.unit.root()),
         gimli::DW_TAG_enumeration_type,
@@ -735,5 +775,33 @@ fn array_type(
         gimli::write::AttributeValue::Ordering(gimli::DW_ORD_row_major),
     );
 
-type_id
+    type_id
+}
+
+fn typedef_type(
+    debug_context: &mut DebugContext,
+    semantic_context: &pasko_frontend::semantic::SemanticContext,
+    ty: pasko_frontend::typesystem::TypeId,
+) -> gimli::write::UnitEntryId {
+    let sym_id = semantic_context.type_system.named_type_get_symbol(ty);
+    let sym = semantic_context.get_symbol(sym_id);
+    let sym = sym.borrow();
+    let sym_type = sym.get_type().unwrap();
+    let base_type = debug_type(debug_context, semantic_context, sym_type);
+
+    let type_id = debug_context
+        .dwarf
+        .unit
+        .add(debug_context.dwarf.unit.root(), gimli::DW_TAG_typedef);
+    let entry = debug_context.dwarf.unit.get_mut(type_id);
+    entry.set(
+        gimli::DW_AT_type,
+        gimli::write::AttributeValue::UnitRef(base_type),
+    );
+    entry.set(
+        gimli::DW_AT_name,
+        gimli::write::AttributeValue::StringRef(debug_context.dwarf.strings.add(sym.get_name().as_str())),
+    );
+
+    type_id
 }

@@ -477,7 +477,6 @@ impl TypeSystem {
         ty.enum_type_get_enumerators()
     }
 
-
     pub fn is_subrange_type(&self, ty: TypeId) -> bool {
         let ty = self.ultimate_type(ty);
         let ty = self.get_type_internal(ty);
@@ -854,6 +853,20 @@ impl TypeSystem {
         } else {
             ty.file_type_get_component_type()
         }
+    }
+
+    pub fn is_named_type(&self, id: TypeId) -> bool {
+        let ty = self.get_type_internal(id);
+        match ty.get_kind() {
+            TypeKind::NamedType(..) => true,
+            _ => false,
+        }
+    }
+
+    pub fn named_type_get_symbol(&self, id: TypeId) -> SymbolId {
+        self.get_type_internal(id)
+            .get_symbol_of_named_type()
+            .unwrap()
     }
 
     pub fn get_type_name(&self, id: TypeId) -> String {
