@@ -22,6 +22,18 @@ impl Default for SymbolId {
     }
 }
 
+impl SymbolId {
+    pub fn get_id(&self) -> usize {
+        // FIXME: get number is only for debugging.
+        self.0.get_number()
+    }
+
+    // Use only for debugging.
+    pub fn build_from_id(id: usize) -> SymbolId {
+        SymbolId(utils::to_id(id))
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
     #[default]

@@ -329,8 +329,8 @@ impl<'a> CodegenVisitor<'a> {
 
     fn create_debug_lines(
         &mut self,
+        function_symbol_id: Option<SymbolId>,
         func_id: cranelift_module::FuncId,
-        function_name: &str,
         function_location: &span::SpanLoc,
     ) {
         if !self.emit_debug {
@@ -338,10 +338,37 @@ impl<'a> CodegenVisitor<'a> {
         }
         create_debug_lines(
             self.debug_context.as_mut().unwrap(),
+            self.semantic_context,
+            function_symbol_id,
             func_id,
-            function_name,
             function_location,
             self.ctx.compiled_code().unwrap(),
+            self.linemap,
+        );
+    }
+
+    fn create_local_locations(&mut self, function_symbol_id: Option<SymbolId>, func_id: cranelift_module::FuncId) {
+        if !self.emit_debug {
+            return;
+        }
+
+        let value_labels_ranges = &self
+            .ctx
+            .compiled_code()
+            .as_ref()
+            .unwrap()
+            .value_labels_ranges;
+
+        let isa = 
+            self.object_module.as_ref().unwrap().isa();
+
+        create_local_locations(
+            self.debug_context.as_mut().unwrap(),
+            function_symbol_id,
+            self.semantic_context,
+            isa,
+            func_id,
+            value_labels_ranges,
             self.linemap,
         );
     }
@@ -1170,6 +1197,7 @@ impl<'a> CodegenVisitor<'a> {
         function_name: &str,
         function_symbol_id: SymbolId,
         block: &span::SpannedBox<ast::Block>,
+        function_span: &span::SpanLoc,
     ) {
         let block = block.get();
 
@@ -1343,6 +1371,12 @@ impl<'a> CodegenVisitor<'a> {
         }
 
         let mut func = Function::with_name_signature(UserFuncName::user(0, func_id.as_u32()), sig);
+        func.collect_debug_info();
+        {
+            let id = function_span.begin() as u32;
+            func.params
+                .ensure_base_srcloc(cranelift_codegen::ir::SourceLoc::new(id));
+        }
         let mut func_builder_ctx = FunctionBuilderContext::new();
         let builder = FunctionBuilder::new(&mut func, &mut func_builder_ctx);
 
@@ -1541,10 +1575,12 @@ impl<'a> CodegenVisitor<'a> {
             .unwrap();
 
         self.create_debug_lines(
-            func_id,
-            function_name,
+            Some(function_symbol_id), // pasko_frontend
+            func_id,            // cranelift_codegen
             function_symbol.get_defining_point().as_ref().unwrap(),
         );
+
+        self.create_local_locations(Some(function_symbol_id), func_id);
     }
 
     fn add_global_to_dispose(&mut self, sym: SymbolId) {
@@ -1706,7 +1742,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
     fn visit_pre_program_block(
         &mut self,
         n: &ast::ProgramBlock,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
         let block = n.0.get(); // Block
@@ -1750,6 +1786,12 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             .declare_function("main", Linkage::Export, &sig)
             .unwrap();
         let mut func = Function::with_name_signature(UserFuncName::user(0, func_id.as_u32()), sig);
+        func.collect_debug_info();
+        {
+            let id = span.begin() as u32;
+            func.params
+                .ensure_base_srcloc(cranelift_codegen::ir::SourceLoc::new(id));
+        }
 
         // Obtain early reference to __pasko_init and __pasko_finish
         let pasko_init_id = self.get_runtime_function(RuntimeFunctionId::Init);
@@ -1929,7 +1971,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             .define_function(func_id, &mut self.ctx)
             .unwrap();
 
-        self.create_debug_lines(func_id, "main", statements.loc());
+        self.create_debug_lines(None, func_id,  statements.loc());
 
         false
     }
@@ -1937,12 +1979,12 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
     fn visit_pre_procedure_definition(
         &mut self,
         n: &ast::ProcedureDefinition,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
         let procedure_id = self.semantic_context.get_ast_symbol(n.0.id()).unwrap();
         let mangled_name = self.compute_function_mangled_name(procedure_id);
-        self.common_function_emission(&mangled_name, procedure_id, &n.2);
+        self.common_function_emission(&mangled_name, procedure_id, &n.2, span);
         false
     }
 
@@ -1961,12 +2003,12 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
     fn visit_pre_function_definition(
         &mut self,
         n: &ast::FunctionDefinition,
-        _span: &span::SpanLoc,
+        span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
         let function_id = self.semantic_context.get_ast_symbol(n.0.id()).unwrap();
         let mangled_name = self.compute_function_mangled_name(function_id);
-        self.common_function_emission(&mangled_name, function_id, &n.3);
+        self.common_function_emission(&mangled_name, function_id, &n.3, span);
         false
     }
 

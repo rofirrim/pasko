@@ -911,6 +911,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             }
             DataLocation::Variable(var, ..) => {
                 builder.def_var(*var, param_value);
+                builder.set_val_label(
+                    param_value,
+                    cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()),
+                );
                 let sym = self.codegen.semantic_context.get_symbol(sym_id);
                 let sym = sym.borrow();
                 self.codegen
@@ -921,6 +925,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             }
             DataLocation::VariableAddress(var) => {
                 builder.def_var(*var, param_value);
+                builder.set_val_label(
+                    param_value,
+                    cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()),
+                );
                 let sym = self.codegen.semantic_context.get_symbol(sym_id);
                 let sym = sym.borrow();
                 self.codegen
@@ -975,6 +983,8 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         match location {
             DataLocation::Variable(var, ..) => {
                 let v = self.builder().use_var(var);
+                self.builder()
+                    .set_val_label(v, cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()));
                 let symbol = self.codegen.semantic_context.get_symbol(sym_id);
                 let symbol = symbol.borrow();
                 self.codegen.annotations.new_value(v, symbol.get_name());
@@ -1682,6 +1692,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     let ty = sym.get_type().unwrap();
                     let val = self.load_value_from_address(address, ty);
                     self.builder().def_var(var, val);
+                    self.builder().set_val_label(
+                        val,
+                        cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()),
+                    );
                     self.codegen.annotations.new_value(val, sym.get_name());
                 }
                 _ => panic!("Unexpected data location"),
@@ -2231,6 +2245,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                         let sym = sym.borrow();
                         let ty = sym.get_type().unwrap();
                         let value = self.builder().use_var(var);
+                        self.builder().set_val_label(
+                            value,
+                            cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()),
+                        );
                         self.store_value_into_address(
                             stack_slot_address,
                             ty,
@@ -2281,6 +2299,8 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         match addr_or_var {
             AddressOrVariable::Variable(var, sym_id) => {
                 let v = self.builder().use_var(*var);
+                self.builder()
+                    .set_val_label(v, cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()));
                 let symbol = self.codegen.semantic_context.get_symbol(*sym_id);
                 let symbol = symbol.borrow();
                 self.codegen.annotations.new_value(v, symbol.get_name());
@@ -2300,6 +2320,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         match addr_or_var {
             AddressOrVariable::Variable(var, sym_id) => {
                 self.builder().def_var(*var, value);
+                self.builder().set_val_label(
+                    value,
+                    cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()),
+                );
                 let symbol = self.codegen.semantic_context.get_symbol(*sym_id);
                 let symbol = symbol.borrow();
                 self.codegen.annotations.new_value(value, symbol.get_name());
@@ -3293,6 +3317,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             {
                 let val = self.get_value(n.1.id());
                 self.builder().def_var(var, val);
+                self.builder()
+                    .set_val_label(val, cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()));
                 let sym = self.codegen.semantic_context.get_symbol(sym_id);
                 let sym = sym.borrow();
                 self.codegen.annotations.new_value(val, sym.get_name());
@@ -3330,6 +3356,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             let dl = self.codegen.data_location.get(&sym_id).cloned();
             if let Some(DataLocation::Variable(var, ..)) = dl {
                 let v = self.builder().use_var(var);
+                self.builder().set_val_label(
+                    v,
+                    cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()),
+                );
                 let symbol = self.codegen.semantic_context.get_symbol(sym_id);
                 let symbol = symbol.borrow();
                 self.codegen.annotations.new_value(v, symbol.get_name());

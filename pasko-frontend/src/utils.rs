@@ -19,6 +19,11 @@ pub fn new_id() -> Identifier {
     Identifier(next_id())
 }
 
+// Use this only for debugging.
+pub fn to_id(id: usize) -> Identifier {
+    Identifier(id)
+}
+
 impl Identifier {
     // Use this only for debugging purposes.
     pub fn get_number(&self) -> usize {

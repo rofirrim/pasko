@@ -1,9 +1,10 @@
 use cranelift_codegen::ir::function;
 use cranelift_module::DataId;
-use gimli;
+use gimli::{self, LocationListEntry};
+use object::macho::{BIND_SYMBOL_FLAGS_NON_WEAK_DEFINITION, EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER};
+use pasko_frontend::symbol::SymbolId;
 use pasko_frontend::{semantic, span};
 use std::collections::HashMap;
-use std::fmt::Debug;
 use std::path::Path;
 
 pub struct DebugContext {
@@ -13,9 +14,12 @@ pub struct DebugContext {
     unit_range_list: gimli::write::RangeList,
     // created_files: FxHashMap<(StableSourceFileId, SourceFileHash), FileId>,
     stack_pointer_register: gimli::Register,
-    array_size_type: gimli::write::UnitEntryId,
+    // array_size_type: gimli::write::UnitEntryId,
     file_id: gimli::write::FileId,
 
+    main_function_entry_id: Option<(gimli::write::UnitEntryId, String)>,
+    function_entry_id:
+        HashMap<pasko_frontend::symbol::SymbolId, (gimli::write::UnitEntryId, String)>,
     type_map: HashMap<pasko_frontend::typesystem::TypeId, gimli::write::UnitEntryId>,
 }
 trait WriteDebugInfo {
@@ -332,21 +336,6 @@ pub fn init_debug_context(source_filename: &Path, address_size: u8) -> DebugCont
         );
     }
 
-    let array_size_type = dwarf.unit.add(dwarf.unit.root(), gimli::DW_TAG_base_type);
-    let array_size_type_entry = dwarf.unit.get_mut(array_size_type);
-    array_size_type_entry.set(
-        gimli::DW_AT_name,
-        gimli::write::AttributeValue::StringRef(dwarf.strings.add("__ARRAY_SIZE_TYPE__")),
-    );
-    array_size_type_entry.set(
-        gimli::DW_AT_encoding,
-        gimli::write::AttributeValue::Encoding(gimli::DW_ATE_unsigned),
-    );
-    array_size_type_entry.set(
-        gimli::DW_AT_byte_size,
-        gimli::write::AttributeValue::Udata(address_size as u64),
-    );
-
     let default_dir = dwarf.unit.line_program.default_directory();
     use std::os::unix::ffi::OsStrExt;
     let file_id = dwarf.unit.line_program.add_file(
@@ -360,8 +349,10 @@ pub fn init_debug_context(source_filename: &Path, address_size: u8) -> DebugCont
         dwarf,
         unit_range_list: gimli::write::RangeList(Vec::new()),
         stack_pointer_register,
-        array_size_type,
+        // array_size_type,
         file_id,
+        main_function_entry_id: None,
+        function_entry_id: HashMap::new(),
         type_map: HashMap::new(),
     }
 }
@@ -413,16 +404,35 @@ fn address_for_func(func_id: cranelift_module::FuncId) -> gimli::write::Address 
     }
 }
 
+fn address_for_func_offset(
+    func_id: cranelift_module::FuncId,
+    offset: i64,
+) -> gimli::write::Address {
+    let symbol = func_id.as_u32();
+    assert!(symbol & 1 << 31 == 0);
+    gimli::write::Address::Symbol {
+        symbol: symbol as usize,
+        addend: offset,
+    }
+}
+
 pub fn create_debug_lines(
     debug_context: &mut DebugContext,
+    semantic_context: &pasko_frontend::semantic::SemanticContext,
+    function_symbol_id: Option<pasko_frontend::symbol::SymbolId>,
     func_id: cranelift_module::FuncId,
-    function_name: &str,
     function_location: &span::SpanLoc,
     mcr: &cranelift_codegen::CompiledCode,
     linemap: &span::LineMap,
 ) {
     // Inspired by rustc_codegen_cranelift
-    let entry_id = define_function(debug_context, function_name, function_location, linemap);
+    let entry_id = define_function(
+        debug_context,
+        semantic_context,
+        function_symbol_id,
+        function_location,
+        linemap,
+    );
 
     let create_row_for_span =
         |debug_context: &mut DebugContext, source_loc: (gimli::write::FileId, u64, u64)| {
@@ -476,17 +486,86 @@ pub fn create_debug_lines(
     );
 }
 
+fn get_main_function_entry_id(
+    debug_context: &mut DebugContext,
+) -> (gimli::write::UnitEntryId, String) {
+    if let Some(entry) = debug_context.main_function_entry_id.clone() {
+        return entry;
+    }
+
+    let parent_unit_id = debug_context.dwarf.unit.root();
+
+    let ret = (
+        debug_context
+            .dwarf
+            .unit
+            .add(parent_unit_id, gimli::DW_TAG_subprogram),
+        "main".to_string(),
+    );
+    debug_context.main_function_entry_id = Some(ret.clone());
+
+    ret
+}
+
+fn get_function_entry_id(
+    debug_context: &mut DebugContext,
+    semantic_context: &pasko_frontend::semantic::SemanticContext,
+    function_symbol_id: pasko_frontend::symbol::SymbolId,
+) -> (gimli::write::UnitEntryId, String) {
+    if let Some(entry) = debug_context.function_entry_id.get(&function_symbol_id) {
+        return entry.clone();
+    }
+
+    let mut parent_unit_id = debug_context.dwarf.unit.root();
+
+    let mut function_name;
+
+    let function_symbol = semantic_context.get_symbol(function_symbol_id);
+    let function_symbol = function_symbol.borrow();
+    let function_symbol_scope = function_symbol.get_scope().unwrap();
+
+    function_name = function_symbol.get_name().clone();
+    if let Some(enclosing_function) = semantic_context
+        .scope
+        .get_innermost_scope_symbol(function_symbol_scope)
+    {
+        let parent_function_name: String;
+        (parent_unit_id, parent_function_name) =
+            get_function_entry_id(debug_context, semantic_context, enclosing_function);
+
+        function_name = format!("{}:{}", parent_function_name, function_name);
+    }
+
+    let ret = (
+        debug_context
+            .dwarf
+            .unit
+            .add(parent_unit_id, gimli::DW_TAG_subprogram),
+        function_name,
+    );
+
+    debug_context
+        .function_entry_id
+        .insert(function_symbol_id, ret.clone());
+
+    ret
+}
+
 fn define_function(
     debug_context: &mut DebugContext,
-    function_name: &str,
+    semantic_context: &pasko_frontend::semantic::SemanticContext,
+    function_symbol_id: Option<pasko_frontend::symbol::SymbolId>,
     function_location: &span::SpanLoc,
     linemap: &span::LineMap,
 ) -> gimli::write::UnitEntryId {
-    let line = linemap.offset_to_line(function_location.begin());
+    let (line, col) = linemap.offset_to_line_and_col(function_location.begin());
 
-    // FIXME: nested functions!!!
-    let root = debug_context.dwarf.unit.root();
-    let entry_id = debug_context.dwarf.unit.add(root, gimli::DW_TAG_subprogram);
+    let (entry_id, function_name) = if let Some(function_symbol_id) = function_symbol_id {
+        get_function_entry_id(debug_context, semantic_context, function_symbol_id)
+    } else {
+        get_main_function_entry_id(debug_context)
+    };
+
     let entry = debug_context.dwarf.unit.get_mut(entry_id);
     let name_id = debug_context.dwarf.strings.add(function_name);
     entry.set(
@@ -501,6 +580,10 @@ fn define_function(
     entry.set(
         gimli::DW_AT_decl_line,
         gimli::write::AttributeValue::Udata(line as u64),
+    );
+    entry.set(
+        gimli::DW_AT_decl_column,
+        gimli::write::AttributeValue::Udata(col as u64),
     );
 
     let mut frame_base_expr = gimli::write::Expression::new();
@@ -534,7 +617,7 @@ pub fn define_global_variable(
 ) {
     let scope = debug_context.dwarf.unit.root();
 
-    let line = linemap.offset_to_line(defining_point.begin());
+    let (line, col) = linemap.offset_to_line_and_col(defining_point.begin());
     let entry_id = debug_context.dwarf.unit.add(scope, gimli::DW_TAG_variable);
 
     let type_id = debug_type(debug_context, semantic_context, symbol_type);
@@ -553,6 +636,10 @@ pub fn define_global_variable(
     entry.set(
         gimli::DW_AT_decl_line,
         gimli::write::AttributeValue::Udata(line as u64),
+    );
+    entry.set(
+        gimli::DW_AT_decl_column,
+        gimli::write::AttributeValue::Udata(col as u64),
     );
 
     entry.set(
@@ -800,8 +887,117 @@ fn typedef_type(
     );
     entry.set(
         gimli::DW_AT_name,
-        gimli::write::AttributeValue::StringRef(debug_context.dwarf.strings.add(sym.get_name().as_str())),
+        gimli::write::AttributeValue::StringRef(
+            debug_context.dwarf.strings.add(sym.get_name().as_str()),
+        ),
     );
 
     type_id
+}
+
+pub fn create_local_locations(
+    debug_context: &mut DebugContext,
+    function_symbol_id: Option<pasko_frontend::symbol::SymbolId>,
+    semantic_context: &pasko_frontend::semantic::SemanticContext,
+    target_isa: &dyn cranelift_codegen::isa::TargetIsa,
+    func_id: cranelift_module::FuncId,
+    value_label_ranges: &HashMap<
+        cranelift_codegen::ir::ValueLabel,
+        Vec<cranelift_codegen::ValueLocRange>,
+    >,
+    linemap: &span::LineMap,
+) {
+    let (function_entry_id, _) = if let Some(function_symbol_id) = function_symbol_id {
+        get_function_entry_id(debug_context, semantic_context, function_symbol_id)
+    } else {
+        get_main_function_entry_id(debug_context)
+    };
+    let mut value_label_ranges : Vec<_> = value_label_ranges.iter().collect();
+    value_label_ranges.sort_by(|label_a, label_b| {
+        let sym_id_a = SymbolId::build_from_id(label_a.0.as_u32() as usize);
+        let sym_a = semantic_context.get_symbol(sym_id_a);
+        let sym_a = sym_a.borrow();
+        let loc_a = sym_a.get_defining_point().unwrap();
+
+        let sym_id_b = SymbolId::build_from_id(label_b.0.as_u32() as usize);
+        let sym_b = semantic_context.get_symbol(sym_id_b);
+        let sym_b = sym_b.borrow();
+        let loc_b = sym_b.get_defining_point().unwrap();
+
+        loc_a.begin().cmp(&loc_b.begin())
+    });
+
+    for (label, ranges) in value_label_ranges {
+        let sym_id = SymbolId::build_from_id(label.as_u32() as usize);
+        let sym = semantic_context.get_symbol(sym_id);
+        let sym = sym.borrow();
+
+        let (line, col) = linemap.offset_to_line_and_col(sym.get_defining_point().unwrap().begin());
+
+        // Parameters?????
+        let local_entry_id = if sym.get_parameter().is_some() {
+            // This is a parameter.
+            debug_context
+                .dwarf
+                .unit
+                .add(function_entry_id, gimli::DW_TAG_formal_parameter)
+        } else {
+            debug_context
+                .dwarf
+                .unit
+                .add(function_entry_id, gimli::DW_TAG_variable)
+        };
+        let type_id = debug_type(debug_context, semantic_context, sym.get_type().unwrap());
+
+        let locations = ranges
+            .iter()
+            .map(|range| {
+                let data = match range.loc {
+                    cranelift_codegen::LabelValueLoc::Reg(reg) => {
+                        let dwarf_reg = target_isa.map_regalloc_reg_to_dwarf(reg).unwrap();
+                        let mut expr = gimli::write::Expression::new();
+                        gimli::write::Expression::op_reg(&mut expr, gimli::Register(dwarf_reg));
+                        expr
+                    }
+                    _ => unimplemented!(),
+                };
+                gimli::write::Location::StartEnd {
+                    begin: address_for_func_offset(func_id, range.start as i64),
+                    end: address_for_func_offset(func_id, range.end as i64),
+                    data,
+                }
+            })
+            .collect::<Vec<_>>();
+        let location_list = gimli::write::LocationList(locations);
+        let location_list_id = debug_context.dwarf.unit.locations.add(location_list);
+
+        let entry = debug_context.dwarf.unit.get_mut(local_entry_id);
+        entry.set(
+            gimli::DW_AT_name,
+            gimli::write::AttributeValue::StringRef(
+                debug_context.dwarf.strings.add(sym.get_name().as_str()),
+            ),
+        );
+        entry.set(
+            gimli::DW_AT_decl_file,
+            gimli::write::AttributeValue::FileIndex(Some(debug_context.file_id)),
+        );
+        entry.set(
+            gimli::DW_AT_decl_line,
+            gimli::write::AttributeValue::Udata(line as u64),
+        );
+        entry.set(
+            gimli::DW_AT_decl_column,
+            gimli::write::AttributeValue::Udata(col as u64),
+        );
+        entry.set(
+            gimli::DW_AT_type,
+            gimli::write::AttributeValue::UnitRef(type_id),
+        );
+
+        entry.set(
+            gimli::DW_AT_location,
+            gimli::write::AttributeValue::LocationListRef(location_list_id),
+        );
+    }
 }
