@@ -1,9 +1,7 @@
-use cranelift_codegen::ir::function;
 use cranelift_module::DataId;
-use gimli::{self, LocationListEntry};
-use object::macho::{BIND_SYMBOL_FLAGS_NON_WEAK_DEFINITION, EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER};
+use gimli;
 use pasko_frontend::symbol::SymbolId;
-use pasko_frontend::{semantic, span};
+use pasko_frontend::span;
 use std::collections::HashMap;
 use std::path::Path;
 
