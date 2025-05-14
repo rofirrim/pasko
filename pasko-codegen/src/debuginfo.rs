@@ -1,9 +1,13 @@
+use crate::program::OffsetCache;
+use crate::program::SizeAndAlignmentCache;
 use cranelift_module::DataId;
 use gimli;
-use pasko_frontend::symbol::SymbolId;
 use pasko_frontend::span;
+use pasko_frontend::symbol::SymbolId;
 use std::collections::HashMap;
 use std::path::Path;
+
+// Inspired by rustc_codegen_cranelift
 
 pub struct DebugContext {
     endian: gimli::RunTimeEndian,
@@ -274,7 +278,6 @@ impl gimli::write::Writer for WriterRelocate {
 }
 
 pub fn init_debug_context(source_filename: &Path, address_size: u8) -> DebugContext {
-    // Inspired by rustc_codegen_cranelift
     let encoding = gimli::Encoding {
         format: gimli::Format::Dwarf32,
         version: 4,
@@ -423,7 +426,6 @@ pub fn create_debug_lines(
     mcr: &cranelift_codegen::CompiledCode,
     linemap: &span::LineMap,
 ) {
-    // Inspired by rustc_codegen_cranelift
     let entry_id = define_function(
         debug_context,
         semantic_context,
@@ -612,13 +614,21 @@ pub fn define_global_variable(
     data_id: cranelift_module::DataId,
     defining_point: &span::SpanLoc,
     linemap: &span::LineMap,
+    size_and_alignment_cache: &SizeAndAlignmentCache,
+    offset_cache: &OffsetCache,
 ) {
     let scope = debug_context.dwarf.unit.root();
 
     let (line, col) = linemap.offset_to_line_and_col(defining_point.begin());
     let entry_id = debug_context.dwarf.unit.add(scope, gimli::DW_TAG_variable);
 
-    let type_id = debug_type(debug_context, semantic_context, symbol_type);
+    let type_id = debug_type(
+        debug_context,
+        semantic_context,
+        symbol_type,
+        size_and_alignment_cache,
+        offset_cache,
+    );
 
     let entry = debug_context.dwarf.unit.get_mut(entry_id);
     let name_id = debug_context.dwarf.strings.add(symbol_name.as_str());
@@ -658,17 +668,25 @@ pub fn define_global_variable(
     );
 }
 
-pub fn debug_type(
+fn debug_type(
     debug_context: &mut DebugContext,
     semantic_context: &pasko_frontend::semantic::SemanticContext,
     ty: pasko_frontend::typesystem::TypeId,
+    size_and_alignment_cache: &SizeAndAlignmentCache,
+    offset_cache: &OffsetCache,
 ) -> gimli::write::UnitEntryId {
     if let Some(entry_id) = debug_context.type_map.get(&ty) {
         return *entry_id;
     }
 
     let type_id = if semantic_context.type_system.is_named_type(ty) {
-        typedef_type(debug_context, semantic_context, ty)
+        typedef_type(
+            debug_context,
+            semantic_context,
+            ty,
+            size_and_alignment_cache,
+            offset_cache,
+        )
     } else if semantic_context.type_system.is_integer_type(ty)
         || semantic_context.type_system.is_bool_type(ty)
         || semantic_context.type_system.is_real_type(ty)
@@ -677,11 +695,39 @@ pub fn debug_type(
     {
         basic_type(debug_context, semantic_context, ty)
     } else if semantic_context.type_system.is_subrange_type(ty) {
-        subrange_type(debug_context, semantic_context, ty, None)
+        subrange_type(
+            debug_context,
+            semantic_context,
+            ty,
+            None,
+            size_and_alignment_cache,
+            offset_cache,
+        )
     } else if semantic_context.type_system.is_enum_type(ty) {
-        enum_type(debug_context, semantic_context, ty, None)
+        enum_type(
+            debug_context,
+            semantic_context,
+            ty,
+            None,
+            size_and_alignment_cache,
+            offset_cache,
+        )
     } else if semantic_context.type_system.is_array_type(ty) {
-        array_type(debug_context, semantic_context, ty)
+        array_type(
+            debug_context,
+            semantic_context,
+            ty,
+            size_and_alignment_cache,
+            offset_cache,
+        )
+    } else if semantic_context.type_system.is_record_type(ty) {
+        record_type(
+            debug_context,
+            semantic_context,
+            ty,
+            size_and_alignment_cache,
+            offset_cache,
+        )
     } else {
         panic!(
             "Unsupported type during debugging {}",
@@ -747,11 +793,15 @@ fn subrange_type(
     semantic_context: &pasko_frontend::semantic::SemanticContext,
     ty: pasko_frontend::typesystem::TypeId,
     parent: Option<gimli::write::UnitEntryId>,
+    size_and_alignment_cache: &SizeAndAlignmentCache,
+    offset_cache: &OffsetCache,
 ) -> gimli::write::UnitEntryId {
     let base_type = debug_type(
         debug_context,
         semantic_context,
         semantic_context.type_system.get_integer_type(),
+        size_and_alignment_cache,
+        offset_cache,
     );
     let lower = semantic_context.type_system.ordinal_type_lower_bound(ty);
     let upper = semantic_context.type_system.ordinal_type_upper_bound(ty);
@@ -780,11 +830,15 @@ fn enum_type(
     semantic_context: &pasko_frontend::semantic::SemanticContext,
     ty: pasko_frontend::typesystem::TypeId,
     parent: Option<gimli::write::UnitEntryId>,
+    size_and_alignment_cache: &SizeAndAlignmentCache,
+    offset_cache: &OffsetCache,
 ) -> gimli::write::UnitEntryId {
     let base_type = debug_type(
         debug_context,
         semantic_context,
         semantic_context.type_system.get_integer_type(),
+        size_and_alignment_cache,
+        offset_cache,
     );
     let type_id = debug_context.dwarf.unit.add(
         parent.unwrap_or_else(|| debug_context.dwarf.unit.root()),
@@ -829,6 +883,8 @@ fn array_type(
     debug_context: &mut DebugContext,
     semantic_context: &pasko_frontend::semantic::SemanticContext,
     ty: pasko_frontend::typesystem::TypeId,
+    size_and_alignment_cache: &SizeAndAlignmentCache,
+    offset_cache: &OffsetCache,
 ) -> gimli::write::UnitEntryId {
     let type_id = debug_context
         .dwarf
@@ -838,9 +894,23 @@ fn array_type(
     while semantic_context.type_system.is_array_type(component_type) {
         let index_type = semantic_context.type_system.array_type_get_index_type(ty);
         if semantic_context.type_system.is_enum_type(index_type) {
-            enum_type(debug_context, semantic_context, index_type, Some(type_id));
+            enum_type(
+                debug_context,
+                semantic_context,
+                index_type,
+                Some(type_id),
+                size_and_alignment_cache,
+                offset_cache,
+            );
         } else if semantic_context.type_system.is_subrange_type(index_type) {
-            subrange_type(debug_context, semantic_context, index_type, Some(type_id));
+            subrange_type(
+                debug_context,
+                semantic_context,
+                index_type,
+                Some(type_id),
+                size_and_alignment_cache,
+                offset_cache,
+            );
         } else {
             panic!("Unexpected type for array index");
         }
@@ -848,7 +918,13 @@ fn array_type(
             .type_system
             .array_type_get_component_type(component_type);
     }
-    let base_type = debug_type(debug_context, semantic_context, component_type);
+    let base_type = debug_type(
+        debug_context,
+        semantic_context,
+        component_type,
+        size_and_alignment_cache,
+        offset_cache,
+    );
 
     let entry = debug_context.dwarf.unit.get_mut(type_id);
     entry.set(
@@ -863,16 +939,94 @@ fn array_type(
     type_id
 }
 
+fn record_type(
+    debug_context: &mut DebugContext,
+    semantic_context: &pasko_frontend::semantic::SemanticContext,
+    ty: pasko_frontend::typesystem::TypeId,
+    size_and_alignment_cache: &SizeAndAlignmentCache,
+    offset_cache: &OffsetCache,
+) -> gimli::write::UnitEntryId {
+    let type_id = debug_context.dwarf.unit.add(
+        debug_context.dwarf.unit.root(),
+        gimli::DW_TAG_structure_type,
+    );
+
+    let fields = semantic_context
+        .type_system
+        .record_type_get_fixed_fields(ty);
+    if semantic_context
+        .type_system
+        .record_type_get_variant_part(ty)
+        .is_some()
+    {
+        unimplemented!("Variant records");
+    }
+    fields.iter().for_each(|field_sym_id| {
+        let field_sym = semantic_context.get_symbol(*field_sym_id);
+        let field_sym = field_sym.borrow();
+        let field_entry_id = debug_context.dwarf.unit.add(type_id, gimli::DW_TAG_member);
+
+        let field_type_id = debug_type(
+            debug_context,
+            semantic_context,
+            field_sym.get_type().unwrap(),
+            size_and_alignment_cache,
+            offset_cache,
+        );
+
+        let field_entry = debug_context.dwarf.unit.get_mut(field_entry_id);
+        field_entry.set(
+            gimli::DW_AT_name,
+            gimli::write::AttributeValue::StringRef(
+                debug_context
+                    .dwarf
+                    .strings
+                    .add(field_sym.get_name().as_str()),
+            ),
+        );
+
+        field_entry.set(
+            gimli::DW_AT_type,
+            gimli::write::AttributeValue::UnitRef(field_type_id),
+        );
+
+        if let Some(offset) = offset_cache.borrow().get(&*field_sym_id) {
+            field_entry.set(
+                gimli::DW_AT_data_member_location,
+                gimli::write::AttributeValue::Udata(*offset as u64),
+            )
+        }
+    });
+
+    let entry = debug_context.dwarf.unit.get_mut(type_id);
+    if let Some(info) = size_and_alignment_cache.borrow().get(&ty) {
+        entry.set(
+            gimli::DW_AT_byte_size,
+            gimli::write::AttributeValue::Udata(info.size as u64),
+        );
+    }
+
+    type_id
+}
+
 fn typedef_type(
     debug_context: &mut DebugContext,
     semantic_context: &pasko_frontend::semantic::SemanticContext,
     ty: pasko_frontend::typesystem::TypeId,
+    size_and_alignment_cache: &SizeAndAlignmentCache,
+    offset_cache: &OffsetCache,
 ) -> gimli::write::UnitEntryId {
     let sym_id = semantic_context.type_system.named_type_get_symbol(ty);
     let sym = semantic_context.get_symbol(sym_id);
     let sym = sym.borrow();
     let sym_type = sym.get_type().unwrap();
-    let base_type = debug_type(debug_context, semantic_context, sym_type);
+    let base_type = debug_type(
+        debug_context,
+        semantic_context,
+        sym_type,
+        size_and_alignment_cache,
+        offset_cache,
+    );
 
     let type_id = debug_context
         .dwarf
@@ -904,13 +1058,15 @@ pub fn create_local_locations(
         Vec<cranelift_codegen::ValueLocRange>,
     >,
     linemap: &span::LineMap,
+    size_and_alignment_cache: &SizeAndAlignmentCache,
+    offset_cache: &OffsetCache,
 ) {
     let (function_entry_id, _) = if let Some(function_symbol_id) = function_symbol_id {
         get_function_entry_id(debug_context, semantic_context, function_symbol_id)
     } else {
         get_main_function_entry_id(debug_context)
     };
-    let mut value_label_ranges : Vec<_> = value_label_ranges.iter().collect();
+    let mut value_label_ranges: Vec<_> = value_label_ranges.iter().collect();
     value_label_ranges.sort_by(|label_a, label_b| {
         let sym_id_a = SymbolId::build_from_id(label_a.0.as_u32() as usize);
         let sym_a = semantic_context.get_symbol(sym_id_a);
@@ -945,7 +1101,13 @@ pub fn create_local_locations(
                 .unit
                 .add(function_entry_id, gimli::DW_TAG_variable)
         };
-        let type_id = debug_type(debug_context, semantic_context, sym.get_type().unwrap());
+        let type_id = debug_type(
+            debug_context,
+            semantic_context,
+            sym.get_type().unwrap(),
+            size_and_alignment_cache,
+            offset_cache,
+        );
 
         let locations = ranges
             .iter()

@@ -44,10 +44,13 @@ use crate::function::FunctionCodegenVisitor;
 use crate::runtime::RuntimeFunctionId;
 
 #[derive(Debug, Clone)]
-struct SizeAndAlignment {
-    size: usize,
-    align: usize,
+pub struct SizeAndAlignment {
+    pub size: usize,
+    pub align: usize,
 }
+
+pub type SizeAndAlignmentCache = RefCell<HashMap<TypeId, SizeAndAlignment>>;
+pub type OffsetCache = RefCell<HashMap<SymbolId, usize>>;
 
 pub struct CodegenVisitor<'a> {
     pub object_module: Option<Box<cranelift_object::ObjectModule>>,
@@ -61,7 +64,8 @@ pub struct CodegenVisitor<'a> {
     pub function_signatures: HashMap<SymbolId, Signature>,
     pub function_names: HashMap<cranelift_module::FuncId, String>,
     pub global_names: HashMap<cranelift_module::DataId, String>,
-    pub offset_cache: RefCell<HashMap<SymbolId, usize>>,
+    pub size_align_cache: SizeAndAlignmentCache,
+    pub offset_cache: OffsetCache,
     pub annotations: EntityAnnotations,
     pub emit_debug: bool,
 
@@ -69,7 +73,6 @@ pub struct CodegenVisitor<'a> {
     linemap: &'a span::LineMap,
     ir_dump: bool,
     globals_to_dispose: Vec<SymbolId>,
-    size_align_cache: RefCell<HashMap<TypeId, SizeAndAlignment>>,
     trivially_copiable_cache: RefCell<HashMap<TypeId, bool>>,
 
     input_data_id: Option<cranelift_module::DataId>,
@@ -347,7 +350,11 @@ impl<'a> CodegenVisitor<'a> {
         );
     }
 
-    fn create_local_locations(&mut self, function_symbol_id: Option<SymbolId>, func_id: cranelift_module::FuncId) {
+    fn create_local_locations(
+        &mut self,
+        function_symbol_id: Option<SymbolId>,
+        func_id: cranelift_module::FuncId,
+    ) {
         if !self.emit_debug {
             return;
         }
@@ -359,8 +366,7 @@ impl<'a> CodegenVisitor<'a> {
             .unwrap()
             .value_labels_ranges;
 
-        let isa = 
-            self.object_module.as_ref().unwrap().isa();
+        let isa = self.object_module.as_ref().unwrap().isa();
 
         create_local_locations(
             self.debug_context.as_mut().unwrap(),
@@ -370,6 +376,8 @@ impl<'a> CodegenVisitor<'a> {
             func_id,
             value_labels_ranges,
             self.linemap,
+            &self.size_align_cache,
+            &self.offset_cache,
         );
     }
 
@@ -692,6 +700,7 @@ impl<'a> CodegenVisitor<'a> {
     }
 
     fn size_and_align_in_bytes(&self, ty: TypeId) -> SizeAndAlignment {
+        let ty = self.semantic_context.type_system.ultimate_type(ty);
         // Query if already cached.
         if let Some(s) = self.size_align_cache.borrow().get(&ty) {
             return s.clone();
@@ -1576,7 +1585,7 @@ impl<'a> CodegenVisitor<'a> {
 
         self.create_debug_lines(
             Some(function_symbol_id), // pasko_frontend
-            func_id,            // cranelift_codegen
+            func_id,                  // cranelift_codegen
             function_symbol.get_defining_point().as_ref().unwrap(),
         );
 
@@ -1971,7 +1980,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             .define_function(func_id, &mut self.ctx)
             .unwrap();
 
-        self.create_debug_lines(None, func_id,  statements.loc());
+        self.create_debug_lines(None, func_id, statements.loc());
 
         false
     }
@@ -2117,6 +2126,8 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                         data_id,
                         sym.get_defining_point().as_ref().unwrap(),
                         self.linemap,
+                        &self.size_align_cache,
+                        &self.offset_cache,
                     );
                 }
             } else {

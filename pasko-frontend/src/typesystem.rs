@@ -9,7 +9,7 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
-pub struct TypeId(utils::Identifier);
+pub struct TypeId(pub utils::Identifier);
 
 impl From<TypeId> for utils::Identifier {
     fn from(id: TypeId) -> utils::Identifier {
