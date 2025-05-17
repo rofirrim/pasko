@@ -2117,7 +2117,7 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                 }
 
                 if self.emit_debug {
-                        let debug_context = self.debug_context.as_mut().unwrap();
+                    let debug_context = self.debug_context.as_mut().unwrap();
                     debug_context.define_global_variable(
                         self.semantic_context,
                         sym.get_name(),
