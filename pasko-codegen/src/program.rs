@@ -319,7 +319,7 @@ impl<'a> CodegenVisitor<'a> {
     }
 
     fn init_debug_context(&mut self) -> DebugContext {
-        init_debug_context(self.source_filename, self.pointer_type.bytes() as u8)
+        DebugContext::init_debug_context(self.source_filename, self.pointer_type.bytes() as u8)
     }
 
     fn emit_debug_information(&mut self, product: &mut cranelift_object::ObjectProduct) {
@@ -327,7 +327,7 @@ impl<'a> CodegenVisitor<'a> {
             return;
         }
         let debug_context = self.debug_context.as_mut().unwrap();
-        emit_debug_information(debug_context, product);
+        debug_context.emit_debug_information(product);
     }
 
     fn create_debug_lines(
@@ -339,8 +339,8 @@ impl<'a> CodegenVisitor<'a> {
         if !self.emit_debug {
             return;
         }
-        create_debug_lines(
-            self.debug_context.as_mut().unwrap(),
+        let debug_context = self.debug_context.as_mut().unwrap();
+        debug_context.create_debug_lines(
             self.semantic_context,
             function_symbol_id,
             func_id,
@@ -368,8 +368,8 @@ impl<'a> CodegenVisitor<'a> {
 
         let isa = self.object_module.as_ref().unwrap().isa();
 
-        create_local_locations(
-            self.debug_context.as_mut().unwrap(),
+        let debug_context = self.debug_context.as_mut().unwrap();
+        debug_context.create_local_locations(
             function_symbol_id,
             self.semantic_context,
             isa,
@@ -2117,9 +2117,9 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
                 }
 
                 if self.emit_debug {
-                    define_global_variable(
+                        let debug_context = self.debug_context.as_mut().unwrap();
+                    debug_context.define_global_variable(
                         self.semantic_context,
-                        self.debug_context.as_mut().unwrap(),
                         sym.get_name(),
                         ty,
                         align,
