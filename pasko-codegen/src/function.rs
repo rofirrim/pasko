@@ -342,6 +342,8 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
         let new_variable = Variable::new(self.next_variable());
         let ty = self.codegen.type_to_cranelift_type(symbol_type);
+        // Make sure we compute the size.
+        self.codegen.size_in_bytes(symbol_type);
         self.builder().declare_var(new_variable, ty);
 
         self.codegen

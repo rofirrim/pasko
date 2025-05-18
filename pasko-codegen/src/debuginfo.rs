@@ -640,7 +640,6 @@ impl DebugContext {
             || semantic_context.type_system.is_bool_type(ty)
             || semantic_context.type_system.is_real_type(ty)
             || semantic_context.type_system.is_char_type(ty)
-            || semantic_context.type_system.is_pointer_type(ty)
         {
             self.basic_type(semantic_context, ty)
         } else if semantic_context.type_system.is_subrange_type(ty) {
@@ -663,6 +662,8 @@ impl DebugContext {
             self.array_type(semantic_context, ty, size_and_alignment_cache, offset_cache)
         } else if semantic_context.type_system.is_record_type(ty) {
             self.record_type(semantic_context, ty, size_and_alignment_cache, offset_cache)
+        } else if semantic_context.type_system.is_pointer_type(ty) {
+            self.pointer_type(semantic_context, ty, size_and_alignment_cache, offset_cache)
         } else {
             panic!(
                 "Unsupported type during debugging {}",
@@ -714,8 +715,6 @@ impl DebugContext {
             self.basic_type_impl("real", 8, gimli::DW_ATE_float)
         } else if semantic_context.type_system.is_char_type(ty) {
             self.basic_type_impl("char", 4, gimli::DW_ATE_UTF)
-        } else if semantic_context.type_system.is_pointer_type(ty) {
-            self.basic_type_impl("pointer", 8, gimli::DW_ATE_address)
         } else {
             panic!("Unexpected basic type");
         };
@@ -921,6 +920,44 @@ impl DebugContext {
             }
         });
 
+        let entry = self.dwarf.unit.get_mut(type_id);
+        if let Some(info) = size_and_alignment_cache.borrow().get(&ty) {
+            entry.set(
+                gimli::DW_AT_byte_size,
+                gimli::write::AttributeValue::Udata(info.size as u64),
+            );
+        }
+
+        type_id
+    }
+
+    fn pointer_type(
+        &mut self,
+        semantic_context: &pasko_frontend::semantic::SemanticContext,
+        ty: pasko_frontend::typesystem::TypeId,
+        size_and_alignment_cache: &SizeAndAlignmentCache,
+        offset_cache: &OffsetCache,
+    ) -> gimli::write::UnitEntryId {
+        let type_id = self
+            .dwarf
+            .unit
+            .add(self.dwarf.unit.root(), gimli::DW_TAG_pointer_type);
+
+        let pointee_type = semantic_context
+            .type_system
+            .pointer_type_get_pointee_type(ty);
+        let pointee_type_id = self.debug_type(
+            semantic_context,
+            pointee_type,
+            size_and_alignment_cache,
+            offset_cache,
+        );
+
+        let entry = self.dwarf.unit.get_mut(type_id);
+        entry.set(
+            gimli::DW_AT_type,
+            gimli::write::AttributeValue::UnitRef(pointee_type_id),
+        );
         let entry = self.dwarf.unit.get_mut(type_id);
         if let Some(info) = size_and_alignment_cache.borrow().get(&ty) {
             entry.set(
