@@ -1093,36 +1093,55 @@ impl DebugContext {
             .unit
             .add(self.dwarf.unit.root(), gimli::DW_TAG_structure_type);
 
-        // size
-        let base_type = self.basic_type_impl("uint64_t", 8, gimli::DW_ATE_unsigned);
-        let field_entry_id = self.dwarf.unit.add(type_id, gimli::DW_TAG_member);
-        let field_entry = self.dwarf.unit.get_mut(field_entry_id);
-        field_entry.set(
-            gimli::DW_AT_name,
-            gimli::write::AttributeValue::StringRef(self.dwarf.strings.add("size")),
-        );
-        field_entry.set(
-            gimli::DW_AT_type,
-            gimli::write::AttributeValue::UnitRef(base_type),
-        );
-        field_entry.set(
-            gimli::DW_AT_data_member_location,
-            gimli::write::AttributeValue::Udata(0),
-        );
-
-        // values
+        // We model this as a dynamic array that accesses its size, found 8 bytes before it.
         let base_type = self.basic_type_impl("int64_t", 8, gimli::DW_ATE_signed);
-        let pointer_type = {
+        let dynamic_array_type = {
             let type_id = self
                 .dwarf
                 .unit
-                .add(self.dwarf.unit.root(), gimli::DW_TAG_pointer_type);
+                .add(self.dwarf.unit.root(), gimli::DW_TAG_array_type);
 
             let entry = self.dwarf.unit.get_mut(type_id);
             entry.set(
                 gimli::DW_AT_type,
                 gimli::write::AttributeValue::UnitRef(base_type),
             );
+            entry.set(
+                gimli::DW_AT_ordering,
+                gimli::write::AttributeValue::Ordering(gimli::DW_ORD_row_major),
+            );
+            let mut expr = gimli::write::Expression::new();
+            expr.op(gimli::constants::DW_OP_push_object_address);
+            expr.op(gimli::constants::DW_OP_lit8);
+            expr.op(gimli::constants::DW_OP_plus);
+            expr.op(gimli::constants::DW_OP_deref);
+            entry.set(
+                gimli::DW_AT_data_location,
+                gimli::write::AttributeValue::Exprloc(expr)
+            );
+            type_id
+        };
+
+        let _subrange_type = {
+            let type_id = self
+                .dwarf
+                .unit
+                .add(dynamic_array_type, gimli::DW_TAG_subrange_type);
+            let entry = self.dwarf.unit.get_mut(type_id);
+            entry.set(
+                gimli::DW_AT_type,
+                gimli::write::AttributeValue::UnitRef(base_type),
+            );
+            entry.set(
+                gimli::DW_AT_lower_bound,
+                gimli::write::AttributeValue::Sdata(0),
+            );
+            let mut expr = gimli::write::Expression::new();
+            expr.op(gimli::constants::DW_OP_push_object_address);
+            expr.op(gimli::constants::DW_OP_deref);
+            entry.set(
+                gimli::DW_AT_count,
+                gimli::write::AttributeValue::Exprloc(expr));
             type_id
         };
         let field_entry_id = self.dwarf.unit.add(type_id, gimli::DW_TAG_member);
@@ -1133,11 +1152,11 @@ impl DebugContext {
         );
         field_entry.set(
             gimli::DW_AT_type,
-            gimli::write::AttributeValue::UnitRef(pointer_type),
+            gimli::write::AttributeValue::UnitRef(dynamic_array_type),
         );
         field_entry.set(
             gimli::DW_AT_data_member_location,
-            gimli::write::AttributeValue::Udata(8),
+            gimli::write::AttributeValue::Udata(0),
         );
 
         let struct_entry = self.dwarf.unit.get_mut(type_id);
@@ -1200,13 +1219,10 @@ impl DebugContext {
         let variant_entry = self.dwarf.unit.get_mut(variant_entry_id);
         variant_entry.set(
             gimli::DW_AT_discr_value,
-            gimli::write::AttributeValue::Udata(0)
+            gimli::write::AttributeValue::Udata(0),
         );
         let bitmap_type = self.set_type_bitmap();
-        let field_entry_id = self
-            .dwarf
-            .unit
-            .add(variant_entry_id, gimli::DW_TAG_member);
+        let field_entry_id = self.dwarf.unit.add(variant_entry_id, gimli::DW_TAG_member);
         let field_entry = self.dwarf.unit.get_mut(field_entry_id);
         field_entry.set(
             gimli::DW_AT_type,
