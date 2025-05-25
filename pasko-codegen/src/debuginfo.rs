@@ -1271,7 +1271,7 @@ impl DebugContext {
             let pointer_type = self
                 .dwarf
                 .unit
-                .add(self.dwarf.unit.root(), gimli::DW_TAG_pointer_type);
+                .add(self.dwarf.unit.root(), gimli::DW_TAG_reference_type);
 
             let entry = self.dwarf.unit.get_mut(pointer_type);
             entry.set(
