@@ -23,6 +23,8 @@ pub struct DebugContext {
     function_entry_id:
         HashMap<pasko_frontend::symbol::SymbolId, (gimli::write::UnitEntryId, String)>,
     type_map: HashMap<pasko_frontend::typesystem::TypeId, gimli::write::UnitEntryId>,
+
+    set_type: Option<gimli::write::UnitEntryId>,
 }
 trait WriteDebugInfo {
     type SectionId: Copy;
@@ -356,6 +358,7 @@ impl DebugContext {
             main_function_entry_id: None,
             function_entry_id: HashMap::new(),
             type_map: HashMap::new(),
+            set_type: None,
         }
     }
 
@@ -664,6 +667,8 @@ impl DebugContext {
             self.record_type(semantic_context, ty, size_and_alignment_cache, offset_cache)
         } else if semantic_context.type_system.is_pointer_type(ty) {
             self.pointer_type(semantic_context, ty, size_and_alignment_cache, offset_cache)
+        } else if semantic_context.type_system.is_set_type(ty) {
+            self.set_type(semantic_context, ty, size_and_alignment_cache, offset_cache)
         } else {
             panic!(
                 "Unsupported type during debugging {}",
@@ -966,6 +971,308 @@ impl DebugContext {
             );
         }
 
+        type_id
+    }
+
+    fn set_type_enum_mode(&mut self) -> gimli::write::UnitEntryId {
+        let type_id = self
+            .dwarf
+            .unit
+            .add(self.dwarf.unit.root(), gimli::DW_TAG_enumeration_type);
+
+        // SM_BITMAP = 0
+        let enum_entry = self.dwarf.unit.add(type_id, gimli::DW_TAG_enumerator);
+        let entry = self.dwarf.unit.get_mut(enum_entry);
+        entry.set(
+            gimli::DW_AT_name,
+            gimli::write::AttributeValue::StringRef(self.dwarf.strings.add("SM_BITMAP")),
+        );
+        entry.set(
+            gimli::DW_AT_const_value,
+            gimli::write::AttributeValue::Sdata(0),
+        );
+        // SM_SORTED_ARRAY = 1
+        let enum_entry = self.dwarf.unit.add(type_id, gimli::DW_TAG_enumerator);
+        let entry = self.dwarf.unit.get_mut(enum_entry);
+        entry.set(
+            gimli::DW_AT_name,
+            gimli::write::AttributeValue::StringRef(self.dwarf.strings.add("SM_SORTED_ARRAY")),
+        );
+        entry.set(
+            gimli::DW_AT_const_value,
+            gimli::write::AttributeValue::Sdata(1),
+        );
+
+        let base_type = self.basic_type_impl("integer", 4, gimli::DW_ATE_signed);
+        let entry = self.dwarf.unit.get_mut(type_id);
+        entry.set(
+            gimli::DW_AT_type,
+            gimli::write::AttributeValue::UnitRef(base_type),
+        );
+
+        type_id
+    }
+
+    fn set_type_bitmap(&mut self) -> gimli::write::UnitEntryId {
+        let type_id = self
+            .dwarf
+            .unit
+            .add(self.dwarf.unit.root(), gimli::DW_TAG_structure_type);
+
+        let base_type = self.basic_type_impl("uint64_t", 8, gimli::DW_ATE_unsigned);
+
+        let array_type_id = {
+            let type_id = self
+                .dwarf
+                .unit
+                .add(self.dwarf.unit.root(), gimli::DW_TAG_array_type);
+
+            let entry = self.dwarf.unit.get_mut(type_id);
+            entry.set(
+                gimli::DW_AT_type,
+                gimli::write::AttributeValue::UnitRef(base_type),
+            );
+            entry.set(
+                gimli::DW_AT_ordering,
+                gimli::write::AttributeValue::Ordering(gimli::DW_ORD_row_major),
+            );
+
+            type_id
+        };
+
+        let _subrange_type = {
+            let lower = 0;
+            let upper = 3;
+            let type_id = self
+                .dwarf
+                .unit
+                .add(array_type_id, gimli::DW_TAG_subrange_type);
+            let entry = self.dwarf.unit.get_mut(type_id);
+            entry.set(
+                gimli::DW_AT_type,
+                gimli::write::AttributeValue::UnitRef(base_type),
+            );
+            entry.set(
+                gimli::DW_AT_lower_bound,
+                gimli::write::AttributeValue::Sdata(lower),
+            );
+            entry.set(
+                gimli::DW_AT_upper_bound,
+                gimli::write::AttributeValue::Sdata(upper),
+            );
+            type_id
+        };
+
+        let field_entry_id = self.dwarf.unit.add(type_id, gimli::DW_TAG_member);
+        let field_entry = self.dwarf.unit.get_mut(field_entry_id);
+        field_entry.set(
+            gimli::DW_AT_name,
+            gimli::write::AttributeValue::StringRef(self.dwarf.strings.add("unit")),
+        );
+        field_entry.set(
+            gimli::DW_AT_type,
+            gimli::write::AttributeValue::UnitRef(array_type_id),
+        );
+        field_entry.set(
+            gimli::DW_AT_data_member_location,
+            gimli::write::AttributeValue::Udata(0),
+        );
+
+        let struct_entry = self.dwarf.unit.get_mut(type_id);
+        struct_entry.set(
+            gimli::DW_AT_byte_size,
+            gimli::write::AttributeValue::Udata(4 * 8),
+        );
+
+        type_id
+    }
+
+    fn set_type_sorted_array(&mut self) -> gimli::write::UnitEntryId {
+        let type_id = self
+            .dwarf
+            .unit
+            .add(self.dwarf.unit.root(), gimli::DW_TAG_structure_type);
+
+        // size
+        let base_type = self.basic_type_impl("uint64_t", 8, gimli::DW_ATE_unsigned);
+        let field_entry_id = self.dwarf.unit.add(type_id, gimli::DW_TAG_member);
+        let field_entry = self.dwarf.unit.get_mut(field_entry_id);
+        field_entry.set(
+            gimli::DW_AT_name,
+            gimli::write::AttributeValue::StringRef(self.dwarf.strings.add("size")),
+        );
+        field_entry.set(
+            gimli::DW_AT_type,
+            gimli::write::AttributeValue::UnitRef(base_type),
+        );
+        field_entry.set(
+            gimli::DW_AT_data_member_location,
+            gimli::write::AttributeValue::Udata(0),
+        );
+
+        // values
+        let base_type = self.basic_type_impl("int64_t", 8, gimli::DW_ATE_signed);
+        let pointer_type = {
+            let type_id = self
+                .dwarf
+                .unit
+                .add(self.dwarf.unit.root(), gimli::DW_TAG_pointer_type);
+
+            let entry = self.dwarf.unit.get_mut(type_id);
+            entry.set(
+                gimli::DW_AT_type,
+                gimli::write::AttributeValue::UnitRef(base_type),
+            );
+            type_id
+        };
+        let field_entry_id = self.dwarf.unit.add(type_id, gimli::DW_TAG_member);
+        let field_entry = self.dwarf.unit.get_mut(field_entry_id);
+        field_entry.set(
+            gimli::DW_AT_name,
+            gimli::write::AttributeValue::StringRef(self.dwarf.strings.add("values")),
+        );
+        field_entry.set(
+            gimli::DW_AT_type,
+            gimli::write::AttributeValue::UnitRef(pointer_type),
+        );
+        field_entry.set(
+            gimli::DW_AT_data_member_location,
+            gimli::write::AttributeValue::Udata(8),
+        );
+
+        let struct_entry = self.dwarf.unit.get_mut(type_id);
+        struct_entry.set(
+            gimli::DW_AT_byte_size,
+            gimli::write::AttributeValue::Udata(2 * 8),
+        );
+
+        type_id
+    }
+
+    fn set_type(
+        &mut self,
+        _semantic_context: &pasko_frontend::semantic::SemanticContext,
+        _ty: pasko_frontend::typesystem::TypeId,
+        _size_and_alignment_cache: &SizeAndAlignmentCache,
+        _offset_cache: &OffsetCache,
+    ) -> gimli::write::UnitEntryId {
+        if let Some(set_type) = self.set_type {
+            return set_type;
+        }
+
+        let set_struct_type_id = self
+            .dwarf
+            .unit
+            .add(self.dwarf.unit.root(), gimli::DW_TAG_structure_type);
+
+        let enum_mode_type = self.set_type_enum_mode();
+
+        let field_entry_id = self
+            .dwarf
+            .unit
+            .add(set_struct_type_id, gimli::DW_TAG_member);
+        let field_entry = self.dwarf.unit.get_mut(field_entry_id);
+        field_entry.set(
+            gimli::DW_AT_name,
+            gimli::write::AttributeValue::StringRef(self.dwarf.strings.add("mode")),
+        );
+        field_entry.set(
+            gimli::DW_AT_type,
+            gimli::write::AttributeValue::UnitRef(enum_mode_type),
+        );
+        field_entry.set(
+            gimli::DW_AT_data_member_location,
+            gimli::write::AttributeValue::Udata(0),
+        );
+
+        let union_type = {
+            let set_struct_type_id = self
+                .dwarf
+                .unit
+                .add(self.dwarf.unit.root(), gimli::DW_TAG_union_type);
+
+            let bitmap_type = self.set_type_bitmap();
+            let field_entry_id = self
+                .dwarf
+                .unit
+                .add(set_struct_type_id, gimli::DW_TAG_member);
+            let field_entry = self.dwarf.unit.get_mut(field_entry_id);
+            field_entry.set(
+                gimli::DW_AT_name,
+                gimli::write::AttributeValue::StringRef(self.dwarf.strings.add("bitmap")),
+            );
+            field_entry.set(
+                gimli::DW_AT_type,
+                gimli::write::AttributeValue::UnitRef(bitmap_type),
+            );
+
+            let sorted_array = self.set_type_sorted_array();
+            let field_entry_id = self
+                .dwarf
+                .unit
+                .add(set_struct_type_id, gimli::DW_TAG_member);
+            let field_entry = self.dwarf.unit.get_mut(field_entry_id);
+            field_entry.set(
+                gimli::DW_AT_name,
+                gimli::write::AttributeValue::StringRef(self.dwarf.strings.add("array")),
+            );
+            field_entry.set(
+                gimli::DW_AT_type,
+                gimli::write::AttributeValue::UnitRef(sorted_array),
+            );
+
+            let union_entry = self.dwarf.unit.get_mut(set_struct_type_id);
+            union_entry.set(
+                gimli::DW_AT_byte_size,
+                gimli::write::AttributeValue::Udata(4 * 8),
+            );
+            set_struct_type_id
+        };
+
+        let field_entry_id = self
+            .dwarf
+            .unit
+            .add(set_struct_type_id, gimli::DW_TAG_member);
+        let field_entry = self.dwarf.unit.get_mut(field_entry_id);
+        field_entry.set(
+            gimli::DW_AT_name,
+            gimli::write::AttributeValue::StringRef(self.dwarf.strings.add("u")),
+        );
+        field_entry.set(
+            gimli::DW_AT_type,
+            gimli::write::AttributeValue::UnitRef(union_type),
+        );
+        field_entry.set(
+            gimli::DW_AT_data_member_location,
+            // There is padding, so it is not 4.
+            gimli::write::AttributeValue::Udata(8),
+        );
+
+        let entry = self.dwarf.unit.get_mut(set_struct_type_id);
+        entry.set(
+            gimli::DW_AT_byte_size,
+            gimli::write::AttributeValue::Udata(4 + 4 + 8 * 4),
+        );
+
+        let type_id = {
+            let pointer_type = self
+                .dwarf
+                .unit
+                .add(self.dwarf.unit.root(), gimli::DW_TAG_pointer_type);
+
+            let entry = self.dwarf.unit.get_mut(pointer_type);
+            entry.set(
+                gimli::DW_AT_type,
+                gimli::write::AttributeValue::UnitRef(set_struct_type_id),
+            );
+            entry.set(
+                gimli::DW_AT_byte_size,
+                gimli::write::AttributeValue::Udata(8),
+            );
+            pointer_type
+        };
+
+        self.set_type = Some(type_id);
         type_id
     }
 
