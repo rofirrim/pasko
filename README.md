@@ -2,8 +2,6 @@
 
 This is a very simple compiler whose goal is to implement [ISO 7185:1990](https://archive.org/details/iso-iec-7185-1990-Pascal).
 
-> ⚠️ This is still very much in MVP state, so don't expect much yet. ⚠️
-
 It is implemented in [rust](https://www.rust-lang.org) and uses the following main crates as dependences:
 
 - [lalrpop](https://crates.io/crates/lalrpop) for the syntactic parser
@@ -81,7 +79,7 @@ From inside the build-directory
 | Feature                                                | State | Notes                                                       |
 | ------------------------------------------------------ | ----- | ----------------------------------------------------------- |
 | pack/unpack required procedures                        | ❌    |                                                             |
-| Variant types                                          | ⚠️     | Variant types including non-trivial types types are not supported  |
+| Variant types                                          | ⚠️     | Variant types including non-trivial types (i.e., set-types) are not supported  |
 | labels                                                 | ⚠️     | Only local-gotos. It is unlikely non-local gotos get ever implemented. |
 
 ### Areas of improvement
