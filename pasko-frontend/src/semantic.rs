@@ -5240,12 +5240,13 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     let proc = proc.0.get();
                     match proc {
                         ast::ProcedureDeclaration::Definition(proc) => {
-                            let proc_sym = self.ctx.get_ast_symbol(proc.0.id()).unwrap();
-                            let proc_sym = self.ctx.get_symbol(proc_sym);
-                            let proc_sym = proc_sym.borrow();
-                            proc_sym.get_required_environment().iter().for_each(|item| {
-                                items.insert(*item);
-                            });
+                            if let Some(proc_sym) = self.ctx.get_ast_symbol(proc.0.id()) {
+                                let proc_sym = self.ctx.get_symbol(proc_sym);
+                                let proc_sym = proc_sym.borrow();
+                                proc_sym.get_required_environment().iter().for_each(|item| {
+                                    items.insert(*item);
+                                });
+                            }
                         }
                         ast::ProcedureDeclaration::Forward(_) => {}
                     }
@@ -5254,20 +5255,22 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     let func = func.0.get();
                     match func {
                         ast::FunctionDeclaration::Definition(func) => {
-                            let func_sym = self.ctx.get_ast_symbol(func.0.id()).unwrap();
-                            let func_sym = self.ctx.get_symbol(func_sym);
-                            let func_sym = func_sym.borrow();
-                            func_sym.get_required_environment().iter().for_each(|item| {
-                                items.insert(*item);
-                            });
+                            if let Some(func_sym) = self.ctx.get_ast_symbol(func.0.id()) {
+                                let func_sym = self.ctx.get_symbol(func_sym);
+                                let func_sym = func_sym.borrow();
+                                func_sym.get_required_environment().iter().for_each(|item| {
+                                    items.insert(*item);
+                                });
+                            }
                         }
                         ast::FunctionDeclaration::LateDefinition(func) => {
-                            let func_sym = self.ctx.get_ast_symbol(func.0.id()).unwrap();
-                            let func_sym = self.ctx.get_symbol(func_sym);
-                            let func_sym = func_sym.borrow();
-                            func_sym.get_required_environment().iter().for_each(|item| {
-                                items.insert(*item);
-                            });
+                            if let Some(func_sym) = self.ctx.get_ast_symbol(func.0.id()) {
+                                let func_sym = self.ctx.get_symbol(func_sym);
+                                let func_sym = func_sym.borrow();
+                                func_sym.get_required_environment().iter().for_each(|item| {
+                                    items.insert(*item);
+                                });
+                            }
                         }
                         ast::FunctionDeclaration::Forward(_) => {}
                     }
