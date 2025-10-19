@@ -2002,7 +2002,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             .set_type(type_denoter);
 
         // Check for cycles in the definition.
-        if self.contains_invalid_type_cycle(type_denoter) {
+        if (self.ctx.type_system.is_named_type(type_denoter)
+            && self.ctx.type_system.named_type_get_symbol(type_denoter) == new_sym)
+            || self.contains_invalid_type_cycle(type_denoter)
+        {
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 *n.1.loc(),
