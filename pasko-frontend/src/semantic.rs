@@ -1280,11 +1280,17 @@ impl<'a> SemanticCheckerVisitor<'a> {
             args.iter_mut().enumerate().zip(params_flattened)
         {
             let param_sym = self.ctx.get_symbol(param_sym_id);
-            let param_sym = param_sym.borrow();
-            let param_kind = param_sym.get_parameter().unwrap();
+            let (param_kind, param_type_id, param_name) = {
+                let param_sym = param_sym.borrow();
+                (
+                    param_sym.get_parameter().unwrap(),
+                    param_sym.get_type(),
+                    param_sym.get_name().clone(),
+                )
+            };
             match param_kind {
                 ParameterKind::Value => {
-                    let param_type_id = param_sym.get_type().unwrap();
+                    let param_type_id = param_type_id.unwrap();
                     if self.ctx.type_system.is_error_type(param_type_id) {
                         continue;
                     }
@@ -1305,7 +1311,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                                                 format!(
                                                     "argument has type {} that is not assignment compatible with value parameter '{}' of type {}",
                                                     self.ctx.type_system.get_type_name(arg_type_id),
-                                                    param_sym.get_name(),
+                                                    param_name,
                                                     self.ctx.type_system.get_type_name(param_type_id)
                                                 ),
                                             );
@@ -1321,7 +1327,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                     }
                 }
                 ParameterKind::Variable => {
-                    let param_type_id = param_sym.get_type().unwrap();
+                    let param_type_id = param_type_id.unwrap();
                     if self.ctx.type_system.is_error_type(param_type_id) {
                         continue;
                     }
@@ -1346,7 +1352,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                                                 *arg.loc(),
                                                 format!(
                                                     "argument is not a variable, as required by variable parameter '{}'",
-                                                    param_sym.get_name()
+                                                    param_name
                                                 ),
                                             );
                         argument_error = true;
@@ -1357,7 +1363,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                                                 format!(
                                                     "argument has type {} but it is different to variable parameter '{}' of type {}",
                                                     self.ctx.type_system.get_type_name(arg_type_id),
-                                                    param_sym.get_name(),
+                                                    param_name,
                                                     self.ctx.type_system.get_type_name(param_type_id)
                                                 ),
                                             );
@@ -1460,7 +1466,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                     }
                 }
                 ParameterKind::ValueConformableArray => {
-                    let param_type_id = param_sym.get_type().unwrap();
+                    let param_type_id = param_type_id.unwrap();
                     if self.ctx.type_system.is_error_type(param_type_id) {
                         continue;
                     }
@@ -1482,7 +1488,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                             *arg.loc(),
                             format!(
                                 "a conformable array cannot be passed to the value conformable array parameter {}",
-                                param_sym.get_name()
+                                param_name
                             ),
                         );
                         argument_error = true;
@@ -1493,7 +1499,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                             *arg.loc(),
                             format!(
                                 "argument is not conformable to the parameter {}",
-                                param_sym.get_name()
+                                param_name
                             ),
                         );
                         argument_error = true;
@@ -1506,7 +1512,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                         .or_insert(vec![current_arg_idx]);
                 }
                 ParameterKind::VariableConformableArray => {
-                    let param_type_id = param_sym.get_type().unwrap();
+                    let param_type_id = param_type_id.unwrap();
                     if self.ctx.type_system.is_error_type(param_type_id) {
                         continue;
                     }
@@ -1531,7 +1537,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                                                 *arg.loc(),
                                                 format!(
                                                     "argument is not a variable, as required by variable conformable array parameter '{}'",
-                                                    param_sym.get_name()
+                                                    param_name
                                                 ),
                                             );
                         argument_error = true;
@@ -1542,7 +1548,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
                             *arg.loc(),
                             format!(
                                 "argument is not conformable to the parameter {}",
-                                param_sym.get_name()
+                                param_name
                             ),
                         );
                         argument_error = true;
