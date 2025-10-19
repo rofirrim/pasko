@@ -4425,7 +4425,11 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     if let Some(sym_type) = sym_type {
                         self.ctx.set_ast_symbol(id, sym_id);
                         self.ctx.set_ast_type(id, sym_type);
-                        self.ctx.set_ast_value(id, sym_value.unwrap());
+                        // It may happen that the othe constant is wrong
+                        // and so does not have constant.
+                        if let Some(sym_value) = sym_value {
+                            self.ctx.set_ast_value(id, sym_value);
+                        }
                     } else {
                         self.ctx
                             .set_ast_type(id, self.ctx.type_system.get_error_type());
