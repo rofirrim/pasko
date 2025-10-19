@@ -145,6 +145,7 @@ impl SemanticContext {
         new_sym.set_name("integer");
         new_sym.set_kind(SymbolKind::Type);
         new_sym.set_type(self.type_system.get_integer_type());
+        new_sym.set_scope(self.scope.get_current_scope_id());
         let new_sym = self.new_symbol(new_sym);
         self.scope.add_entry("integer", new_sym);
 
@@ -152,6 +153,7 @@ impl SemanticContext {
         new_sym.set_name("real");
         new_sym.set_kind(SymbolKind::Type);
         new_sym.set_type(self.type_system.get_real_type());
+        new_sym.set_scope(self.scope.get_current_scope_id());
         let new_sym = self.new_symbol(new_sym);
         self.scope.add_entry("real", new_sym);
 
@@ -159,6 +161,7 @@ impl SemanticContext {
         new_sym.set_name("boolean");
         new_sym.set_kind(SymbolKind::Type);
         new_sym.set_type(self.type_system.get_bool_type());
+        new_sym.set_scope(self.scope.get_current_scope_id());
         let new_sym = self.new_symbol(new_sym);
         self.scope.add_entry("boolean", new_sym);
 
@@ -166,6 +169,7 @@ impl SemanticContext {
         new_sym.set_name("char");
         new_sym.set_kind(SymbolKind::Type);
         new_sym.set_type(self.type_system.get_char_type());
+        new_sym.set_scope(self.scope.get_current_scope_id());
         let new_sym = self.new_symbol(new_sym);
         self.scope.add_entry("char", new_sym);
 
@@ -174,6 +178,7 @@ impl SemanticContext {
         new_sym.set_kind(SymbolKind::Const);
         new_sym.set_type(self.type_system.get_bool_type());
         new_sym.set_const(Constant::Bool(true));
+        new_sym.set_scope(self.scope.get_current_scope_id());
         let new_sym = self.new_symbol(new_sym);
         self.scope.add_entry("true", new_sym);
 
@@ -182,6 +187,7 @@ impl SemanticContext {
         new_sym.set_kind(SymbolKind::Const);
         new_sym.set_type(self.type_system.get_bool_type());
         new_sym.set_const(Constant::Bool(false));
+        new_sym.set_scope(self.scope.get_current_scope_id());
         let new_sym = self.new_symbol(new_sym);
         self.scope.add_entry("false", new_sym);
 
@@ -189,6 +195,7 @@ impl SemanticContext {
         new_sym.set_name("text");
         new_sym.set_kind(SymbolKind::Type);
         new_sym.set_type(self.type_system.get_textfile_type());
+        new_sym.set_scope(self.scope.get_current_scope_id());
         let new_sym = self.new_symbol(new_sym);
         self.scope.add_entry("text", new_sym);
 
@@ -197,6 +204,7 @@ impl SemanticContext {
         new_sym.set_kind(SymbolKind::Const);
         new_sym.set_type(self.type_system.get_integer_type());
         new_sym.set_const(Constant::Integer(i64::MAX));
+        new_sym.set_scope(self.scope.get_current_scope_id());
         let new_sym = self.new_symbol(new_sym);
         self.scope.add_entry("maxint", new_sym);
     }
