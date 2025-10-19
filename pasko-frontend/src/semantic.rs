@@ -2949,17 +2949,25 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                     if !self.ctx.type_system.is_file_type(ty)
                         && !self.ctx.type_system.is_error_type(ty)
                     {
-                        self.diagnostics.add_with_extra(
-                            DiagnosticKind::Error,
-                            sym.borrow().get_defining_point().unwrap(),
-                            "only file types are allowed as program parameters".to_string(),
-                            vec![],
-                            vec![Diagnostic::new(
-                                DiagnosticKind::Info,
+                        if let Some(defining_point) = sym.borrow().get_defining_point() {
+                            self.diagnostics.add_with_extra(
+                                DiagnosticKind::Error,
+                                defining_point,
+                                "only file types are allowed as program parameters".to_string(),
+                                vec![],
+                                vec![Diagnostic::new(
+                                    DiagnosticKind::Info,
+                                    loc,
+                                    "declaration of program parameter".to_string(),
+                                )],
+                            );
+                        } else {
+                            self.diagnostics.add(
+                                DiagnosticKind::Error,
                                 loc,
-                                "declaration of program parameter".to_string(),
-                            )],
-                        );
+                                "only file types are allowed as program parameters".to_string(),
+                            );
+                        }
                     } else {
                         self.ctx.global_files.push(sym_id);
                     }
