@@ -4384,6 +4384,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     .map(
                         |x| match self.codegen.semantic_context.get_ast_value(x.id()).unwrap() {
                             pasko_frontend::constant::Constant::Integer(x) => x,
+                            pasko_frontend::constant::Constant::Bool(b) => if b { 1 } else { 0 },
                             _ => panic!("Unexpected value"),
                         },
                     )

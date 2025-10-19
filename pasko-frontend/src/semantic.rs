@@ -5036,8 +5036,29 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                             );
                         }
                     }
-                    _ => {
-                        panic!("Unexpected constant");
+                    Constant::Bool(b) => {
+                        let case_value = if b { 1 } else { 0 };
+                        if let Some(prev_loc) = const_set.insert(case_value, case_const.loc()) {
+                            let previous_const = Diagnostic::new(
+                                DiagnosticKind::Info,
+                                *prev_loc,
+                                "previous case".to_string(),
+                            );
+                            self.diagnostics.add_with_extra(
+                                DiagnosticKind::Error,
+                                *case_const.loc(),
+                                "case repeated".to_string(),
+                                vec![],
+                                vec![previous_const],
+                            );
+                        }
+                    }
+                    Constant::Real(_) => {
+                        self.diagnostics.add(
+                            DiagnosticKind::Error,
+                            *case_const.loc(),
+                            "invalid constant for a case".to_string(),
+                        );
                     }
                 }
             }
