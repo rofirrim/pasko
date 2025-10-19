@@ -1610,10 +1610,20 @@ impl<'a> SemanticCheckerVisitor<'a> {
         root_ty: TypeId,
         ty: TypeId,
     ) -> bool {
-        if !top_level && self.ctx.type_system.same_type(root_ty, ty) {
+        if !top_level && root_ty == ty {
             return true;
         } else if self.ctx.type_system.is_error_type(ty) {
             return false;
+        } else if self.ctx.type_system.is_named_type(ty) {
+            let sym_id = self.ctx.type_system.named_type_get_symbol(ty);
+            let sym = self.ctx.get_symbol(sym_id);
+            let sym = sym.borrow();
+            return self.contains_invalid_type_cycle_impl(
+                false,
+                root_ty,
+                sym.get_type()
+                    .unwrap_or_else(|| self.ctx.type_system.get_error_type()),
+            );
         } else if self.ctx.type_system.is_array_type(ty) {
             return self.contains_invalid_type_cycle_impl(
                 false,

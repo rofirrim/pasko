@@ -1095,12 +1095,8 @@ impl TypeSystem {
     }
 
     pub fn same_type(&self, a: TypeId, b: TypeId) -> bool {
-        // Special trivial case that we want to check with no recursion at all.
         let id_a = self.get_type_internal(a).get_kind();
         let id_b = self.get_type_internal(b).get_kind();
-        if id_a == id_b {
-            return true;
-        }
         match (id_a, id_b) {
             // None is never the same as other types
             (TypeKind::None, _) => false,
