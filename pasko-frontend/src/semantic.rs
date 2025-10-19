@@ -2000,6 +2000,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 *n.1.loc(),
                 "invalid cyclic reference to type being declared".to_string(),
             );
+            self.ctx
+                .get_symbol_mut(new_sym)
+                .borrow_mut()
+                .set_type(self.ctx.type_system.get_error_type());
             return false;
         }
 
@@ -4707,7 +4711,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                             let mut arg = arg.get_mut();
                             arg = match arg {
                                 ast::Expr::Conversion(e) => e.0.get_mut(),
-                                _ => { arg }
+                                _ => arg,
                             };
                             match arg {
                                 ast::Expr::Variable(var) => {
@@ -4716,7 +4720,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                                     *arg = ast::Expr::VariableReference(
                                         ast::ExprVariableReference(SpannedBox::from(assig)),
                                     );
-                                },
+                                }
                                 _ => {}
                             }
                         }
