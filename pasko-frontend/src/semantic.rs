@@ -2914,20 +2914,25 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         }
     }
 
-    fn visit_post_variable_declaration_part(
+    fn visit_pre_statement_part(
         &mut self,
-        _n: &mut ast::VariableDeclarationPart,
+        _n: &mut ast::StatementPart,
         _span: &span::SpanLoc,
         _id: span::SpanId,
-    ) {
+    ) -> bool {
         if self.ctx.scope.get_current_scope_id() == self.ctx.scope.get_global_scope_id() {
             // Check whether program parameters have been declared.
             let program_parameters = self.ctx.program_parameters.clone();
             for (program_param, loc) in program_parameters {
                 if let Some(sym_id) = self.lookup_symbol(&program_param, &loc) {
                     let sym = self.ctx.get_symbol(sym_id);
-                    let ty = sym.borrow().get_type().unwrap();
-                    if !self.ctx.type_system.is_file_type(ty) {
+                    let ty = sym
+                        .borrow()
+                        .get_type()
+                        .unwrap_or_else(|| self.ctx.type_system.get_error_type());
+                    if !self.ctx.type_system.is_file_type(ty)
+                        && !self.ctx.type_system.is_error_type(ty)
+                    {
                         self.diagnostics.add_with_extra(
                             DiagnosticKind::Error,
                             sym.borrow().get_defining_point().unwrap(),
@@ -2945,6 +2950,7 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                 }
             }
         }
+        true
     }
 
     fn visit_post_variable_declaration(
