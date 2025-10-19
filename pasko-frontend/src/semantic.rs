@@ -2297,7 +2297,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             for variant in variants {
                 let consts = &variant.get().0;
                 for const_ in consts {
-                    let const_ty = self.ctx.get_ast_type(const_.id()).unwrap();
+                    let const_ty = self
+                        .ctx
+                        .get_ast_type(const_.id())
+                        .unwrap_or_else(|| self.ctx.type_system.get_error_type());
                     if !self.ctx.type_system.is_error_type(const_ty)
                         && !self.is_compatible(variant_selector_type, const_ty)
                     {
