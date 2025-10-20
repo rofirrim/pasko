@@ -5014,7 +5014,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
             let case_ast = case.get();
             let case_consts = &case_ast.0;
             for case_const in case_consts {
-                let const_ty = self.ctx.get_ast_type(case_const.id()).unwrap();
+                let const_ty = self
+                    .ctx
+                    .get_ast_type(case_const.id())
+                    .unwrap_or_else(|| self.ctx.type_system.get_error_type());
                 if self.ctx.type_system.is_error_type(const_ty) {
                     continue;
                 }
