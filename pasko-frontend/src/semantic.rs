@@ -5052,21 +5052,28 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
                         }
                     }
                     Constant::String(s) => {
-                        assert!(s.chars().count() == 1);
-                        let codepoint = s.chars().next().unwrap() as i64;
-                        if let Some(prev_loc) = const_set.insert(codepoint, case_const.loc()) {
-                            let previous_const = Diagnostic::new(
-                                DiagnosticKind::Info,
-                                *prev_loc,
-                                "previous case".to_string(),
-                            );
-                            self.diagnostics.add_with_extra(
+                        if s.chars().count() != 1 {
+                            self.diagnostics.add(
                                 DiagnosticKind::Error,
                                 *case_const.loc(),
-                                "case repeated".to_string(),
-                                vec![],
-                                vec![previous_const],
+                                "invalid character-string constant for a case".to_string(),
                             );
+                        } else {
+                            let codepoint = s.chars().next().unwrap() as i64;
+                            if let Some(prev_loc) = const_set.insert(codepoint, case_const.loc()) {
+                                let previous_const = Diagnostic::new(
+                                    DiagnosticKind::Info,
+                                    *prev_loc,
+                                    "previous case".to_string(),
+                                );
+                                self.diagnostics.add_with_extra(
+                                    DiagnosticKind::Error,
+                                    *case_const.loc(),
+                                    "case repeated".to_string(),
+                                    vec![],
+                                    vec![previous_const],
+                                );
+                            }
                         }
                     }
                     Constant::Bool(b) => {
