@@ -1909,7 +1909,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
         _id: span::SpanId,
     ) {
         let name = n.0.get();
-        let const_ty = self.ctx.get_ast_type(n.1.id()).unwrap();
+        let const_ty = self
+            .ctx
+            .get_ast_type(n.1.id())
+            .unwrap_or_else(|| self.ctx.type_system.get_error_type());
 
         if self.diagnose_redeclared_symbol(name, n.0.loc()) {
             return;
