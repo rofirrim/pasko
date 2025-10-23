@@ -118,6 +118,7 @@ fn main() -> ExitCode {
     let parse_result = pasko_frontend::parser::parse_pasko_program(&input, &mut diagnostics);
 
     // Create the diagnostic emitter used by the semantic checks.
+    let linemap = span::LineMap::new(&input);
     let simple_emitter = diagnostics::SimpleEmitter::new(&input_filename, &input);
 
     // AST processing.
@@ -127,7 +128,7 @@ fn main() -> ExitCode {
             parse_result.is_some() || diagnostics.num_error() > 0,
             "if the parse fails we must diagnose an error"
         );
-        diagnostics.report(&simple_emitter);
+        diagnostics.report(&simple_emitter, &linemap);
         if cli.debug_flags.must_fail_parse {
             if parse_result.is_none() {
                 return ExitCode::SUCCESS;
@@ -143,10 +144,10 @@ fn main() -> ExitCode {
     // FIXME: The input is used to build the linemap but there is no point to build it twice, one for semantic
     // and another one for the diagnostics and the dumper. Either we get it from the semantic context
     // or we push it onto it.
-    let mut semantic_context = pasko_frontend::semantic::SemanticContext::new(&input);
+    let mut semantic_context = pasko_frontend::semantic::SemanticContext::new(&linemap);
 
     if cli.mode == Mode::ASTDumpPre {
-        let mut dumper = dump::ASTDumper::new(&input, &semantic_context);
+        let mut dumper = dump::ASTDumper::new(&semantic_context, &linemap);
         if cli.debug_flags.ast_dump_no_ids {
             dumper.set_no_ids();
         }
@@ -163,10 +164,10 @@ fn main() -> ExitCode {
 
     pasko_frontend::semantic::check_program(&mut program, &mut semantic_context, &mut diagnostics);
 
-    diagnostics.report(&simple_emitter);
+    diagnostics.report(&simple_emitter, &linemap);
 
     if cli.mode == Mode::ASTDump {
-        let mut dumper = dump::ASTDumper::new(&input, &semantic_context);
+        let mut dumper = dump::ASTDumper::new(&semantic_context, &linemap);
         if cli.debug_flags.ast_dump_no_ids {
             dumper.set_no_ids();
         }
@@ -200,8 +201,6 @@ fn main() -> ExitCode {
     }
 
     let ir_dump = cli.mode == Mode::IRDump;
-
-    let linemap = span::LineMap::new(&input);
 
     pasko_codegen::codegen::codegen(
         cli.target,

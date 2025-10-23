@@ -4,20 +4,20 @@ use crate::span;
 use crate::visitor::{Visitable, VisitorMut};
 use std::fmt::Display;
 
-pub struct ASTDumper<'a> {
+pub struct ASTDumper<'input> {
     prefix: String,
     output: String,
-    linemap: span::LineMap,
-    semantic_context: &'a SemanticContext,
+    linemap: &'input span::LineMap,
+    semantic_context: &'input SemanticContext<'input>,
     no_ids: bool,
 }
 
-impl<'a> ASTDumper<'a> {
-    pub fn new(input: &str, semantic_context: &'a SemanticContext) -> ASTDumper<'a> {
+impl<'input> ASTDumper<'input> {
+    pub fn new(semantic_context: &'input SemanticContext, linemap: &'input span::LineMap) -> ASTDumper<'input> {
         ASTDumper {
             prefix: String::new(),
             output: String::new(),
-            linemap: span::LineMap::new(input),
+            linemap,
             semantic_context,
             no_ids: false,
         }

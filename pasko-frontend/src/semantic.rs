@@ -13,8 +13,8 @@ use crate::{scope, typesystem};
 
 use std::collections::{HashMap, HashSet};
 
-pub struct SemanticContext {
-    line_map: LineMap,
+pub struct SemanticContext<'input> {
+    line_map: &'input LineMap,
     symbol_map: SymbolMap,
     pub type_system: TypeSystem,
 
@@ -57,13 +57,13 @@ pub fn is_required_function_zeroadic(name: &str) -> bool {
 }
 
 // In bytes.
-impl SemanticContext {
-    pub fn new(input: &str) -> SemanticContext {
+impl<'input> SemanticContext<'input> {
+    pub fn new(line_map: &'input LineMap) -> SemanticContext<'input> {
         let symbol_map = SymbolMapImpl::new();
         let type_system = TypeSystem::new(symbol_map.clone());
 
         SemanticContext {
-            line_map: LineMap::new(input),
+            line_map,
             symbol_map,
             type_system,
             scope: scope::Scope::new(),
@@ -210,9 +210,9 @@ impl SemanticContext {
     }
 }
 
-struct SemanticCheckerVisitor<'a> {
-    ctx: &'a mut SemanticContext,
-    diagnostics: &'a mut Diagnostics,
+struct SemanticCheckerVisitor<'input> {
+    ctx: &'input mut SemanticContext<'input>,
+    diagnostics: &'input mut Diagnostics,
 
     in_type_definition_part: bool,
     in_pointer_type: bool,
@@ -5826,10 +5826,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     }
 }
 
-pub fn check_program(
+pub fn check_program<'input>(
     program: &mut span::SpannedBox<ast::Program>,
-    semantic_context: &mut SemanticContext,
-    diagnostics: &mut Diagnostics,
+    semantic_context: &'input mut SemanticContext<'input>,
+    diagnostics: &'input mut Diagnostics,
 ) {
     // Init global scope.
     semantic_context.init_global_scope();

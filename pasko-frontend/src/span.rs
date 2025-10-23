@@ -135,6 +135,9 @@ macro_rules! span_loc {
 pub struct LineMap {
     line_start: Vec<usize>,
     line_end: Vec<usize>,
+    // This mapps offsets into tab-expanded columns.
+    // FIXME: This should be more sparse because we're replicating the input here.
+    column_mapping: Vec<usize>
 }
 
 impl LineMap {
@@ -142,17 +145,28 @@ impl LineMap {
         let mut result = LineMap {
             line_start: vec![],
             line_end: vec![],
+            column_mapping: vec![]
         };
+        let tab_size = 4;
 
         let mut prev_was_new_line = true;
+        let mut column_mapped_idx = 1;
         for (offset, c) in input.bytes().enumerate() {
             if prev_was_new_line {
+                column_mapped_idx = 1;
                 result.line_start.push(offset);
                 prev_was_new_line = false;
             }
+            result.column_mapping.push(column_mapped_idx);
             if c as char == '\n' {
                 result.line_end.push(offset);
                 prev_was_new_line = true;
+            } else {
+                if c as char == '\t' {
+                    column_mapped_idx += tab_size;
+                } else {
+                    column_mapped_idx += 1;
+                }
             }
         }
 
@@ -197,6 +211,7 @@ impl LineMap {
         let x = self.line_start.partition_point(|x| *x <= offset);
 
         // println!("{ret:?}");
-        (x, offset - self.line_start[x - 1] + 1)
+        // (x, offset - self.line_start[x - 1] + 1)
+        (x, self.column_mapping[offset])
     }
 }

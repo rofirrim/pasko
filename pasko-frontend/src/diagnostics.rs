@@ -1,4 +1,4 @@
-use crate::span::SpanLoc;
+use crate::span::{LineMap, SpanLoc};
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum DiagnosticKind {
@@ -89,8 +89,8 @@ impl Diagnostics {
     }
 
     // FIXME: We could do something smarter here, like sorting by line.
-    pub fn report(&self, emitter: &dyn DiagnosticEmitter) {
-        self.diagnostics.iter().for_each(|d| emitter.emit(d));
+    pub fn report(&self, emitter: &dyn DiagnosticEmitter, linemap: &LineMap) {
+        self.diagnostics.iter().for_each(|d| emitter.emit(d, linemap));
     }
 
     pub fn num_diagnostics(&self) -> usize {
@@ -103,7 +103,7 @@ impl Diagnostics {
 }
 
 pub trait DiagnosticEmitter {
-    fn emit(&self, diag: &Diagnostic);
+    fn emit(&self, diag: &Diagnostic, linemap: &LineMap);
 }
 
 use std::convert::From;

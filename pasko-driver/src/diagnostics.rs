@@ -3,6 +3,7 @@ use pasko_frontend::{self, span};
 pub struct SimpleEmitter<'input_file> {
     filename: &'input_file str,
     input: &'input_file str,
+    tab_size: usize,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -22,7 +23,11 @@ impl LineAndCol {
 
 impl<'input_file> SimpleEmitter<'input_file> {
     pub fn new(filename: &'input_file str, input: &'input_file str) -> SimpleEmitter<'input_file> {
-        SimpleEmitter { filename, input }
+        SimpleEmitter {
+            filename,
+            input,
+            tab_size: 4,
+        }
     }
 
     fn get_line_and_col(
@@ -36,6 +41,18 @@ impl<'input_file> SimpleEmitter<'input_file> {
             LineAndCol::new(linemap, location.0, is_main),
             LineAndCol::new(linemap, location.1, is_main),
         ));
+    }
+
+    fn expand_tabs(&self, s: &str) -> String {
+        let mut result = String::new();
+        for c in s.chars() {
+            if c == '\t' {
+                result.push_str(&" ".repeat(self.tab_size));
+            } else {
+                result.push(c);
+            }
+        }
+        result
     }
 
     fn print_location(
@@ -72,7 +89,10 @@ impl<'input_file> SimpleEmitter<'input_file> {
             // println!("start_offset = {start_offset} | end_offset = {end_offset}");
 
             let linenum_str = format!("{current_line:5} ");
-            eprintln!("{linenum_str}│ {}", &self.input[start_offset..=end_offset]);
+            eprintln!(
+                "{linenum_str}│ {}",
+                self.expand_tabs(&self.input[start_offset..=end_offset])
+            );
 
             let active_locations: Vec<_> = all_line_locations
                 .iter()
@@ -84,7 +104,8 @@ impl<'input_file> SimpleEmitter<'input_file> {
                 continue;
             }
             // Active locations should not overlap, so there can be more than one active per a single line.
-            let max_col = end_offset - start_offset + 1;
+            // let max_col = end_offset - start_offset + 1;
+            let max_col = linemap.offset_to_column(end_offset);
             let mut carets: Vec<char> = (1..=max_col).map(|_| ' ').collect();
 
             if !active_locations.is_empty() {
@@ -152,15 +173,12 @@ impl<'input_file> SimpleEmitter<'input_file> {
 }
 
 impl<'input_file> pasko_frontend::diagnostics::DiagnosticEmitter for SimpleEmitter<'input_file> {
-    fn emit(&self, diag: &pasko_frontend::diagnostics::Diagnostic) {
+    fn emit(&self, diag: &pasko_frontend::diagnostics::Diagnostic, linemap: &span::LineMap) {
         let diag_kind = match diag.kind {
             pasko_frontend::diagnostics::DiagnosticKind::Error => "error",
             pasko_frontend::diagnostics::DiagnosticKind::Warning => "warning",
             pasko_frontend::diagnostics::DiagnosticKind::Info => "info",
         };
-
-        // Now compute a map between lines and offsets.
-        let linemap = span::LineMap::new(self.input);
 
         let message = &diag.message;
 
@@ -178,13 +196,13 @@ impl<'input_file> pasko_frontend::diagnostics::DiagnosticEmitter for SimpleEmitt
             Some(v) => v.clone(),
         };
 
-        self.print_location(&linemap, main_location, extra_locations);
+        self.print_location(linemap, main_location, extra_locations);
 
         // Emit extras if any.
 
         if let Some(extras) = &diag.extra_diagnostics {
             for d in extras.iter() {
-                self.emit(d);
+                self.emit(d, linemap);
             }
         }
     }

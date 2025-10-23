@@ -52,10 +52,10 @@ pub struct SizeAndAlignment {
 pub type SizeAndAlignmentCache = RefCell<HashMap<TypeId, SizeAndAlignment>>;
 pub type OffsetCache = RefCell<HashMap<SymbolId, usize>>;
 
-pub struct CodegenVisitor<'a> {
+pub struct CodegenVisitor<'input> {
     pub object_module: Option<Box<cranelift_object::ObjectModule>>,
     pub ctx: cranelift_codegen::Context,
-    pub semantic_context: &'a SemanticContext,
+    pub semantic_context: &'input SemanticContext<'input>,
     pub pointer_type: cranelift_codegen::ir::Type,
     pub string_table: HashMap<String, cranelift_module::DataId>,
 
@@ -69,8 +69,8 @@ pub struct CodegenVisitor<'a> {
     pub annotations: EntityAnnotations,
     pub emit_debug: bool,
 
-    source_filename: &'a path::Path,
-    linemap: &'a span::LineMap,
+    source_filename: &'input path::Path,
+    linemap: &'input span::LineMap,
     ir_dump: bool,
     globals_to_dispose: Vec<SymbolId>,
     trivially_copiable_cache: RefCell<HashMap<TypeId, bool>>,
