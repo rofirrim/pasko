@@ -2,6 +2,7 @@ use pasko_frontend::diagnostics;
 use pasko_frontend::dump;
 use pasko_frontend::parser;
 use pasko_frontend::semantic;
+use pasko_frontend::span::LineMap;
 use pasko_frontend::visitor::Visitable;
 
 mod common;
@@ -9,10 +10,11 @@ mod common;
 use common::CheckDiagnostics;
 
 fn semantic_check_diags(input: &str, errors: Vec<String>) {
+    let linemap = LineMap::new(input, 4);
     let mut diags = diagnostics::Diagnostics::new();
     let mut p = parser::parse_pasko_program(input, &mut diags);
 
-    let mut semantic_context = semantic::SemanticContext::new(input);
+    let mut semantic_context = semantic::SemanticContext::new(&linemap);
 
     match p.as_mut() {
         Some(parse) => {
@@ -26,7 +28,7 @@ fn semantic_check_diags(input: &str, errors: Vec<String>) {
     let mut check_diags = CheckDiagnostics::new();
     errors.iter().for_each(|s| check_diags.check_error(s));
 
-    diags.report(&check_diags);
+    diags.report(&check_diags, &linemap);
     assert_eq!(
         errors.len(),
         check_diags.num_diagnostics_seen(),
@@ -35,16 +37,17 @@ fn semantic_check_diags(input: &str, errors: Vec<String>) {
 }
 
 fn do_ast_dump(input: &str) -> String {
+    let linemap = LineMap::new(input, 4);
     let mut diags = diagnostics::Diagnostics::new();
     let mut p = parser::parse_pasko_program(input, &mut diags);
 
-    let mut semantic_context = semantic::SemanticContext::new(input);
+    let mut semantic_context = semantic::SemanticContext::new(&linemap);
 
     match p.as_mut() {
         Some(parse) => {
             semantic::check_program(parse, &mut semantic_context, &mut diags);
 
-            let mut dumper = dump::ASTDumper::new(input, &semantic_context);
+            let mut dumper = dump::ASTDumper::new(&semantic_context, &linemap);
             dumper.set_no_ids();
             parse.get().walk_mut(&mut dumper, parse.loc(), parse.id());
             dumper.to_string()

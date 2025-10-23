@@ -90,7 +90,9 @@ impl Diagnostics {
 
     // FIXME: We could do something smarter here, like sorting by line.
     pub fn report(&self, emitter: &dyn DiagnosticEmitter, linemap: &LineMap) {
-        self.diagnostics.iter().for_each(|d| emitter.emit(d, linemap));
+        self.diagnostics
+            .iter()
+            .for_each(|d| emitter.emit(d, linemap));
     }
 
     pub fn num_diagnostics(&self) -> usize {
@@ -109,8 +111,8 @@ pub trait DiagnosticEmitter {
 use std::convert::From;
 use std::process::ExitCode;
 
-impl From<Diagnostics> for ExitCode {
-    fn from(diags: Diagnostics) -> ExitCode {
+impl From<&Diagnostics> for ExitCode {
+    fn from(diags: &Diagnostics) -> ExitCode {
         if diags.num_error() == 0 {
             ExitCode::SUCCESS
         } else {

@@ -135,38 +135,30 @@ macro_rules! span_loc {
 pub struct LineMap {
     line_start: Vec<usize>,
     line_end: Vec<usize>,
-    // This mapps offsets into tab-expanded columns.
-    // FIXME: This should be more sparse because we're replicating the input here.
-    column_mapping: Vec<usize>
+    tab_size: usize,
+    tab_locations: Vec<usize>,
 }
 
 impl LineMap {
-    pub fn new(input: &str) -> LineMap {
+    pub fn new(input: &str, tab_size: usize) -> LineMap {
         let mut result = LineMap {
             line_start: vec![],
             line_end: vec![],
-            column_mapping: vec![]
+            tab_size,
+            tab_locations: vec![],
         };
-        let tab_size = 4;
 
         let mut prev_was_new_line = true;
-        let mut column_mapped_idx = 1;
         for (offset, c) in input.bytes().enumerate() {
             if prev_was_new_line {
-                column_mapped_idx = 1;
                 result.line_start.push(offset);
                 prev_was_new_line = false;
             }
-            result.column_mapping.push(column_mapped_idx);
             if c as char == '\n' {
                 result.line_end.push(offset);
                 prev_was_new_line = true;
-            } else {
-                if c as char == '\t' {
-                    column_mapped_idx += tab_size;
-                } else {
-                    column_mapped_idx += 1;
-                }
+            } else if c as char == '\t' {
+                result.tab_locations.push(offset);
             }
         }
 
@@ -208,10 +200,22 @@ impl LineMap {
 
     pub fn offset_to_line_and_col(&self, offset: usize) -> (usize, usize) {
         // println!("offset = {offset} | lines = {:?}", self.line_start);
-        let x = self.line_start.partition_point(|x| *x <= offset);
+        let line = self.line_start.partition_point(|x| *x <= offset);
 
-        // println!("{ret:?}");
-        // (x, offset - self.line_start[x - 1] + 1)
-        (x, self.column_mapping[offset])
+        let mut next_tab = self
+            .tab_locations
+            .partition_point(|y| *y < self.line_start[line - 1]);
+
+        let mut column = offset - self.line_start[line - 1] + 1;
+        while next_tab < self.tab_locations.len() && self.tab_locations[next_tab] <= offset {
+            column += self.tab_size - 1;
+            next_tab += 1;
+        }
+
+        // dbg!(column);
+
+        // (line, offset - self.line_start[line - 1] + 1)
+        // (line, self.column_mapping[offset])
+        (line, column)
     }
 }

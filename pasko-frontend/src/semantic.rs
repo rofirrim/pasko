@@ -210,8 +210,8 @@ impl<'input> SemanticContext<'input> {
     }
 }
 
-struct SemanticCheckerVisitor<'input> {
-    ctx: &'input mut SemanticContext<'input>,
+struct SemanticCheckerVisitor<'input, 'ctx> {
+    ctx: &'input mut SemanticContext<'ctx>,
     diagnostics: &'input mut Diagnostics,
 
     in_type_definition_part: bool,
@@ -235,7 +235,7 @@ enum FunctionProcedureDeclarationStatus {
     AlreadyDefined(SymbolId),
 }
 
-impl<'a> SemanticCheckerVisitor<'a> {
+impl<'input, 'ctx> SemanticCheckerVisitor<'input, 'ctx> {
     fn _lookup_symbol_impl(
         &mut self,
         name: &str,
@@ -1789,7 +1789,7 @@ impl<'a> SemanticCheckerVisitor<'a> {
     }
 }
 
-impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
+impl<'input, 'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'input, 'ctx> {
     fn visit_program_heading(
         &mut self,
         node: &mut ast::ProgramHeading,
@@ -5826,10 +5826,10 @@ impl<'a> MutatingVisitorMut for SemanticCheckerVisitor<'a> {
     }
 }
 
-pub fn check_program<'input>(
+pub fn check_program(
     program: &mut span::SpannedBox<ast::Program>,
-    semantic_context: &'input mut SemanticContext<'input>,
-    diagnostics: &'input mut Diagnostics,
+    semantic_context: &mut SemanticContext<'_>,
+    diagnostics: &mut Diagnostics,
 ) {
     // Init global scope.
     semantic_context.init_global_scope();

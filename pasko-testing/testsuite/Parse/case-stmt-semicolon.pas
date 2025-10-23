@@ -4,13 +4,13 @@ RUN: %pasko --mode=ast-dump-pre --ast-dump-no-ids %s | FileCheck %s
 
 program test;
 var
-	a: integer;
+ a: integer;
 begin
-	readln(a);
-	case a of
-		1, 3: writeln('Number one or three');
-		2: writeln('Number two');
-	end
+ readln(a);
+ case a of
+  1, 3: writeln('Number one or three');
+  2: writeln('Number two');
+ end
 end.
 
 {

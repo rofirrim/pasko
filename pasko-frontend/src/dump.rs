@@ -13,7 +13,10 @@ pub struct ASTDumper<'input> {
 }
 
 impl<'input> ASTDumper<'input> {
-    pub fn new(semantic_context: &'input SemanticContext, linemap: &'input span::LineMap) -> ASTDumper<'input> {
+    pub fn new(
+        semantic_context: &'input SemanticContext,
+        linemap: &'input span::LineMap,
+    ) -> ASTDumper<'input> {
         ASTDumper {
             prefix: String::new(),
             output: String::new(),

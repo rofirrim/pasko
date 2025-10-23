@@ -1,4 +1,4 @@
-use pasko_frontend::diagnostics;
+use pasko_frontend::{diagnostics, span};
 use std::cell::Cell;
 
 pub struct CheckDiagnostics {
@@ -31,7 +31,7 @@ impl CheckDiagnostics {
 }
 
 impl diagnostics::DiagnosticEmitter for CheckDiagnostics {
-    fn emit(&self, diag: &diagnostics::Diagnostic) {
+    fn emit(&self, diag: &diagnostics::Diagnostic, _linemap: &span::LineMap) {
         let current_idx = self.idx.get();
         self.idx.set(current_idx + 1);
 

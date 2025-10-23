@@ -42,8 +42,15 @@ struct Cli {
     #[arg(long, help = "Target to generate code for")]
     target: Option<String>,
 
-    #[arg(short = 'g', default_value_t = false, help = "Emit debug information (disables optimization)")]
+    #[arg(
+        short = 'g',
+        default_value_t = false,
+        help = "Emit debug information (disables optimization)"
+    )]
     emit_debug: bool,
+
+    #[arg(long, default_value_t = 4, value_parser = 1..=16, help = "Distance between tab stops")]
+    tabstop: i64,
 
     #[command(flatten, next_help_heading = "Debug / Testing")]
     debug_flags: DebugFlags,
@@ -118,8 +125,9 @@ fn main() -> ExitCode {
     let parse_result = pasko_frontend::parser::parse_pasko_program(&input, &mut diagnostics);
 
     // Create the diagnostic emitter used by the semantic checks.
-    let linemap = span::LineMap::new(&input);
-    let simple_emitter = diagnostics::SimpleEmitter::new(&input_filename, &input);
+    let linemap = span::LineMap::new(&input, cli.tabstop as usize);
+    let simple_emitter =
+        diagnostics::SimpleEmitter::new(&input_filename, &input, cli.tabstop as usize);
 
     // AST processing.
     if cli.mode == Mode::ParseOnly || parse_result.is_none() {
@@ -136,7 +144,7 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         }
-        return ExitCode::from(diagnostics);
+        return ExitCode::from(&diagnostics);
     }
 
     let mut program = parse_result.unwrap();
@@ -186,7 +194,7 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         }
-        return ExitCode::from(diagnostics);
+        return ExitCode::from(&diagnostics);
     }
 
     let mut object_filename = cli.file.clone();

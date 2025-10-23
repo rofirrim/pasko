@@ -22,11 +22,15 @@ impl LineAndCol {
 }
 
 impl<'input_file> SimpleEmitter<'input_file> {
-    pub fn new(filename: &'input_file str, input: &'input_file str) -> SimpleEmitter<'input_file> {
+    pub fn new(
+        filename: &'input_file str,
+        input: &'input_file str,
+        tab_size: usize,
+    ) -> SimpleEmitter<'input_file> {
         SimpleEmitter {
             filename,
             input,
-            tab_size: 4,
+            tab_size,
         }
     }
 

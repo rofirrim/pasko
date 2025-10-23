@@ -3358,10 +3358,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             let dl = self.codegen.data_location.get(&sym_id).cloned();
             if let Some(DataLocation::Variable(var, ..)) = dl {
                 let v = self.builder().use_var(var);
-                self.builder().set_val_label(
-                    v,
-                    cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()),
-                );
+                self.builder()
+                    .set_val_label(v, cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()));
                 let symbol = self.codegen.semantic_context.get_symbol(sym_id);
                 let symbol = symbol.borrow();
                 self.codegen.annotations.new_value(v, symbol.get_name());
@@ -4384,7 +4382,13 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     .map(
                         |x| match self.codegen.semantic_context.get_ast_value(x.id()).unwrap() {
                             pasko_frontend::constant::Constant::Integer(x) => x,
-                            pasko_frontend::constant::Constant::Bool(b) => if b { 1 } else { 0 },
+                            pasko_frontend::constant::Constant::Bool(b) => {
+                                if b {
+                                    1
+                                } else {
+                                    0
+                                }
+                            }
                             _ => panic!("Unexpected value"),
                         },
                     )
