@@ -23,19 +23,19 @@ It is implemented in [rust](https://www.rust-lang.org) and uses the following ma
 ##### Requirements
 
 - An x86-64 Linux machine
-  
+
   - more platforms may be added in the future
 
 - Rust (tested with 1.75)
 
-- Meson (tested with 1.3.1)
-  
+- Meson (tested with 1.3.1) and Ninja
+
   - Used to build the runtime
 
 - GCC
-  
+
   - Used to build the runtime
-  
+
   - Used to link the pasko programs
 
 ##### Compiler
@@ -52,7 +52,7 @@ It is implemented in [rust](https://www.rust-lang.org) and uses the following ma
 
 3. `cd builddir`
 
-4. `make`
+4. `ninja`
 
 ##### Tests
 
@@ -71,6 +71,34 @@ From inside the build-directory
 1. `cargo run -- myprogram.pas --pasko-runtime=<top-level-dir>/pasko-runtime/builddir`
 
 2. If this succeeds you will have a `myprogram` file that you can execute
+
+#### Example
+
+```pascal
+program my_gcd(output, input);
+
+var
+  x, y: integer;
+
+function gcd(a: integer; b: integer) : integer;
+var
+  t: integer;
+begin
+  while b <> 0 do
+  begin
+    t := b;
+    b := a mod b;
+    a := t
+  end;
+  gcd := a
+end;
+
+begin
+  write('Type first number: '); readln(x);
+  write('Type second number: '); readln(y);
+  writeln('GCD of ', x, ' and ', y, ' is ', gcd(x, y))
+end.
+```
 
 ### Missing features
 
