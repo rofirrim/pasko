@@ -65,6 +65,10 @@ impl<'input_file> SimpleEmitter<'input_file> {
         main_location: span::SpanLoc,
         extra_locations: Vec<span::SpanLoc>,
     ) {
+        if self.input.is_empty() {
+            // Degenerated case when the input is empty.
+            return;
+        }
         let mut all_locations = extra_locations.clone();
         all_locations.push(main_location);
 
@@ -135,9 +139,17 @@ impl<'input_file> SimpleEmitter<'input_file> {
                         // We start in this line
                         if active_location.1.line == current_line {
                             // And we end in this line
-                            if active_location.0.col + 1 == active_location.1.col {
+                            if active_location.0.col == active_location.1.col // Degenerated case for end of file
+                                || active_location.0.col + 1 == active_location.1.col
+                            {
                                 // But we only take one column!
-                                carets[active_location.0.col - 1] = '↑';
+                                if active_location.0.col - 1 < carets.len() {
+                                    carets[active_location.0.col - 1] = '↑';
+                                } else if active_location.0.col - 1 == carets.len() {
+                                    // Special case for end of file
+                                    carets.push('↑');
+                                }
+                                // We should do something, cowardly refusing to print a caret here.
                             } else {
                                 // We take more than one column.
                                 carets[active_location.0.col - 1] = '╰';

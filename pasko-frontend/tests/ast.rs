@@ -25,9 +25,8 @@ fn parse_tree_failure(input: &str) {
 fn parse_tree_failure_check_diags(input: &str, errors: Vec<String>) {
     let linemap = span::LineMap::new(input, 4);
     let mut diags = diagnostics::Diagnostics::new();
-    let p = parser::parse_pasko_program(input, &mut diags);
+    let _p = parser::parse_pasko_program(input, &mut diags);
 
-    assert!(p.is_none(), "some AST was returned?");
     assert!(diags.num_diagnostics() != 0, "No diagnostics were emitted?");
 
     let mut check_diags = CheckDiagnostics::new();
@@ -64,12 +63,12 @@ begin
    x = 3;
 end.
     "#,
-        vec!["unexpected token =".to_string()],
+        vec!["unexpected token \"=\"".to_string()],
     );
 
     parse_tree_failure_check_diags(
         "program program;",
-        vec!["unexpected token program".to_string()],
+        vec!["unexpected token \"program\"".to_string()],
     );
 }
 

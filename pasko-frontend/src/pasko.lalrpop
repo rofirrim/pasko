@@ -3,12 +3,13 @@ use crate::limits;
 use crate::ast;
 use crate::lexer;
 use crate::lexer::LexicalError;
+use crate::diagnostics;
+use crate::parser;
 use std::str::FromStr;
 
 use lalrpop_util::ParseError;
 
-grammar;
-
+grammar(diagnostics: &mut diagnostics::Diagnostics);
 
 extern {
     type Location = usize;
@@ -300,6 +301,10 @@ StatementSequence : Vec<SpannedBox<ast::Stmt>> = {
 Statement : SpannedBox<ast::Stmt> = {
     <s:ClosedStatement> => s,
     <s:OpenStatement> => s,
+    <start:@L> <e:!> <end:@R> => {
+        parser::diagnose_parse_error(diagnostics, &e.error);
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::Error(ast::StmtError(e.error)))
+    }
 };
 
 ClosedStatement : SpannedBox<ast::Stmt> = {

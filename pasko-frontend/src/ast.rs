@@ -1,5 +1,7 @@
 // ASTs
+use crate::lexer;
 use crate::span::{Spanned, SpannedBox};
+use lalrpop_util::ParseError;
 use std::fmt;
 
 #[derive(Debug)]
@@ -63,6 +65,9 @@ pub struct StmtWith(pub Vec<SpannedBox<Assig>>, pub SpannedBox<Stmt>);
 pub struct StmtEmpty;
 
 #[derive(Debug)]
+pub struct StmtError(pub ParseError<usize, lexer::Tok, lexer::LexicalError>);
+
+#[derive(Debug)]
 pub enum Stmt {
     Label(StmtLabel),
     Assignment(StmtAssignment),
@@ -76,6 +81,7 @@ pub enum Stmt {
     For(StmtFor),
     With(StmtWith),
     Empty(StmtEmpty),
+    Error(StmtError),
 }
 
 #[derive(Debug)]

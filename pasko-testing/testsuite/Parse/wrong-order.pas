@@ -13,5 +13,5 @@ begin
 end;
 
 {
-CHECK: error: unexpected token const, expecting one of "begin", "function", "identifier", "procedure"
+CHECK: error: unexpected token "const", expecting one of "begin", "function", "identifier", "procedure"
 }

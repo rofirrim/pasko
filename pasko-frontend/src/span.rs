@@ -201,12 +201,17 @@ impl LineMap {
     pub fn offset_to_line_and_col(&self, offset: usize) -> (usize, usize) {
         // println!("offset = {offset} | lines = {:?}", self.line_start);
         let line = self.line_start.partition_point(|x| *x <= offset);
+        let line = if line == 0 { 1 } else { line };
 
         let mut next_tab = self
             .tab_locations
             .partition_point(|y| *y < self.line_start[line - 1]);
 
-        let mut column = offset - self.line_start[line - 1] + 1;
+        let mut column = if line - 1 < self.line_start.len() {
+            offset - self.line_start[line - 1] + 1
+        } else {
+            1
+        };
         while next_tab < self.tab_locations.len() && self.tab_locations[next_tab] <= offset {
             column += self.tab_size - 1;
             next_tab += 1;

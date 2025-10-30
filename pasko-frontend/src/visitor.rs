@@ -178,6 +178,7 @@ macro_rules! define_visitor_trait {
             $define_visitor!(StmtIf);
             $define_visitor!(StmtCase);
             $define_visitor_leaf!(StmtEmpty);
+            $define_visitor_leaf!(StmtError);
             $define_visitor!(CaseListElement);
             $define_visitor!(Assig);
             $define_visitor_leaf!(AssigVariable);
@@ -1752,7 +1753,8 @@ define_visitable_enum!(Stmt,
     ast::Stmt::With,
     ast::Stmt::If,
     ast::Stmt::Case,
-    ast::Stmt::Empty
+    ast::Stmt::Empty,
+    ast::Stmt::Error
 });
 
 define_mutating_visitable_enum!(Stmt,
@@ -1768,7 +1770,8 @@ define_mutating_visitable_enum!(Stmt,
     ast::Stmt::With,
     ast::Stmt::If,
     ast::Stmt::Case,
-    ast::Stmt::Empty
+    ast::Stmt::Empty,
+    ast::Stmt::Error
 });
 
 // StmtLabel
@@ -2097,6 +2100,10 @@ define_mutating_visitable!(
 // StmtEmpty
 define_visitable_leaf!(StmtEmpty);
 define_mutating_visitable_leaf!(StmtEmpty);
+
+// StmtError
+define_visitable_leaf!(StmtError);
+define_mutating_visitable_leaf!(StmtError);
 
 // Assig
 define_visitable_enum!(Assig,
