@@ -8,8 +8,7 @@ macro_rules! define_visitor {
     ($class:ident) => {
         paste! {
           fn [<visit_pre_ $class:snake>](&self, _n: &ast::$class, span: &span::SpanLoc, id: span::SpanId) -> bool {
-            self.unhandled_node_pre(stringify!($class), span, id);
-            true
+            self.unhandled_node_pre(stringify!($class), span, id)
           }
           fn [<visit_post_ $class:snake>](&self, _n: &ast::$class, span: &span::SpanLoc, id: span::SpanId)  {
             self.unhandled_node_post(stringify!($class), span, id);
@@ -33,8 +32,7 @@ macro_rules! define_visitor_mut {
     ($class:ident) => {
         paste! {
           fn [<visit_pre_ $class:snake>](&mut self, _n: &ast::$class, span: &span::SpanLoc, id: span::SpanId) -> bool {
-            self.unhandled_node_pre(stringify!($class), span, id);
-            true
+            self.unhandled_node_pre(stringify!($class), span, id)
           }
           fn [<visit_post_ $class:snake>](&mut self, _n: &ast::$class, span: &span::SpanLoc, id: span::SpanId)  {
             self.unhandled_node_post(stringify!($class), span, id);
@@ -58,8 +56,7 @@ macro_rules! define_mutating_visitor {
     ($class:ident) => {
         paste! {
           fn [<visit_pre_ $class:snake>](&self, _n: &mut ast::$class, span: &span::SpanLoc, id: span::SpanId) -> bool {
-            self.unhandled_node_pre(stringify!($class), span, id);
-            true
+            self.unhandled_node_pre(stringify!($class), span, id)
           }
           fn [<visit_post_ $class:snake>](&self, _n: &mut ast::$class, span: &span::SpanLoc, id: span::SpanId)  {
             self.unhandled_node_post(stringify!($class), span, id);
@@ -83,8 +80,7 @@ macro_rules! define_mutating_visitor_mut {
     ($class:ident) => {
         paste! {
           fn [<visit_pre_ $class:snake>](&mut self, _n: &mut ast::$class, span: &span::SpanLoc, id: span::SpanId) -> bool {
-            self.unhandled_node_pre(stringify!($class), span, id);
-            true
+            self.unhandled_node_pre(stringify!($class), span, id)
           }
           fn [<visit_post_ $class:snake>](&mut self, _n: &mut ast::$class, span: &span::SpanLoc, id: span::SpanId)  {
             self.unhandled_node_post(stringify!($class), span, id);
@@ -106,7 +102,7 @@ macro_rules! define_mutating_visitor_leaf_mut {
 macro_rules! define_visitor_trait {
     ($trait_name:ident, $define_visitor:ident, $define_visitor_leaf:ident) => {
         pub trait $trait_name {
-            fn unhandled_node_pre(&self, _class: &str, _span: &span::SpanLoc, _id: span::SpanId) {}
+            fn unhandled_node_pre(&self, _class: &str, _span: &span::SpanLoc, _id: span::SpanId) -> bool { true }
             fn unhandled_node_post(&self, _class: &str, _span: &span::SpanLoc, _id: span::SpanId) {}
             fn unhandled_node_leaf(&self, _class: &str, _span: &span::SpanLoc, _id: span::SpanId) {}
             $define_visitor!(Program);

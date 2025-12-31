@@ -1,3 +1,4 @@
+use pasko_frontend::visitor::Visitable;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tower_lsp::jsonrpc::Result;
@@ -34,6 +35,7 @@ impl LanguageServer for Backend {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(false)),
                 completion_provider: None, // Some(CompletionOptions::default()),
+                definition_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             ..Default::default()
@@ -90,6 +92,54 @@ impl LanguageServer for Backend {
             let mut file_info = self.file_info.lock().unwrap();
             file_info.remove(&uri);
         }
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let uri: Url = params.text_document_position_params.text_document.uri;
+        let position: Position = params.text_document_position_params.position;
+
+        let offset = {
+            let file_info = self.file_info.lock().unwrap();
+            file_info.get(&uri).and_then(|file_info| {
+                file_info.line_map.line_and_col_to_offset(
+                    (position.line + 1) as usize,
+                    (position.character + 1) as usize,
+                )
+            })
+        };
+
+        let file_info = self.file_info.lock().unwrap();
+        let result = offset
+            .and_then(|offset| {
+                file_info.get(&uri).and_then(|file_info| {
+                    self.search_identifier(&file_info.program, &file_info.semantic_context, offset)
+                })
+            })
+            .and_then(|found| {
+                let line_map = file_info
+                    .get(&uri)
+                    .and_then(|file_info| Some(&file_info.line_map));
+
+                line_map.and_then(|line_map| {
+                    let start_position = Position::new(
+                        line_map.offset_to_line_0based(found.0) as u32,
+                        line_map.offset_to_column_0based(found.0) as u32,
+                    );
+                    let end_position = Position::new(
+                        line_map.offset_to_line_0based(found.1) as u32,
+                        line_map.offset_to_column_0based(found.1) as u32,
+                    );
+                    Some(GotoDefinitionResponse::Scalar(Location::new(
+                        uri,
+                        Range::new(start_position, end_position),
+                    )))
+                })
+            });
+
+        Ok(result)
     }
 }
 
@@ -239,6 +289,66 @@ impl Backend {
         self.client
             .publish_diagnostics(uri, lsp_diagnostics, version)
             .await;
+    }
+
+    fn search_identifier(
+        &self,
+        program: &Option<pasko_frontend::span::SpannedBox<pasko_frontend::ast::Program>>,
+        semantic_context: &Option<pasko_frontend::semantic::SemanticContext>,
+        offset: usize,
+    ) -> Option<pasko_frontend::span::SpanLoc> {
+        if let Some(program) = program {
+            if let Some(semantic_context) = semantic_context {
+                let mut ast_identifier_search = ASTIdentifierSearch {
+                    offset,
+                    semantic_context,
+                    found_offset: None,
+                };
+
+                program
+                    .get()
+                    .walk_mut(&mut ast_identifier_search, program.loc(), program.id());
+
+                return ast_identifier_search.found_offset;
+            }
+        }
+        None
+    }
+}
+
+struct ASTIdentifierSearch<'a> {
+    offset: usize,
+    semantic_context: &'a pasko_frontend::semantic::SemanticContext,
+
+    // Output
+    found_offset: Option<pasko_frontend::span::SpanLoc>,
+}
+
+impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
+    fn unhandled_node_pre(
+        &self,
+        _class: &str,
+        span: &pasko_frontend::span::SpanLoc,
+        _id: pasko_frontend::span::SpanId,
+    ) -> bool {
+        // Limit ourselves to nodes that include the offset we are looking for
+        span.0 <= self.offset && self.offset < span.1 && self.found_offset.is_none()
+    }
+
+    fn visit_assig_variable(
+        &mut self,
+        _n: &pasko_frontend::ast::AssigVariable,
+        _span: &pasko_frontend::span::SpanLoc,
+        id: pasko_frontend::span::SpanId,
+    ) {
+        if self.found_offset.is_some() {
+            return;
+        }
+        if let Some(symbol_id) = self.semantic_context.get_ast_symbol(id) {
+            let symbol = self.semantic_context.symbol_map.get_symbol(symbol_id);
+
+            self.found_offset = symbol.get_defining_point();
+        }
     }
 }
 

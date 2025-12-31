@@ -241,4 +241,33 @@ impl LineMap {
         // (line, self.column_mapping[offset])
         (line, column)
     }
+
+    pub fn line_and_col_to_offset(&self, line: usize, col: usize) -> Option<usize> {
+        let start_offset = self.start_of_line_offset(line);
+        let end_offset = self.end_of_line_offset(line);
+
+        start_offset.and_then(|start| {
+            end_offset.and_then(|end| {
+                let mut current_offset = start;
+                let mut current_column = 1usize;
+                let mut next_tab = self.tab_locations.partition_point(|y| *y < start);
+                while current_column < col && current_offset < end {
+                    if next_tab < self.tab_locations.len()
+                        && self.tab_locations[next_tab] == current_offset
+                    {
+                        current_column += self.tab_size;
+                        next_tab += 1;
+                    } else {
+                        current_column += 1;
+                    }
+                    current_offset += 1;
+                }
+                if current_offset == end {
+                    None
+                } else {
+                    Some(current_offset)
+                }
+            })
+        })
+    }
 }

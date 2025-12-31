@@ -181,7 +181,7 @@ impl<'a> Display for ASTDumper<'a> {
 }
 
 impl<'a> VisitorMut for ASTDumper<'a> {
-    fn unhandled_node_pre(&self, class: &str, span: &span::SpanLoc, _id: span::SpanId) {
+    fn unhandled_node_pre(&self, class: &str, span: &span::SpanLoc, _id: span::SpanId) -> bool {
         panic!("Unhandled node |{}| at {}", class, self.get_loc(span));
     }
 
