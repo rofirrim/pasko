@@ -7,11 +7,16 @@ pub enum DiagnosticKind {
     Error,
 }
 
+pub struct ExtraItem {
+    pub locus: SpanLoc,
+    pub name: String,
+}
+
 pub struct Diagnostic {
     pub kind: DiagnosticKind,
     pub locus: SpanLoc,
     pub message: String,
-    pub extra_locus: Option<Vec<SpanLoc>>,
+    pub extra_locus: Option<Vec<(SpanLoc, String)>>,
     pub extra_diagnostics: Option<Vec<Diagnostic>>,
 }
 
@@ -30,7 +35,7 @@ impl Diagnostic {
         kind: DiagnosticKind,
         locus: SpanLoc,
         message: String,
-        extra_locus: Vec<SpanLoc>,
+        extra_locus: Vec<(SpanLoc, String)>,
         extra_diagnostics: Vec<Diagnostic>,
     ) -> Diagnostic {
         Diagnostic {
@@ -73,7 +78,7 @@ impl Diagnostics {
         kind: DiagnosticKind,
         locus: SpanLoc,
         message: String,
-        extra_locus: Vec<SpanLoc>,
+        extra_locus: Vec<(SpanLoc, String)>,
         extra_diagnostics: Vec<Diagnostic>,
     ) {
         if kind == DiagnosticKind::Error {
@@ -89,7 +94,7 @@ impl Diagnostics {
     }
 
     // FIXME: We could do something smarter here, like sorting by line.
-    pub fn report(&self, emitter: &dyn DiagnosticEmitter, linemap: &LineMap) {
+    pub fn report(&self, emitter: &mut dyn DiagnosticEmitter, linemap: &LineMap) {
         self.diagnostics
             .iter()
             .for_each(|d| emitter.emit(d, linemap));
@@ -105,7 +110,7 @@ impl Diagnostics {
 }
 
 pub trait DiagnosticEmitter {
-    fn emit(&self, diag: &Diagnostic, linemap: &LineMap);
+    fn emit(&mut self, diag: &Diagnostic, linemap: &LineMap);
 }
 
 use std::convert::From;

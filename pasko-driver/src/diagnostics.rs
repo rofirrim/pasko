@@ -189,7 +189,7 @@ impl<'input_file> SimpleEmitter<'input_file> {
 }
 
 impl<'input_file> pasko_frontend::diagnostics::DiagnosticEmitter for SimpleEmitter<'input_file> {
-    fn emit(&self, diag: &pasko_frontend::diagnostics::Diagnostic, linemap: &span::LineMap) {
+    fn emit(&mut self, diag: &pasko_frontend::diagnostics::Diagnostic, linemap: &span::LineMap) {
         let diag_kind = match diag.kind {
             pasko_frontend::diagnostics::DiagnosticKind::Error => "error",
             pasko_frontend::diagnostics::DiagnosticKind::Warning => "warning",
@@ -198,7 +198,7 @@ impl<'input_file> pasko_frontend::diagnostics::DiagnosticEmitter for SimpleEmitt
 
         let message = &diag.message;
 
-        let main_location = diag.locus;
+        let main_location: span::SpanLoc = diag.locus;
         eprintln!(
             "{}:{}:{}: {diag_kind}: {message}",
             self.filename,
@@ -209,7 +209,7 @@ impl<'input_file> pasko_frontend::diagnostics::DiagnosticEmitter for SimpleEmitt
         // FIXME: This is odd.
         let extra_locations: Vec<_> = match &diag.extra_locus {
             None => vec![],
-            Some(v) => v.clone(),
+            Some(v) => v.iter().map(|(loc, _message)| *loc).collect(), 
         };
 
         self.print_location(linemap, main_location, extra_locations);

@@ -194,8 +194,18 @@ impl LineMap {
         self.offset_to_line_and_col(offset).0
     }
 
+    pub fn offset_to_line_0based(&self, offset: usize) -> usize {
+        let line = self.offset_to_line_and_col(offset).0;
+        if line > 0 { line - 1 } else { 0 }
+    }
+
     pub fn offset_to_column(&self, offset: usize) -> usize {
         self.offset_to_line_and_col(offset).1
+    }
+
+    pub fn offset_to_column_0based(&self, offset: usize) -> usize {
+        let col = self.offset_to_line_and_col(offset).1;
+        if col > 0 { col - 1 } else { 0 }
     }
 
     pub fn offset_to_line_and_col(&self, offset: usize) -> (usize, usize) {

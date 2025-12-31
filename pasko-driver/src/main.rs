@@ -95,10 +95,10 @@ fn main() -> ExitCode {
 
     let cli = Cli::parse();
 
-    let extension = cli.file.extension();
-    if extension.is_none() || extension.unwrap() != "pas" {
+    let extension = cli.file.extension().unwrap_or(std::ffi::OsStr::new(""));
+    if extension != "pas" && extension != "pasko" {
         eprintln!(
-            "Input file must have extension '.pas' (input file specified is '{}')",
+            "Input file must have extension '.pas' or '.pasko' (input file specified is '{}')",
             cli.file.to_string_lossy()
         );
         return ExitCode::FAILURE;
@@ -126,7 +126,7 @@ fn main() -> ExitCode {
 
     // Create the diagnostic emitter used by the semantic checks.
     let linemap = span::LineMap::new(&input, cli.tabstop as usize);
-    let simple_emitter =
+    let mut simple_emitter =
         diagnostics::SimpleEmitter::new(&input_filename, &input, cli.tabstop as usize);
 
     // AST processing.
@@ -136,7 +136,7 @@ fn main() -> ExitCode {
             parse_result.is_some() || diagnostics.num_error() > 0,
             "if the parse fails we must diagnose an error"
         );
-        diagnostics.report(&simple_emitter, &linemap);
+        diagnostics.report(&mut simple_emitter, &linemap);
         if cli.debug_flags.must_fail_parse {
             if parse_result.is_none() {
                 return ExitCode::SUCCESS;
@@ -148,10 +148,6 @@ fn main() -> ExitCode {
     }
 
     let mut program = parse_result.unwrap();
-
-    // FIXME: The input is used to build the linemap but there is no point to build it twice, one for semantic
-    // and another one for the diagnostics and the dumper. Either we get it from the semantic context
-    // or we push it onto it.
     let mut semantic_context = pasko_frontend::semantic::SemanticContext::new(&linemap);
 
     if cli.mode == Mode::ASTDumpPre {
@@ -172,7 +168,7 @@ fn main() -> ExitCode {
 
     pasko_frontend::semantic::check_program(&mut program, &mut semantic_context, &mut diagnostics);
 
-    diagnostics.report(&simple_emitter, &linemap);
+    diagnostics.report(&mut simple_emitter, &linemap);
 
     if cli.mode == Mode::ASTDump {
         let mut dumper = dump::ASTDumper::new(&semantic_context, &linemap);

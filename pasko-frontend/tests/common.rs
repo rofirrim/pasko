@@ -31,7 +31,7 @@ impl CheckDiagnostics {
 }
 
 impl diagnostics::DiagnosticEmitter for CheckDiagnostics {
-    fn emit(&self, diag: &diagnostics::Diagnostic, _linemap: &span::LineMap) {
+    fn emit(&mut self, diag: &diagnostics::Diagnostic, _linemap: &span::LineMap) {
         let current_idx = self.idx.get();
         self.idx.set(current_idx + 1);
 

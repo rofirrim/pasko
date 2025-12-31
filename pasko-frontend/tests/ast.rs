@@ -32,7 +32,7 @@ fn parse_tree_failure_check_diags(input: &str, errors: Vec<String>) {
     let mut check_diags = CheckDiagnostics::new();
     errors.iter().for_each(|s| check_diags.check_error(s));
 
-    diags.report(&check_diags, &linemap);
+    diags.report(&mut check_diags, &linemap);
     assert_eq!(
         diags.num_diagnostics(),
         check_diags.num_diagnostics_seen(),

@@ -1062,7 +1062,10 @@ impl<'input, 'ctx> SemanticCheckerVisitor<'input, 'ctx> {
                 self.ctx.type_system.get_type_name(lhs_ty),
                 self.ctx.type_system.get_type_name(rhs_ty)
             ),
-            vec![lhs_loc, rhs_loc],
+            vec![
+                (lhs_loc, "left-hand side".to_string()),
+                (rhs_loc, "right-hand side".to_string()),
+            ],
             vec![],
         );
     }
@@ -1085,7 +1088,7 @@ impl<'input, 'ctx> SemanticCheckerVisitor<'input, 'ctx> {
                 operator_name,
                 self.ctx.type_system.get_type_name(op_ty)
             ),
-            vec![op_loc],
+            vec![(op_loc, "operand".to_string())],
             vec![],
         );
     }
@@ -1598,7 +1601,7 @@ impl<'input, 'ctx> SemanticCheckerVisitor<'input, 'ctx> {
                             DiagnosticKind::Error,
                             *current_arg.loc(),
                             "these arguments should have the same type".to_string(),
-                            vec![*first_arg.loc()],
+                            vec![(*first_arg.loc(), "first argument".to_string())],
                             vec![],
                         );
                         argument_error = true;
@@ -2118,7 +2121,7 @@ impl<'input, 'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'input, 'ctx> {
                 DiagnosticKind::Error,
                 *lower.loc(),
                 "in a subrange type the two constants must be of the same ordinal type".to_string(),
-                vec![*upper.loc()],
+                vec![(*upper.loc(), "upper value".to_string())],
                 vec![],
             );
             self.ctx
@@ -2135,7 +2138,7 @@ impl<'input, 'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'input, 'ctx> {
                 *lower.loc(),
                 "in a subrange type the first constant must be lower or equal than the second one"
                     .to_string(),
-                vec![*upper.loc()],
+                vec![(*upper.loc(), "upper value".to_string())],
                 vec![],
             );
             self.ctx
@@ -3548,7 +3551,7 @@ impl<'input, 'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'input, 'ctx> {
                 let rhs_type_name = self.ctx.type_system.get_type_name(rhs_type);
                 self.diagnostics.add_with_extra(DiagnosticKind::Error, lhs_loc,
                 format!("left-hand side of this assignment has type {} that is not assignment-compatible with the type {} of the right-hand side", lhs_type_name, rhs_type_name),
-            vec![rhs_loc], vec![]);
+            vec![(rhs_loc, "right-hand side".to_string())], vec![]);
             }
         } else {
             self.ctx
@@ -4382,7 +4385,7 @@ impl<'input, 'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'input, 'ctx> {
                         self.ctx.type_system.get_type_name(current_element_type),
                         self.ctx.type_system.get_type_name(first_element_type)
                     ),
-                    vec![*first_element_loc],
+                    vec![(*first_element_loc, "first element of the set".to_string())],
                     vec![],
                 );
             }
@@ -5030,7 +5033,7 @@ impl<'input, 'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'input, 'ctx> {
                         *case_const.loc(),
                         "constant of case must be of same ordinal type as case expression"
                             .to_string(),
-                        vec![*case_expr.loc()],
+                        vec![(*case_expr.loc(), "related case expression".to_string())],
                         vec![],
                     );
                 }
