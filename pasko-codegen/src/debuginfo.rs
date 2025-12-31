@@ -490,7 +490,6 @@ impl DebugContext {
         let mut function_name;
 
         let function_symbol = semantic_context.get_symbol(function_symbol_id);
-        let function_symbol = function_symbol.borrow();
         let function_symbol_scope = function_symbol.get_scope().unwrap();
 
         function_name = function_symbol.get_name().clone();
@@ -638,13 +637,24 @@ impl DebugContext {
 
         let type_id = if semantic_context.type_system.is_named_type(ty) {
             self.typedef_type(semantic_context, ty, size_and_alignment_cache, offset_cache)
-        } else if semantic_context.type_system.is_integer_type(ty, &semantic_context.symbol_map)
-            || semantic_context.type_system.is_bool_type(ty, &semantic_context.symbol_map)
-            || semantic_context.type_system.is_real_type(ty, &semantic_context.symbol_map)
-            || semantic_context.type_system.is_char_type(ty, &semantic_context.symbol_map)
+        } else if semantic_context
+            .type_system
+            .is_integer_type(ty, &semantic_context.symbol_map)
+            || semantic_context
+                .type_system
+                .is_bool_type(ty, &semantic_context.symbol_map)
+            || semantic_context
+                .type_system
+                .is_real_type(ty, &semantic_context.symbol_map)
+            || semantic_context
+                .type_system
+                .is_char_type(ty, &semantic_context.symbol_map)
         {
             self.basic_type(semantic_context, ty)
-        } else if semantic_context.type_system.is_subrange_type(ty, &semantic_context.symbol_map) {
+        } else if semantic_context
+            .type_system
+            .is_subrange_type(ty, &semantic_context.symbol_map)
+        {
             self.subrange_type(
                 semantic_context,
                 ty,
@@ -652,7 +662,10 @@ impl DebugContext {
                 size_and_alignment_cache,
                 offset_cache,
             )
-        } else if semantic_context.type_system.is_enum_type(ty, &semantic_context.symbol_map) {
+        } else if semantic_context
+            .type_system
+            .is_enum_type(ty, &semantic_context.symbol_map)
+        {
             self.enum_type(
                 semantic_context,
                 ty,
@@ -660,18 +673,32 @@ impl DebugContext {
                 size_and_alignment_cache,
                 offset_cache,
             )
-        } else if semantic_context.type_system.is_array_type(ty, &semantic_context.symbol_map) {
+        } else if semantic_context
+            .type_system
+            .is_array_type(ty, &semantic_context.symbol_map)
+        {
             self.array_type(semantic_context, ty, size_and_alignment_cache, offset_cache)
-        } else if semantic_context.type_system.is_record_type(ty, &semantic_context.symbol_map) {
+        } else if semantic_context
+            .type_system
+            .is_record_type(ty, &semantic_context.symbol_map)
+        {
             self.record_type(semantic_context, ty, size_and_alignment_cache, offset_cache)
-        } else if semantic_context.type_system.is_pointer_type(ty, &semantic_context.symbol_map) {
+        } else if semantic_context
+            .type_system
+            .is_pointer_type(ty, &semantic_context.symbol_map)
+        {
             self.pointer_type(semantic_context, ty, size_and_alignment_cache, offset_cache)
-        } else if semantic_context.type_system.is_set_type(ty, &semantic_context.symbol_map) {
+        } else if semantic_context
+            .type_system
+            .is_set_type(ty, &semantic_context.symbol_map)
+        {
             self.set_type(semantic_context, ty, size_and_alignment_cache, offset_cache)
         } else {
             info!(
                 "unimplemented debugging information support for type {}",
-                semantic_context.type_system.get_type_name(ty, &semantic_context.symbol_map)
+                semantic_context
+                    .type_system
+                    .get_type_name(ty, &semantic_context.symbol_map)
             );
 
             self.unspecified_type(semantic_context, ty, size_and_alignment_cache, offset_cache)
@@ -713,13 +740,25 @@ impl DebugContext {
         semantic_context: &pasko_frontend::semantic::SemanticContext,
         ty: pasko_frontend::typesystem::TypeId,
     ) -> gimli::write::UnitEntryId {
-        let type_id = if semantic_context.type_system.is_integer_type(ty, &semantic_context.symbol_map) {
+        let type_id = if semantic_context
+            .type_system
+            .is_integer_type(ty, &semantic_context.symbol_map)
+        {
             self.basic_type_impl("integer", 8, gimli::DW_ATE_signed)
-        } else if semantic_context.type_system.is_bool_type(ty, &semantic_context.symbol_map) {
+        } else if semantic_context
+            .type_system
+            .is_bool_type(ty, &semantic_context.symbol_map)
+        {
             self.basic_type_impl("boolean", 1, gimli::DW_ATE_boolean)
-        } else if semantic_context.type_system.is_real_type(ty, &semantic_context.symbol_map) {
+        } else if semantic_context
+            .type_system
+            .is_real_type(ty, &semantic_context.symbol_map)
+        {
             self.basic_type_impl("real", 8, gimli::DW_ATE_float)
-        } else if semantic_context.type_system.is_char_type(ty, &semantic_context.symbol_map) {
+        } else if semantic_context
+            .type_system
+            .is_char_type(ty, &semantic_context.symbol_map)
+        {
             self.basic_type_impl("char", 4, gimli::DW_ATE_UTF)
         } else {
             panic!("Unexpected basic type");
@@ -742,8 +781,12 @@ impl DebugContext {
             size_and_alignment_cache,
             offset_cache,
         );
-        let lower = semantic_context.type_system.ordinal_type_lower_bound(ty, &semantic_context.symbol_map);
-        let upper = semantic_context.type_system.ordinal_type_upper_bound(ty, &semantic_context.symbol_map);
+        let lower = semantic_context
+            .type_system
+            .ordinal_type_lower_bound(ty, &semantic_context.symbol_map);
+        let upper = semantic_context
+            .type_system
+            .ordinal_type_upper_bound(ty, &semantic_context.symbol_map);
         let type_id = self.dwarf.unit.add(
             parent.unwrap_or_else(|| self.dwarf.unit.root()),
             gimli::DW_TAG_subrange_type,
@@ -783,7 +826,9 @@ impl DebugContext {
             gimli::DW_TAG_enumeration_type,
         );
 
-        let enumerators = semantic_context.type_system.enum_type_get_enumerators(ty, &semantic_context.symbol_map);
+        let enumerators = semantic_context
+            .type_system
+            .enum_type_get_enumerators(ty, &semantic_context.symbol_map);
         enumerators
             .iter()
             .enumerate()
@@ -791,7 +836,6 @@ impl DebugContext {
                 let enum_entry = self.dwarf.unit.add(type_id, gimli::DW_TAG_enumerator);
                 let entry = self.dwarf.unit.get_mut(enum_entry);
                 let enumerator_sym = semantic_context.get_symbol(*enumerator);
-                let enumerator_sym = enumerator_sym.borrow();
                 let enumerator_name = enumerator_sym.get_name();
                 entry.set(
                     gimli::DW_AT_name,
@@ -826,9 +870,17 @@ impl DebugContext {
             .unit
             .add(self.dwarf.unit.root(), gimli::DW_TAG_array_type);
         let mut component_type = ty;
-        while semantic_context.type_system.is_array_type(component_type, &semantic_context.symbol_map) {
-            let index_type = semantic_context.type_system.array_type_get_index_type(ty, &semantic_context.symbol_map);
-            if semantic_context.type_system.is_enum_type(index_type, &semantic_context.symbol_map) {
+        while semantic_context
+            .type_system
+            .is_array_type(component_type, &semantic_context.symbol_map)
+        {
+            let index_type = semantic_context
+                .type_system
+                .array_type_get_index_type(ty, &semantic_context.symbol_map);
+            if semantic_context
+                .type_system
+                .is_enum_type(index_type, &semantic_context.symbol_map)
+            {
                 self.enum_type(
                     semantic_context,
                     index_type,
@@ -836,7 +888,10 @@ impl DebugContext {
                     size_and_alignment_cache,
                     offset_cache,
                 );
-            } else if semantic_context.type_system.is_subrange_type(index_type, &semantic_context.symbol_map) {
+            } else if semantic_context
+                .type_system
+                .is_subrange_type(index_type, &semantic_context.symbol_map)
+            {
                 self.subrange_type(
                     semantic_context,
                     index_type,
@@ -895,7 +950,6 @@ impl DebugContext {
         }
         fields.iter().for_each(|field_sym_id| {
             let field_sym = semantic_context.get_symbol(*field_sym_id);
-            let field_sym = field_sym.borrow();
             let field_entry_id = self.dwarf.unit.add(type_id, gimli::DW_TAG_member);
 
             let field_type_id = self.debug_type(
@@ -1300,7 +1354,6 @@ impl DebugContext {
     ) -> gimli::write::UnitEntryId {
         let sym_id = semantic_context.type_system.named_type_get_symbol(ty);
         let sym = semantic_context.get_symbol(sym_id);
-        let sym = sym.borrow();
         let sym_type = sym.get_type().unwrap();
         let base_type = self.debug_type(
             semantic_context,
@@ -1366,12 +1419,10 @@ impl DebugContext {
         value_label_ranges.sort_by(|label_a, label_b| {
             let sym_id_a = SymbolId::build_from_id(label_a.0.as_u32() as usize);
             let sym_a = semantic_context.get_symbol(sym_id_a);
-            let sym_a = sym_a.borrow();
             let loc_a = sym_a.get_defining_point().unwrap();
 
             let sym_id_b = SymbolId::build_from_id(label_b.0.as_u32() as usize);
             let sym_b = semantic_context.get_symbol(sym_id_b);
-            let sym_b = sym_b.borrow();
             let loc_b = sym_b.get_defining_point().unwrap();
 
             loc_a.begin().cmp(&loc_b.begin())
@@ -1380,7 +1431,6 @@ impl DebugContext {
         for (label, ranges) in value_label_ranges {
             let sym_id = SymbolId::build_from_id(label.as_u32() as usize);
             let sym = semantic_context.get_symbol(sym_id);
-            let sym = sym.borrow();
 
             let (line, col) =
                 linemap.offset_to_line_and_col(sym.get_defining_point().unwrap().begin());

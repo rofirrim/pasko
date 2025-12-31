@@ -467,7 +467,11 @@ impl TypeSystem {
         ty.is_enum_type()
     }
 
-    pub fn enum_type_get_enumerators(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> Vec<SymbolId> {
+    pub fn enum_type_get_enumerators(
+        &self,
+        ty: TypeId,
+        symbol_map: &symbol::SymbolMap,
+    ) -> Vec<SymbolId> {
         let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
@@ -612,7 +616,11 @@ impl TypeSystem {
         ty.array_type_is_packed()
     }
 
-    pub fn array_type_get_component_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> TypeId {
+    pub fn array_type_get_component_type(
+        &self,
+        ty: TypeId,
+        symbol_map: &symbol::SymbolMap,
+    ) -> TypeId {
         let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
@@ -633,35 +641,55 @@ impl TypeSystem {
         ty.is_conformable_array_type()
     }
 
-    pub fn conformable_array_type_get_component_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> TypeId {
+    pub fn conformable_array_type_get_component_type(
+        &self,
+        ty: TypeId,
+        symbol_map: &symbol::SymbolMap,
+    ) -> TypeId {
         let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.conformable_array_type_get_component_type()
     }
 
-    pub fn conformable_array_type_is_packed(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+    pub fn conformable_array_type_is_packed(
+        &self,
+        ty: TypeId,
+        symbol_map: &symbol::SymbolMap,
+    ) -> bool {
         let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.conformable_array_type_is_packed()
     }
 
-    pub fn conformable_array_type_get_lower(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> SymbolId {
+    pub fn conformable_array_type_get_lower(
+        &self,
+        ty: TypeId,
+        symbol_map: &symbol::SymbolMap,
+    ) -> SymbolId {
         let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.conformable_array_type_get_lower()
     }
 
-    pub fn conformable_array_type_get_upper(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> SymbolId {
+    pub fn conformable_array_type_get_upper(
+        &self,
+        ty: TypeId,
+        symbol_map: &symbol::SymbolMap,
+    ) -> SymbolId {
         let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.conformable_array_type_get_upper()
     }
 
-    pub fn array_or_conformable_array_type_get_component_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> TypeId {
+    pub fn array_or_conformable_array_type_get_component_type(
+        &self,
+        ty: TypeId,
+        symbol_map: &symbol::SymbolMap,
+    ) -> TypeId {
         if self.is_array_type(ty, symbol_map) {
             self.array_type_get_component_type(ty, symbol_map)
         } else {
@@ -671,7 +699,8 @@ impl TypeSystem {
 
     pub fn array_or_conformable_array_type_get_index_type(
         &self,
-        ty: TypeId, symbol_map: &symbol::SymbolMap,
+        ty: TypeId,
+        symbol_map: &symbol::SymbolMap,
     ) -> TypeId {
         if self.is_array_type(ty, symbol_map) {
             let ty = self.ultimate_type(ty, symbol_map);
@@ -680,8 +709,7 @@ impl TypeSystem {
             ty.array_type_get_index_type()
         } else {
             let lower = self.conformable_array_type_get_lower(ty, symbol_map);
-            let lower_sym = symbol_map.borrow().get_symbol(lower);
-            let lower_sym = lower_sym.borrow();
+            let lower_sym = symbol_map.get_symbol(lower);
             lower_sym.get_type().unwrap()
         }
     }
@@ -693,21 +721,33 @@ impl TypeSystem {
         ty.is_record_type()
     }
 
-    pub fn record_type_get_all_fields(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> &Vec<symbol::SymbolId> {
+    pub fn record_type_get_all_fields(
+        &self,
+        ty: TypeId,
+        symbol_map: &symbol::SymbolMap,
+    ) -> &Vec<symbol::SymbolId> {
         let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.record_type_get_all_fields()
     }
 
-    pub fn record_type_get_fixed_fields(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> &Vec<symbol::SymbolId> {
+    pub fn record_type_get_fixed_fields(
+        &self,
+        ty: TypeId,
+        symbol_map: &symbol::SymbolMap,
+    ) -> &Vec<symbol::SymbolId> {
         let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.record_type_get_fixed_fields()
     }
 
-    pub fn record_type_get_variant_part(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> &Option<VariantPart> {
+    pub fn record_type_get_variant_part(
+        &self,
+        ty: TypeId,
+        symbol_map: &symbol::SymbolMap,
+    ) -> &Option<VariantPart> {
         let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
@@ -803,7 +843,11 @@ impl TypeSystem {
         ty.is_pointer_type()
     }
 
-    pub fn pointer_type_get_pointee_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> TypeId {
+    pub fn pointer_type_get_pointee_type(
+        &self,
+        ty: TypeId,
+        symbol_map: &symbol::SymbolMap,
+    ) -> TypeId {
         let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
@@ -844,7 +888,11 @@ impl TypeSystem {
         ty.is_textfile_type()
     }
 
-    pub fn file_type_get_component_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> TypeId {
+    pub fn file_type_get_component_type(
+        &self,
+        ty: TypeId,
+        symbol_map: &symbol::SymbolMap,
+    ) -> TypeId {
         let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
@@ -885,8 +933,7 @@ impl TypeSystem {
             format!(
                 "case {}{} of {}",
                 {
-                    let sym = symbol_map.borrow().get_symbol(variant_part.tag_name);
-                    let sym = sym.borrow();
+                    let sym = symbol_map.get_symbol(variant_part.tag_name);
                     format!("{} : ", sym.get_name())
                 },
                 self.get_type_name_impl(
@@ -912,8 +959,7 @@ impl TypeSystem {
                                     case.fields
                                         .iter()
                                         .map(|field_sym| {
-                                            let sym = symbol_map.borrow().get_symbol(*field_sym);
-                                            let sym = sym.borrow();
+                                            let sym = symbol_map.get_symbol(*field_sym);
                                             format!(
                                                 "{}: {};",
                                                 sym.get_name(),
@@ -959,8 +1005,7 @@ impl TypeSystem {
         cycles.insert(id);
         match ty.get_kind() {
             TypeKind::NamedType(sym_id) => {
-                let sym = symbol_map.borrow().get_symbol(sym_id);
-                let sym = sym.borrow();
+                let sym = symbol_map.get_symbol(sym_id);
                 assert!(!self.is_builtin_type_name(sym.get_name()));
                 if was_already_visited {
                     return sym.get_name().clone();
@@ -972,8 +1017,12 @@ impl TypeSystem {
                         symbol_map,
                     );
                 } else {
-                    let aliased_to =
-                        self.get_type_name_impl(self.ultimate_type(id, symbol_map), true, cycles, symbol_map);
+                    let aliased_to = self.get_type_name_impl(
+                        self.ultimate_type(id, symbol_map),
+                        true,
+                        cycles,
+                        symbol_map,
+                    );
                     return format!("{} (an alias of {})", sym.get_name().clone(), aliased_to);
                 }
             }
@@ -1006,13 +1055,11 @@ impl TypeSystem {
                     "conformable {}array [{}..{}] of {}",
                     if packed { "packed " } else { "" },
                     {
-                        let sym = symbol_map.borrow().get_symbol(lower);
-                        let sym = sym.borrow();
+                        let sym = symbol_map.get_symbol(lower);
                         sym.get_name().clone()
                     },
                     {
-                        let sym = symbol_map.borrow().get_symbol(upper);
-                        let sym = sym.borrow();
+                        let sym = symbol_map.get_symbol(upper);
                         sym.get_name().clone()
                     },
                     self.get_type_name_impl(component, skip_alias, cycles, symbol_map)
@@ -1024,8 +1071,7 @@ impl TypeSystem {
                     enumerators
                         .iter()
                         .map(|sym_id| {
-                            let sym = symbol_map.borrow().get_symbol(*sym_id);
-                            let sym = sym.borrow();
+                            let sym = symbol_map.get_symbol(*sym_id);
                             sym.get_name().clone()
                         })
                         .collect::<Vec<_>>()
@@ -1045,8 +1091,7 @@ impl TypeSystem {
                     fixed_fields
                         .iter()
                         .map(|sym_id| {
-                            let sym = symbol_map.borrow().get_symbol(*sym_id);
-                            let sym = sym.borrow();
+                            let sym = symbol_map.get_symbol(*sym_id);
                             format!(
                                 "{} : {};",
                                 sym.get_name(),
@@ -1108,8 +1153,7 @@ impl TypeSystem {
     pub fn ultimate_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> TypeId {
         let lhs_type = self.get_type_internal(ty);
         if let Some(sym_id) = lhs_type.get_symbol_of_named_type() {
-            let sym = symbol_map.borrow().get_symbol(sym_id);
-            let sym = sym.borrow();
+            let sym = symbol_map.get_symbol(sym_id);
             return self.ultimate_type(sym.get_type().unwrap(), symbol_map);
         }
         ty
@@ -1123,8 +1167,12 @@ impl TypeSystem {
             (TypeKind::None, _) => false,
             (_, TypeKind::None) => false,
             // See through named types
-            (TypeKind::NamedType(_), _) => self.same_type(self.ultimate_type(a, symbol_map), b, symbol_map),
-            (_, TypeKind::NamedType(_)) => self.same_type(a, self.ultimate_type(b, symbol_map), symbol_map),
+            (TypeKind::NamedType(_), _) => {
+                self.same_type(self.ultimate_type(a, symbol_map), b, symbol_map)
+            }
+            (_, TypeKind::NamedType(_)) => {
+                self.same_type(a, self.ultimate_type(b, symbol_map), symbol_map)
+            }
             // Structural checking
             (TypeKind::SubRange(t1, ca1, cb1), TypeKind::SubRange(t2, ca2, cb2)) => {
                 ca1 == ca2 && cb1 == cb2 && self.same_type(t1, t2, symbol_map)
@@ -1151,7 +1199,11 @@ impl TypeSystem {
                     index: i2,
                     component: c2,
                 },
-            ) => (p1 == p2) && self.same_type(i1, i2, symbol_map) && self.same_type(c1, c2, symbol_map),
+            ) => {
+                (p1 == p2)
+                    && self.same_type(i1, i2, symbol_map)
+                    && self.same_type(c1, c2, symbol_map)
+            }
             (
                 TypeKind::File {
                     packed: p1,
@@ -1168,15 +1220,18 @@ impl TypeSystem {
         }
     }
 
-    pub fn is_valid_component_type_of_file_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+    pub fn is_valid_component_type_of_file_type(
+        &self,
+        ty: TypeId,
+        symbol_map: &symbol::SymbolMap,
+    ) -> bool {
         if self.is_file_type(ty, symbol_map) {
             return false;
         } else if self.is_record_type(ty, symbol_map) {
             let fields = self.record_type_get_all_fields(ty, symbol_map);
 
             fields.iter().all(|field| {
-                let sym = symbol_map.borrow().get_symbol(*field);
-                let sym = sym.borrow();
+                let sym = symbol_map.get_symbol(*field);
 
                 self.is_valid_component_type_of_file_type(sym.get_type().unwrap(), symbol_map)
             });

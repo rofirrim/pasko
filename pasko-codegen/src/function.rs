@@ -310,7 +310,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         annotation_prefix: &str,
     ) {
         let symbol = self.codegen.semantic_context.get_symbol(sym_id);
-        let symbol = symbol.borrow();
 
         self.codegen.annotations.new_stack_slot(
             stack_slot,
@@ -337,7 +336,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
     pub fn allocate_variable(&mut self, sym_id: pasko_frontend::symbol::SymbolId) {
         let symbol = self.codegen.semantic_context.get_symbol(sym_id);
-        let symbol = symbol.borrow();
         let symbol_type = symbol.get_type().unwrap();
 
         let new_variable = Variable::new(self.next_variable());
@@ -363,7 +361,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
     pub fn allocate_value_in_stack(&mut self, sym_id: pasko_frontend::symbol::SymbolId) {
         let symbol = self.codegen.semantic_context.get_symbol(sym_id);
-        let symbol = symbol.borrow();
         let symbol_type = symbol.get_type().unwrap();
 
         let stack_slot = self.allocate_storage_for_type_in_stack(symbol_type);
@@ -377,7 +374,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         let stack_slot = self.allocate_storage_in_stack(size);
 
         let symbol = self.codegen.semantic_context.get_symbol(sym_id);
-        let symbol = symbol.borrow();
 
         self.codegen.annotations.new_stack_slot(
             stack_slot,
@@ -614,7 +610,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     let offset = self.get_offset_of_field(addr_ty, *field_id);
 
                     let field_sym = self.codegen.semantic_context.get_symbol(*field_id);
-                    let field_sym = field_sym.borrow();
                     let field_ty = field_sym.get_type().unwrap();
 
                     let field_addr = self.add_offset_to_address(addr, offset);
@@ -927,7 +922,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()),
                 );
                 let sym = self.codegen.semantic_context.get_symbol(sym_id);
-                let sym = sym.borrow();
                 self.codegen
                     .annotations
                     .new_value(param_value, sym.get_name());
@@ -941,7 +935,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()),
                 );
                 let sym = self.codegen.semantic_context.get_symbol(sym_id);
-                let sym = sym.borrow();
                 self.codegen
                     .annotations
                     .new_value(param_value, sym.get_name());
@@ -997,7 +990,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 self.builder()
                     .set_val_label(v, cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()));
                 let symbol = self.codegen.semantic_context.get_symbol(sym_id);
-                let symbol = symbol.borrow();
                 self.codegen.annotations.new_value(v, symbol.get_name());
                 v
             }
@@ -1017,7 +1009,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 let builder = self.builder_obj.as_mut().unwrap();
 
                 let symbol = self.codegen.semantic_context.get_symbol(sym_id);
-                let symbol = symbol.borrow();
                 let ty = symbol.get_type().unwrap();
 
                 let value = if self
@@ -1071,7 +1062,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                         .stack_load(self.codegen.pointer_type, *stack_slot, 0);
 
                 let symbol = self.codegen.semantic_context.get_symbol(sym_id);
-                let symbol = symbol.borrow();
                 let ty = symbol.get_type().unwrap();
 
                 let cranelift_ty = self.codegen.type_to_cranelift_type(ty);
@@ -1202,7 +1192,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 true
             } else {
                 let callee_sym = self.codegen.semantic_context.get_symbol(callee_sym_id);
-                let callee_sym = callee_sym.borrow();
                 // We allow calling functional parameters without environment.
                 callee_sym.get_parameter().is_some() && environment.is_some()
             }
@@ -1219,7 +1208,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 let (arg, param) = item;
 
                 let param_sym = self.codegen.semantic_context.get_symbol(*param);
-                let param_sym = param_sym.borrow();
                 let param_kind = param_sym.get_parameter().unwrap();
 
                 match param_kind {
@@ -1302,7 +1290,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                             .codegen
                             .semantic_context
                             .get_symbol(function_arg_sym_id);
-                        let function_arg_sym = function_arg_sym.borrow();
 
                         let arg_environment = if function_arg_sym.get_parameter().is_none() {
                             self.emit_environment_for_function_reference(function_arg_sym_id)
@@ -1356,7 +1343,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 let (arg, param) = item;
 
                 let param_sym = self.codegen.semantic_context.get_symbol(*param);
-                let param_sym = param_sym.borrow();
                 let param_kind = param_sym.get_parameter().unwrap();
 
                 match param_kind {
@@ -1533,7 +1519,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         wants_return_value: bool,
     ) -> Option<cranelift_codegen::ir::Value> {
         let callee_sym = self.codegen.semantic_context.get_symbol(callee_sym_id);
-        let callee_sym = callee_sym.borrow();
 
         let mut result = None;
 
@@ -1565,7 +1550,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
                 let return_sym_id = callee_sym.get_return_symbol().unwrap();
                 let return_sym = self.codegen.semantic_context.get_symbol(return_sym_id);
-                let return_sym = return_sym.borrow();
 
                 return_type = return_sym.get_type();
 
@@ -1741,7 +1725,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             match dl {
                 DataLocation::Variable(var, Some(address)) => {
                     let sym = self.codegen.semantic_context.get_symbol(sym_id);
-                    let sym = sym.borrow();
                     let ty = sym.get_type().unwrap();
                     let val = self.load_value_from_address(address, ty);
                     self.builder().def_var(var, val);
@@ -1828,7 +1811,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         sym_id: pasko_frontend::symbol::SymbolId,
     ) -> cranelift_codegen::ir::Value {
         let sym = self.codegen.semantic_context.get_symbol(sym_id);
-        let sym = sym.borrow();
         if sym.is_required() {
             match sym.get_name().as_str() {
                 "input" => {
@@ -1939,7 +1921,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             }
             fields.iter().for_each(|field_id| {
                 let field_sym = self.codegen.semantic_context.get_symbol(*field_id);
-                let field_sym = field_sym.borrow();
                 let field_ty = field_sym.get_type().unwrap();
 
                 if self.codegen.type_contains_set_types(field_ty) {
@@ -2034,7 +2015,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             }
             fields.iter().for_each(|field_id| {
                 let field_sym = self.codegen.semantic_context.get_symbol(*field_id);
-                let field_sym = field_sym.borrow();
                 let field_ty = field_sym.get_type().unwrap();
 
                 if self.codegen.type_contains_set_types(field_ty) {
@@ -2053,7 +2033,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
 
         for sym_id in symbols_to_dispose {
             let sym = self.codegen.semantic_context.get_symbol(sym_id);
-            let sym = sym.borrow();
             let ty = sym.get_type().unwrap();
             let data_loc = *self.codegen.data_location.get(&sym_id).unwrap();
 
@@ -2123,7 +2102,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
         function_symbol_id: symbol::SymbolId,
     ) -> Option<Vec<(symbol::SymbolId, usize)>> {
         let function_symbol = self.codegen.semantic_context.get_symbol(function_symbol_id);
-        let function_symbol = function_symbol.borrow();
         let function_symbol_scope = function_symbol.get_scope().unwrap();
 
         let enclosing_symbol_id = self.codegen.get_enclosing_function(function_symbol_id);
@@ -2135,7 +2113,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .get_symbol(enclosing_symbol_id);
-        let enclosing_symbol = enclosing_symbol.borrow();
 
         let mut required_environment = enclosing_symbol
             .get_required_environment()
@@ -2143,7 +2120,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .cloned()
             .map(|sym_id| {
                 let sym = self.codegen.semantic_context.get_symbol(sym_id);
-                let sym = sym.borrow();
                 let scope_of_sym = sym.get_scope().unwrap();
                 let env_levels_up = self
                     .codegen
@@ -2273,7 +2249,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 if let DataLocation::Variable(var, None) = dl {
                     // This variable does not have an address. Allocate it first.
                     let sym = self.codegen.semantic_context.get_symbol(sym_id);
-                    let sym = sym.borrow();
                     let ty = sym.get_type().unwrap();
                     let stack_slot = self.allocate_storage_for_type_in_stack(ty);
                     self.codegen.annotations.new_stack_slot(
@@ -2295,7 +2270,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 match dl {
                     DataLocation::Variable(var, Some(stack_slot_address)) => {
                         let sym = self.codegen.semantic_context.get_symbol(sym_id);
-                        let sym = sym.borrow();
                         let ty = sym.get_type().unwrap();
                         let value = self.builder().use_var(var);
                         self.builder().set_val_label(
@@ -2355,7 +2329,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 self.builder()
                     .set_val_label(v, cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()));
                 let symbol = self.codegen.semantic_context.get_symbol(*sym_id);
-                let symbol = symbol.borrow();
                 self.codegen.annotations.new_value(v, symbol.get_name());
                 v
             }
@@ -2378,7 +2351,6 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()),
                 );
                 let symbol = self.codegen.semantic_context.get_symbol(*sym_id);
-                let symbol = symbol.borrow();
                 self.codegen.annotations.new_value(value, symbol.get_name());
             }
             AddressOrVariable::Address(addr) => {
@@ -3100,7 +3072,6 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 .get_ast_symbol(callee.id())
                 .unwrap();
             let callee_sym = self.codegen.semantic_context.get_symbol(callee_sym_id);
-            let callee_sym = callee_sym.borrow();
             let callee_parameters = callee_sym
                 .get_formal_parameters()
                 .unwrap()
@@ -3408,7 +3379,6 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 self.builder()
                     .set_val_label(val, cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()));
                 let sym = self.codegen.semantic_context.get_symbol(sym_id);
-                let sym = sym.borrow();
                 self.codegen.annotations.new_value(val, sym.get_name());
                 // And we are done.
                 return false;
@@ -3447,7 +3417,6 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 self.builder()
                     .set_val_label(v, cranelift_codegen::ir::ValueLabel::new(sym_id.get_id()));
                 let symbol = self.codegen.semantic_context.get_symbol(sym_id);
-                let symbol = symbol.borrow();
                 self.codegen.annotations.new_value(v, symbol.get_name());
                 self.set_value(id, v);
                 return false;
@@ -3491,7 +3460,6 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         self.set_srcloc(span);
         let sym_id = self.codegen.semantic_context.get_ast_symbol(id).unwrap();
         let sym = self.codegen.semantic_context.get_symbol(sym_id);
-        let sym = sym.borrow();
 
         // Variables do not have address.
         if sym.get_kind() == symbol::SymbolKind::Variable {
@@ -3824,7 +3792,6 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
         } else {
             if let Some(sym_id) = self.codegen.semantic_context.get_ast_symbol(n.0.id()) {
                 let sym = self.codegen.semantic_context.get_symbol(sym_id);
-                let sym = sym.borrow();
 
                 // Pointer variables hold the address in their value.
                 if sym.get_kind() == symbol::SymbolKind::Variable {
@@ -4585,7 +4552,6 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 .get_ast_symbol(sym.id())
                 .unwrap();
             let sym = self.codegen.semantic_context.get_symbol(sym_id);
-            let sym = sym.borrow();
             let ty = sym.get_type().unwrap();
 
             if self
@@ -4791,7 +4757,8 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         self.codegen
                             .semantic_context
                             .get_ast_type(args[0].id())
-                            .unwrap(), &self.codegen.semantic_context.symbol_map,
+                            .unwrap(),
+                        &self.codegen.semantic_context.symbol_map,
                     );
 
                     let arg = self.get_value(args[0].id());
@@ -4912,7 +4879,6 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 .get_ast_symbol(callee.id())
                 .unwrap();
             let callee_sym = self.codegen.semantic_context.get_symbol(callee_sym_id);
-            let callee_sym = callee_sym.borrow();
             let callee_parameters = callee_sym
                 .get_formal_parameters()
                 .unwrap()
@@ -4922,7 +4888,6 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 .collect::<Vec<_>>();
             let callee_return_sym = callee_sym.get_return_symbol().unwrap();
             let callee_return_sym = self.codegen.semantic_context.get_symbol(callee_return_sym);
-            let callee_return_sym = callee_return_sym.borrow();
             let callee_return_type = callee_return_sym.get_type().unwrap();
             let return_type_is_simple =
                 self.codegen.semantic_context.type_system.is_simple_type(

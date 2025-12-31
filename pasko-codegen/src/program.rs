@@ -763,7 +763,6 @@ impl<'a> CodegenVisitor<'a> {
                                 .iter()
                                 .map(|field| {
                                     let field_sym = self.semantic_context.get_symbol(*field);
-                                    let field_sym = field_sym.borrow();
                                     self.align_in_bytes(field_sym.get_type().unwrap())
                                 })
                                 .max()
@@ -804,7 +803,6 @@ impl<'a> CodegenVisitor<'a> {
                         .map(|field| {
                             let mut current_case_offset = variant_offset;
                             let field_sym = self.semantic_context.get_symbol(*field);
-                            let field_sym = field_sym.borrow();
                             let current_field_align =
                                 self.align_in_bytes(field_sym.get_type().unwrap());
                             let current_field_size =
@@ -920,7 +918,6 @@ impl<'a> CodegenVisitor<'a> {
                 .record_type_get_fixed_fields(ty, &self.semantic_context.symbol_map);
             for field in fields {
                 let field_sym = self.semantic_context.get_symbol(*field);
-                let field_sym = field_sym.borrow();
                 let current_field_align = self.align_in_bytes(field_sym.get_type().unwrap());
                 max_align = std::cmp::max(max_align, current_field_align);
             }
@@ -941,7 +938,6 @@ impl<'a> CodegenVisitor<'a> {
             let mut offset = 0usize;
             for field in fields {
                 let field_sym = self.semantic_context.get_symbol(*field);
-                let field_sym = field_sym.borrow();
                 let current_field_align = self.align_in_bytes(field_sym.get_type().unwrap());
                 let current_field_size = self.size_in_bytes(field_sym.get_type().unwrap());
 
@@ -1023,7 +1019,6 @@ impl<'a> CodegenVisitor<'a> {
     fn compute_function_mangled_name(&self, function_symbol_id: SymbolId) -> String {
         let get_symbol_of_scope = |symbol_id: SymbolId| {
             let symbol = self.semantic_context.get_symbol(symbol_id);
-            let symbol = symbol.borrow();
             let scope_of_symbol = symbol.get_scope();
 
             scope_of_symbol.and_then(|scope_of_symbol| {
@@ -1035,7 +1030,6 @@ impl<'a> CodegenVisitor<'a> {
 
         let get_name_of_symbol = |symbol_id: SymbolId| {
             let symbol = self.semantic_context.get_symbol(symbol_id);
-            let symbol = symbol.borrow();
             symbol.get_name().clone()
         };
 
@@ -1081,7 +1075,6 @@ impl<'a> CodegenVisitor<'a> {
                 true
             } else {
                 let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
-                let function_symbol = function_symbol.borrow();
                 function_symbol.get_parameter().is_some()
             }
         };
@@ -1091,7 +1084,6 @@ impl<'a> CodegenVisitor<'a> {
 
         if let Some(return_symbol_id) = return_symbol_id {
             let return_symbol = self.semantic_context.get_symbol(return_symbol_id);
-            let return_symbol = return_symbol.borrow();
             let return_symbol_type_id = return_symbol.get_type().unwrap();
             if self
                 .semantic_context
@@ -1131,7 +1123,6 @@ impl<'a> CodegenVisitor<'a> {
         }
 
         let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
-        let function_symbol = function_symbol.borrow();
         let params: Vec<_> = function_symbol
             .get_formal_parameters()
             .unwrap()
@@ -1145,7 +1136,6 @@ impl<'a> CodegenVisitor<'a> {
             .collect();
 
         for (param_symbol_id, param_symbol, ..) in params.iter() {
-            let param_symbol = param_symbol.borrow();
             match param_symbol.get_parameter().unwrap() {
                 ParameterKind::Value => {
                     let param_symbol_type_id = param_symbol.get_type().unwrap();
@@ -1215,7 +1205,6 @@ impl<'a> CodegenVisitor<'a> {
         for param_pack in params {
             // We only need the first parameter of the pack.
             let param_sym = self.semantic_context.get_symbol(param_pack[0]);
-            let param_sym = param_sym.borrow();
             match param_sym.get_parameter().unwrap() {
                 ParameterKind::ValueConformableArray | ParameterKind::VariableConformableArray => {
                     let mut conformable_array_ty = param_sym.get_type().unwrap();
@@ -1231,7 +1220,6 @@ impl<'a> CodegenVisitor<'a> {
                                 &self.semantic_context.symbol_map,
                             );
                         let lower_bound = self.semantic_context.get_symbol(lower_bound_id);
-                        let lower_bound = lower_bound.borrow();
                         // The type is the same for lower and upper, so just push it twice.
                         let lower_bound_ty = lower_bound.get_type().unwrap();
                         // lower
@@ -1312,7 +1300,6 @@ impl<'a> CodegenVisitor<'a> {
 
         let return_symbol_id = {
             let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
-            let function_symbol = function_symbol.borrow();
             function_symbol.get_return_symbol()
         };
         let (func_id, sig) = self.common_signature_emission_for_global_function(
@@ -1325,8 +1312,7 @@ impl<'a> CodegenVisitor<'a> {
         let mut return_symbol_info = None;
         if let Some(return_symbol_id) = return_symbol_id {
             let return_symbol = self.semantic_context.get_symbol(return_symbol_id);
-            return_symbol_info = Some((return_symbol_id, return_symbol.clone()));
-            let return_symbol = return_symbol.borrow();
+            return_symbol_info = Some((return_symbol_id, return_symbol));
             let return_symbol_type_id = return_symbol.get_type().unwrap();
             if self
                 .semantic_context
@@ -1368,7 +1354,6 @@ impl<'a> CodegenVisitor<'a> {
         let return_type_is_simple = return_type_id_not_simple.is_none();
 
         let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
-        let function_symbol = function_symbol.borrow();
         let params: Vec<_> = function_symbol
             .get_formal_parameters()
             .unwrap()
@@ -1377,14 +1362,13 @@ impl<'a> CodegenVisitor<'a> {
             .map(|sym_id| {
                 let sym_id = *sym_id;
                 let sym = self.semantic_context.get_symbol(sym_id);
-                let sym_type = sym.borrow().get_type();
+                let sym_type = sym.get_type();
                 (sym_id, sym, sym_type)
             })
             .collect();
 
         let mut parameters_to_dispose = vec![];
         for (param_symbol_id, param_symbol, ..) in params.iter() {
-            let param_symbol = param_symbol.borrow();
             match param_symbol.get_parameter().unwrap() {
                 ParameterKind::Value => {
                     let param_symbol_type_id = param_symbol.get_type().unwrap();
@@ -1441,7 +1425,6 @@ impl<'a> CodegenVisitor<'a> {
         for param in function_symbol.get_formal_parameters().unwrap() {
             let param = param[0];
             let param_sym = self.semantic_context.get_symbol(param);
-            let param_sym = param_sym.borrow();
             match param_sym.get_parameter().unwrap() {
                 ParameterKind::ValueConformableArray | ParameterKind::VariableConformableArray => {
                     let mut conformable_array_ty = param_sym.get_type().unwrap();
@@ -1542,7 +1525,6 @@ impl<'a> CodegenVisitor<'a> {
                                 .is_pointer_type(ty, symbol_map),
                         )
                     });
-                let param_sym = param_sym.borrow();
                 if let Some(parameter_kind) = param_sym.get_parameter() {
                     assert!(!is_return);
                     match parameter_kind {
@@ -1611,7 +1593,6 @@ impl<'a> CodegenVisitor<'a> {
         effective_params
             .iter()
             .for_each(|(param_sym_id, param_sym, ..)| {
-                let param_sym = param_sym.borrow();
                 let is_function_parameter = param_sym.get_parameter().map_or(false, |k| {
                     k == ParameterKind::Function || k == ParameterKind::Procedure
                 });
@@ -1706,7 +1687,6 @@ impl<'a> CodegenVisitor<'a> {
             variant.cases.iter().any(|case| {
                 case.fields.iter().any(|field| {
                     let field_sym = self.semantic_context.get_symbol(*field);
-                    let field_sym = field_sym.borrow();
                     let field_ty = field_sym.get_type().unwrap();
                     self.type_contains_set_types(field_ty)
                 }) || self.variant_contains_set_types(&case.variant)
@@ -1732,7 +1712,6 @@ impl<'a> CodegenVisitor<'a> {
             let fields = ts.record_type_get_fixed_fields(ty, &self.semantic_context.symbol_map);
             let fixed_fields = fields.iter().any(|&field| {
                 let field_sym = self.semantic_context.get_symbol(field);
-                let field_sym = field_sym.borrow();
                 let field_ty = field_sym.get_type().unwrap();
                 self.type_contains_set_types(field_ty)
             });
@@ -1820,7 +1799,6 @@ impl<'a> CodegenVisitor<'a> {
 
     pub fn is_nested_function(&self, function_symbol_id: SymbolId) -> bool {
         let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
-        let function_symbol = function_symbol.borrow();
 
         function_symbol.get_parameter().is_none()
             && self.get_enclosing_function(function_symbol_id).is_some()
@@ -1828,7 +1806,6 @@ impl<'a> CodegenVisitor<'a> {
 
     pub fn get_enclosing_function(&self, function_symbol_id: SymbolId) -> Option<SymbolId> {
         let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
-        let function_symbol = function_symbol.borrow();
 
         let function_symbol_scope = function_symbol.get_scope().unwrap();
 
@@ -2139,7 +2116,6 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         let return_symbol_id = {
             let function_symbol_id = self.semantic_context.get_ast_symbol(n.0.id()).unwrap();
             let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
-            let function_symbol = function_symbol.borrow();
             function_symbol.get_return_symbol().unwrap()
         };
         self.common_signature_emission_for_global_function(
@@ -2161,7 +2137,6 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         let return_symbol_id = {
             let function_symbol_id = self.semantic_context.get_ast_symbol(n.0.id()).unwrap();
             let function_symbol = self.semantic_context.get_symbol(function_symbol_id);
-            let function_symbol = function_symbol.borrow();
             function_symbol.get_return_symbol().unwrap()
         };
         self.common_signature_emission_for_global_function(
@@ -2181,7 +2156,6 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
         for sym in n.0.iter() {
             let sym_id = self.semantic_context.get_ast_symbol(sym.id()).unwrap();
             let sym = self.semantic_context.get_symbol(sym_id);
-            let sym = sym.borrow();
             let ty = sym.get_type().unwrap();
 
             if self
