@@ -1,10 +1,18 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{self, *};
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-#[derive(Debug)]
+struct FileInfo {
+    line_map: pasko_frontend::span::LineMap,
+    program: Option<pasko_frontend::span::SpannedBox<pasko_frontend::ast::Program>>,
+    semantic_context: Option<pasko_frontend::semantic::SemanticContext>,
+}
+
 struct Backend {
     client: Client,
+    file_info: Mutex<HashMap<Url, FileInfo>>,
 }
 
 // Inspired on tower_lsp_boilerplate
@@ -71,10 +79,17 @@ impl LanguageServer for Backend {
         }
     }
 
-    async fn did_close(&self, _: DidCloseTextDocumentParams) {
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
         self.client
             .log_message(MessageType::INFO, "did close")
             .await;
+
+        // Clear any stored info.
+        let uri = params.text_document.uri;
+        {
+            let mut file_info = self.file_info.lock().unwrap();
+            file_info.remove(&uri);
+        }
     }
 }
 
@@ -158,30 +173,6 @@ impl<'a> pasko_frontend::diagnostics::DiagnosticEmitter for LspEmitter<'a> {
             None,
         ));
 
-        // if let Some(extra_locus) = &diag.extra_locus {
-        //     for extra_locus in extra_locus {
-        //         let start_position = Position::new(
-        //             linemap.offset_to_line_0based(extra_locus.0) as u32,
-        //             linemap.offset_to_column_0based(extra_locus.0) as u32,
-        //         );
-        //         let end_position = Position::new(
-        //             linemap.offset_to_line_0based(extra_locus.1) as u32,
-        //             linemap.offset_to_column_0based(extra_locus.1) as u32,
-        //         );
-        //         let range = Range::new(start_position, end_position);
-
-        //         self.lsp_diagnostics.push(lsp_types::Diagnostic::new(
-        //             range,
-        //             Some(severity),
-        //             None,
-        //             None,
-        //             message.to_string(),
-        //             None,
-        //             None,
-        //         ));
-        //     }
-        // }
-
         if let Some(extras) = &diag.extra_diagnostics {
             for d in extras.iter() {
                 self.emit(d, linemap);
@@ -197,25 +188,47 @@ impl Backend {
             .await;
         let mut diagnostics = pasko_frontend::diagnostics::Diagnostics::new();
 
+        // Clear earlier info
+        {
+            let mut file_info = self.file_info.lock().unwrap();
+            file_info.remove(&uri);
+        }
+
         // Parse input.
-        let parse_result = pasko_frontend::parser::parse_pasko_program(&input, &mut diagnostics);
+        let mut program = pasko_frontend::parser::parse_pasko_program(&input, &mut diagnostics);
 
         // Create the diagnostic emitter used by the semantic checks.
-        // FIXME: Tabstop?
-        let tabstop = 4usize;
-        let linemap = pasko_frontend::span::LineMap::new(&input, tabstop);
         let mut lsp_diagnostics = Vec::new();
         let mut lsp_emitter = LspEmitter::new(uri.clone(), &mut lsp_diagnostics);
 
-        if let Some(mut program) = parse_result {
+        let semantic_context = program.as_mut().and_then(|program| {
             let mut semantic_context = pasko_frontend::semantic::SemanticContext::new();
             pasko_frontend::semantic::check_program(
-                &mut program,
+                program,
                 &mut semantic_context,
                 &mut diagnostics,
             );
+
+            Some(semantic_context)
+        });
+
+        // FIXME: Tabstop?
+        let tabstop = 4usize;
+        let line_map = pasko_frontend::span::LineMap::new(&input, tabstop);
+
+        // Emit diagnostics for the client.
+        diagnostics.report(&mut lsp_emitter, &line_map);
+
+        // Remember the tree and the semantic information of this input.
+        {
+            let mut file_info = self.file_info.lock().unwrap();
+            let new_file_info = FileInfo {
+                line_map,
+                program,
+                semantic_context,
+            };
+            file_info.insert(uri.clone(), new_file_info);
         }
-        diagnostics.report(&mut lsp_emitter, &linemap);
 
         for d in &lsp_diagnostics {
             self.client
@@ -234,6 +247,9 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| Backend { client });
+    let (service, socket) = LspService::new(|client| Backend {
+        client,
+        file_info: Mutex::new(HashMap::new()),
+    });
     Server::new(stdin, stdout, socket).serve(service).await;
 }
