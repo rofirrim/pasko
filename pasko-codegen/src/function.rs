@@ -494,7 +494,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_simple_type(addr_ty)
+            .is_simple_type(addr_ty, &self.codegen.semantic_context.symbol_map)
         {
             self.builder()
                 .ins()
@@ -503,7 +503,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_array_type(addr_ty)
+            .is_array_type(addr_ty, &self.codegen.semantic_context.symbol_map)
         {
             if !self.codegen.type_contains_set_types(addr_ty) {
                 let size = self.emit_const_integer(self.codegen.size_in_bytes(addr_ty) as i64);
@@ -522,24 +522,27 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     .codegen
                     .semantic_context
                     .type_system
-                    .array_type_get_index_type(addr_ty);
+                    .array_type_get_index_type(addr_ty, &self.codegen.semantic_context.symbol_map);
 
                 let lower_bound = self
                     .codegen
                     .semantic_context
                     .type_system
-                    .ordinal_type_lower_bound(index_ty);
+                    .ordinal_type_lower_bound(index_ty, &self.codegen.semantic_context.symbol_map);
                 let upper_bound = self
                     .codegen
                     .semantic_context
                     .type_system
-                    .ordinal_type_upper_bound(index_ty);
+                    .ordinal_type_upper_bound(index_ty, &self.codegen.semantic_context.symbol_map);
 
                 let element_ty = self
                     .codegen
                     .semantic_context
                     .type_system
-                    .array_type_get_component_type(addr_ty);
+                    .array_type_get_component_type(
+                        addr_ty,
+                        &self.codegen.semantic_context.symbol_map,
+                    );
 
                 let lower_bound = self.emit_const_integer(lower_bound);
                 let upper_bound = self.emit_const_integer(upper_bound);
@@ -571,7 +574,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_record_type(addr_ty)
+            .is_record_type(addr_ty, &self.codegen.semantic_context.symbol_map)
         {
             if !self.codegen.type_contains_set_types(addr_ty) {
                 let size = self.emit_const_integer(self.codegen.size_in_bytes(addr_ty) as i64);
@@ -591,12 +594,18 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                     .codegen
                     .semantic_context
                     .type_system
-                    .record_type_get_fixed_fields(addr_ty);
+                    .record_type_get_fixed_fields(
+                        addr_ty,
+                        &self.codegen.semantic_context.symbol_map,
+                    );
                 if self
                     .codegen
                     .semantic_context
                     .type_system
-                    .record_type_get_variant_part(addr_ty)
+                    .record_type_get_variant_part(
+                        addr_ty,
+                        &self.codegen.semantic_context.symbol_map,
+                    )
                     .is_some()
                 {
                     unimplemented!("Variant types");
@@ -628,7 +637,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_set_type(addr_ty)
+            .is_set_type(addr_ty, &self.codegen.semantic_context.symbol_map)
         {
             if !is_initialization {
                 // To assign we need first to free the lhs and then copy, if the right hand side is a temporary we can just move the value.
@@ -669,7 +678,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_pointer_type(addr_ty)
+            .is_pointer_type(addr_ty, &self.codegen.semantic_context.symbol_map)
         {
             self.builder()
                 .ins()
@@ -680,7 +689,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 self.codegen
                     .semantic_context
                     .type_system
-                    .get_type_name(addr_ty)
+                    .get_type_name(addr_ty, &self.codegen.semantic_context.symbol_map)
             );
         }
     }
@@ -774,7 +783,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_simple_type(addr_ty)
+            .is_simple_type(addr_ty, &self.codegen.semantic_context.symbol_map)
         {
             let cranelift_ty = self.codegen.type_to_cranelift_type(addr_ty);
 
@@ -790,17 +799,17 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_array_type(addr_ty)
+            .is_array_type(addr_ty, &self.codegen.semantic_context.symbol_map)
             || self
                 .codegen
                 .semantic_context
                 .type_system
-                .is_conformable_array_type(addr_ty)
+                .is_conformable_array_type(addr_ty, &self.codegen.semantic_context.symbol_map)
             || self
                 .codegen
                 .semantic_context
                 .type_system
-                .is_record_type(addr_ty)
+                .is_record_type(addr_ty, &self.codegen.semantic_context.symbol_map)
         {
             // Structured types cannot have value semantics in the cranelift IR.
             addr
@@ -808,12 +817,12 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_set_type(addr_ty)
+            .is_set_type(addr_ty, &self.codegen.semantic_context.symbol_map)
             || self
                 .codegen
                 .semantic_context
                 .type_system
-                .is_file_type(addr_ty)
+                .is_file_type(addr_ty, &self.codegen.semantic_context.symbol_map)
         {
             // Set and file types types are opaque pointers so in some sense they're like simple types
             // but with an opaque pointer type.
@@ -830,7 +839,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_pointer_type(addr_ty)
+            .is_pointer_type(addr_ty, &self.codegen.semantic_context.symbol_map)
         {
             let pointer_type = self.codegen.pointer_type;
             let v = self.builder().ins().load(
@@ -846,7 +855,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 self.codegen
                     .semantic_context
                     .type_system
-                    .get_type_name(addr_ty)
+                    .get_type_name(addr_ty, &self.codegen.semantic_context.symbol_map)
             );
         }
     }
@@ -861,12 +870,12 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_real_type(dest_ty)
+            .is_real_type(dest_ty, &self.codegen.semantic_context.symbol_map)
             && self
                 .codegen
                 .semantic_context
                 .type_system
-                .is_integer_type(src_ty)
+                .is_integer_type(src_ty, &self.codegen.semantic_context.symbol_map)
         {
             self.builder().ins().fcvt_from_sint(F64, src_value)
         } else {
@@ -875,11 +884,11 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 self.codegen
                     .semantic_context
                     .type_system
-                    .get_type_name(src_ty),
+                    .get_type_name(src_ty, &self.codegen.semantic_context.symbol_map),
                 self.codegen
                     .semantic_context
                     .type_system
-                    .get_type_name(dest_ty)
+                    .get_type_name(dest_ty, &self.codegen.semantic_context.symbol_map)
             );
         }
     }
@@ -1011,18 +1020,30 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 let symbol = symbol.borrow();
                 let ty = symbol.get_type().unwrap();
 
-                let value = if self.codegen.semantic_context.type_system.is_simple_type(ty)
+                let value = if self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .is_simple_type(ty, &self.codegen.semantic_context.symbol_map)
                     || self
                         .codegen
                         .semantic_context
                         .type_system
-                        .is_pointer_type(ty)
+                        .is_pointer_type(ty, &self.codegen.semantic_context.symbol_map)
                 {
                     let cranelift_ty = self.codegen.type_to_cranelift_type(ty);
 
                     builder.ins().stack_load(cranelift_ty, *stack_slot, 0)
-                } else if self.codegen.semantic_context.type_system.is_array_type(ty)
-                    || self.codegen.semantic_context.type_system.is_record_type(ty)
+                } else if self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .is_array_type(ty, &self.codegen.semantic_context.symbol_map)
+                    || self
+                        .codegen
+                        .semantic_context
+                        .type_system
+                        .is_record_type(ty, &self.codegen.semantic_context.symbol_map)
                 {
                     builder
                         .ins()
@@ -1030,7 +1051,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                 } else {
                     panic!(
                         "Unexpected type {}",
-                        self.codegen.semantic_context.type_system.get_type_name(ty)
+                        self.codegen
+                            .semantic_context
+                            .type_system
+                            .get_type_name(ty, &self.codegen.semantic_context.symbol_map)
                     );
                 };
 
@@ -1214,29 +1238,29 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                             .codegen
                             .semantic_context
                             .type_system
-                            .is_simple_type(arg_ty)
+                            .is_simple_type(arg_ty, &self.codegen.semantic_context.symbol_map)
                             || self
                                 .codegen
                                 .semantic_context
                                 .type_system
-                                .is_pointer_type(arg_ty)
+                                .is_pointer_type(arg_ty, &self.codegen.semantic_context.symbol_map)
                         {
                             vec![arg_value]
                         } else if self
                             .codegen
                             .semantic_context
                             .type_system
-                            .is_array_type(arg_ty)
+                            .is_array_type(arg_ty, &self.codegen.semantic_context.symbol_map)
                             || self
                                 .codegen
                                 .semantic_context
                                 .type_system
-                                .is_record_type(arg_ty)
+                                .is_record_type(arg_ty, &self.codegen.semantic_context.symbol_map)
                             || self
                                 .codegen
                                 .semantic_context
                                 .type_system
-                                .is_set_type(arg_ty)
+                                .is_set_type(arg_ty, &self.codegen.semantic_context.symbol_map)
                         {
                             // We need to do a copy in.
                             let arg_type_size = self.codegen.size_in_bytes(arg_ty);
@@ -1255,10 +1279,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                         } else {
                             panic!(
                                 "Unexpected type in argument pass {}",
-                                self.codegen
-                                    .semantic_context
-                                    .type_system
-                                    .get_type_name(arg_ty)
+                                self.codegen.semantic_context.type_system.get_type_name(
+                                    arg_ty,
+                                    &self.codegen.semantic_context.symbol_map
+                                )
                             );
                         }
                     }
@@ -1349,30 +1373,42 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                             .codegen
                             .semantic_context
                             .type_system
-                            .is_conformable_array_type(param_ty)
+                            .is_conformable_array_type(
+                                param_ty,
+                                &self.codegen.semantic_context.symbol_map,
+                            )
                         {
                             if self
                                 .codegen
                                 .semantic_context
                                 .type_system
-                                .is_array_type(arg_ty)
+                                .is_array_type(arg_ty, &self.codegen.semantic_context.symbol_map)
                             {
                                 let index_type = self
                                     .codegen
                                     .semantic_context
                                     .type_system
-                                    .array_type_get_index_type(arg_ty);
+                                    .array_type_get_index_type(
+                                        arg_ty,
+                                        &self.codegen.semantic_context.symbol_map,
+                                    );
                                 let lower_bound = self
                                     .codegen
                                     .semantic_context
                                     .type_system
-                                    .ordinal_type_lower_bound(index_type);
+                                    .ordinal_type_lower_bound(
+                                        index_type,
+                                        &self.codegen.semantic_context.symbol_map,
+                                    );
                                 let lower_bound = self.emit_const_integer(lower_bound);
                                 let upper_bound = self
                                     .codegen
                                     .semantic_context
                                     .type_system
-                                    .ordinal_type_upper_bound(index_type);
+                                    .ordinal_type_upper_bound(
+                                        index_type,
+                                        &self.codegen.semantic_context.symbol_map,
+                                    );
                                 let upper_bound = self.emit_const_integer(upper_bound);
                                 result.push(lower_bound);
                                 result.push(upper_bound);
@@ -1380,7 +1416,10 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .codegen
                                 .semantic_context
                                 .type_system
-                                .is_conformable_array_type(arg_ty)
+                                .is_conformable_array_type(
+                                    arg_ty,
+                                    &self.codegen.semantic_context.symbol_map,
+                                )
                             {
                                 if param_kind == ParameterKind::ValueConformableArray {
                                     unreachable!("conformable arrays cannot be passed by value!");
@@ -1389,13 +1428,19 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                                     .codegen
                                     .semantic_context
                                     .type_system
-                                    .conformable_array_type_get_lower(arg_ty);
+                                    .conformable_array_type_get_lower(
+                                        arg_ty,
+                                        &self.codegen.semantic_context.symbol_map,
+                                    );
                                 let lower_bound = self.get_value_of_bound_identifier(lower_bound);
                                 let upper_bound = self
                                     .codegen
                                     .semantic_context
                                     .type_system
-                                    .conformable_array_type_get_upper(arg_ty);
+                                    .conformable_array_type_get_upper(
+                                        arg_ty,
+                                        &self.codegen.semantic_context.symbol_map,
+                                    );
                                 let upper_bound = self.get_value_of_bound_identifier(upper_bound);
                                 result.push(lower_bound);
                                 result.push(upper_bound);
@@ -1406,12 +1451,18 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .codegen
                                 .semantic_context
                                 .type_system
-                                .conformable_array_type_get_component_type(param_ty);
+                                .conformable_array_type_get_component_type(
+                                    param_ty,
+                                    &self.codegen.semantic_context.symbol_map,
+                                );
                             arg_ty = self
                                 .codegen
                                 .semantic_context
                                 .type_system
-                                .array_or_conformable_array_type_get_component_type(arg_ty);
+                                .array_or_conformable_array_type_get_component_type(
+                                    arg_ty,
+                                    &self.codegen.semantic_context.symbol_map,
+                                );
                         }
                         result
                     }
@@ -1813,7 +1864,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_set_type(addr_ty)
+            .is_set_type(addr_ty, &self.codegen.semantic_context.symbol_map)
         {
             let pointer_type = self.codegen.pointer_type;
             // addr is the location in the stack of the variable, so we still need to do a load.
@@ -1828,30 +1879,30 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_array_type(addr_ty)
+            .is_array_type(addr_ty, &self.codegen.semantic_context.symbol_map)
         {
             let index_ty = self
                 .codegen
                 .semantic_context
                 .type_system
-                .array_type_get_index_type(addr_ty);
+                .array_type_get_index_type(addr_ty, &self.codegen.semantic_context.symbol_map);
 
             let lower_bound = self
                 .codegen
                 .semantic_context
                 .type_system
-                .ordinal_type_lower_bound(index_ty);
+                .ordinal_type_lower_bound(index_ty, &self.codegen.semantic_context.symbol_map);
             let upper_bound = self
                 .codegen
                 .semantic_context
                 .type_system
-                .ordinal_type_upper_bound(index_ty);
+                .ordinal_type_upper_bound(index_ty, &self.codegen.semantic_context.symbol_map);
 
             let element_ty = self
                 .codegen
                 .semantic_context
                 .type_system
-                .array_type_get_component_type(addr_ty);
+                .array_type_get_component_type(addr_ty, &self.codegen.semantic_context.symbol_map);
 
             let lower_bound = self.emit_const_integer(lower_bound);
             let upper_bound = self.emit_const_integer(upper_bound);
@@ -1870,18 +1921,18 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_record_type(addr_ty)
+            .is_record_type(addr_ty, &self.codegen.semantic_context.symbol_map)
         {
             let fields = self
                 .codegen
                 .semantic_context
                 .type_system
-                .record_type_get_fixed_fields(addr_ty);
+                .record_type_get_fixed_fields(addr_ty, &self.codegen.semantic_context.symbol_map);
             if self
                 .codegen
                 .semantic_context
                 .type_system
-                .record_type_get_variant_part(addr_ty)
+                .record_type_get_variant_part(addr_ty, &self.codegen.semantic_context.symbol_map)
                 .is_some()
             {
                 unimplemented!("Variant types");
@@ -1913,7 +1964,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_set_type(addr_ty)
+            .is_set_type(addr_ty, &self.codegen.semantic_context.symbol_map)
         {
             let null_ptr = self.emit_const_integer(0);
             self.builder()
@@ -1923,30 +1974,30 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_array_type(addr_ty)
+            .is_array_type(addr_ty, &self.codegen.semantic_context.symbol_map)
         {
             let index_ty = self
                 .codegen
                 .semantic_context
                 .type_system
-                .array_type_get_index_type(addr_ty);
+                .array_type_get_index_type(addr_ty, &self.codegen.semantic_context.symbol_map);
 
             let lower_bound = self
                 .codegen
                 .semantic_context
                 .type_system
-                .ordinal_type_lower_bound(index_ty);
+                .ordinal_type_lower_bound(index_ty, &self.codegen.semantic_context.symbol_map);
             let upper_bound = self
                 .codegen
                 .semantic_context
                 .type_system
-                .ordinal_type_upper_bound(index_ty);
+                .ordinal_type_upper_bound(index_ty, &self.codegen.semantic_context.symbol_map);
 
             let element_ty = self
                 .codegen
                 .semantic_context
                 .type_system
-                .array_type_get_component_type(addr_ty);
+                .array_type_get_component_type(addr_ty, &self.codegen.semantic_context.symbol_map);
 
             let lower_bound = self.emit_const_integer(lower_bound);
             let upper_bound = self.emit_const_integer(upper_bound);
@@ -1965,18 +2016,18 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_record_type(addr_ty)
+            .is_record_type(addr_ty, &self.codegen.semantic_context.symbol_map)
         {
             let fields = self
                 .codegen
                 .semantic_context
                 .type_system
-                .record_type_get_fixed_fields(addr_ty);
+                .record_type_get_fixed_fields(addr_ty, &self.codegen.semantic_context.symbol_map);
             if self
                 .codegen
                 .semantic_context
                 .type_system
-                .record_type_get_variant_part(addr_ty)
+                .record_type_get_variant_part(addr_ty, &self.codegen.semantic_context.symbol_map)
                 .is_some()
             {
                 unimplemented!("Variant types");
@@ -2039,16 +2090,16 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
                             .codegen
                             .semantic_context
                             .type_system
-                            .is_file_type(first_arg_type)
+                            .is_file_type(first_arg_type, &self.codegen.semantic_context.symbol_map)
                         {
                             first_arg
                                 .get()
                                 .walk_mut(self, first_arg.loc(), first_arg.id());
-                            let is_textfile = self
-                                .codegen
-                                .semantic_context
-                                .type_system
-                                .is_textfile_type(first_arg_type);
+                            let is_textfile =
+                                self.codegen.semantic_context.type_system.is_textfile_type(
+                                    first_arg_type,
+                                    &self.codegen.semantic_context.symbol_map,
+                                );
                             (
                                 Some(self.get_value(first_arg.id())),
                                 is_textfile,
@@ -2451,7 +2502,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                     .codegen
                                     .semantic_context
                                     .type_system
-                                    .file_type_get_component_type(file_type);
+                                    .file_type_get_component_type(
+                                        file_type,
+                                        &self.codegen.semantic_context.symbol_map,
+                                    );
                                 let component_size = self.emit_const_integer(
                                     self.codegen.size_in_bytes(component_ty) as i64,
                                 );
@@ -2486,7 +2540,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .codegen
                                 .semantic_context
                                 .type_system
-                                .is_integer_type(type_id)
+                                .is_integer_type(type_id, &self.codegen.semantic_context.symbol_map)
                             {
                                 let func_id = self
                                     .codegen
@@ -2501,7 +2555,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .codegen
                                 .semantic_context
                                 .type_system
-                                .is_real_type(type_id)
+                                .is_real_type(type_id, &self.codegen.semantic_context.symbol_map)
                             {
                                 let func_id = self
                                     .codegen
@@ -2518,7 +2572,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .codegen
                                 .semantic_context
                                 .type_system
-                                .is_string_type(type_id)
+                                .is_string_type(type_id, &self.codegen.semantic_context.symbol_map)
                             {
                                 let func_id = self
                                     .codegen
@@ -2528,12 +2582,18 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                     .codegen
                                     .semantic_context
                                     .type_system
-                                    .array_type_get_index_type(type_id);
+                                    .array_type_get_index_type(
+                                        type_id,
+                                        &self.codegen.semantic_context.symbol_map,
+                                    );
                                 let extent = self
                                     .codegen
                                     .semantic_context
                                     .type_system
-                                    .ordinal_type_extent(index_type);
+                                    .ordinal_type_extent(
+                                        index_type,
+                                        &self.codegen.semantic_context.symbol_map,
+                                    );
                                 let number_of_chars = self.emit_const_integer(extent);
                                 self.builder()
                                     .ins()
@@ -2542,7 +2602,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .codegen
                                 .semantic_context
                                 .type_system
-                                .is_bool_type(type_id)
+                                .is_bool_type(type_id, &self.codegen.semantic_context.symbol_map)
                             {
                                 let func_id = self
                                     .codegen
@@ -2553,7 +2613,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .codegen
                                 .semantic_context
                                 .type_system
-                                .is_char_type(type_id)
+                                .is_char_type(type_id, &self.codegen.semantic_context.symbol_map)
                             {
                                 let func_id = self
                                     .codegen
@@ -2563,10 +2623,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                             } else {
                                 panic!(
                                     "Unexpected type for writeln {}",
-                                    self.codegen
-                                        .semantic_context
-                                        .type_system
-                                        .get_type_name(type_id)
+                                    self.codegen.semantic_context.type_system.get_type_name(
+                                        type_id,
+                                        &self.codegen.semantic_context.symbol_map
+                                    )
                                 );
                             }
                         }
@@ -2619,7 +2679,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                             .codegen
                                             .semantic_context
                                             .type_system
-                                            .file_type_get_component_type(file_type);
+                                            .file_type_get_component_type(
+                                                file_type,
+                                                &self.codegen.semantic_context.symbol_map,
+                                            );
                                         let component_size = self.emit_const_integer(
                                             self.codegen.size_in_bytes(component_ty) as i64,
                                         );
@@ -2657,7 +2720,11 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                                 .codegen
                                                 .semantic_context
                                                 .type_system
-                                                .same_type(var_ty, component_ty));
+                                                .same_type(
+                                                    var_ty,
+                                                    component_ty,
+                                                    &self.codegen.semantic_context.symbol_map
+                                                ));
                                             (expr_value, component_ty)
                                         };
                                         self.set_value_to_address_or_variable(
@@ -2678,19 +2745,23 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                         .codegen
                                         .semantic_context
                                         .type_system
-                                        .is_integer_type(var_ty)
-                                        || self
-                                            .codegen
-                                            .semantic_context
-                                            .type_system
-                                            .is_real_type(var_ty)
+                                        .is_integer_type(
+                                            var_ty,
+                                            &self.codegen.semantic_context.symbol_map,
+                                        )
+                                        || self.codegen.semantic_context.type_system.is_real_type(
+                                            var_ty,
+                                            &self.codegen.semantic_context.symbol_map,
+                                        )
                                     {
                                         let (func_id, call_args) = if self
                                             .codegen
                                             .semantic_context
                                             .type_system
-                                            .is_integer_type(var_ty)
-                                        {
+                                            .is_integer_type(
+                                                var_ty,
+                                                &self.codegen.semantic_context.symbol_map,
+                                            ) {
                                             (
                                                 self.codegen.get_runtime_function(
                                                     RuntimeFunctionId::ReadTextfileI64,
@@ -2732,7 +2803,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                             self.codegen
                                                 .semantic_context
                                                 .type_system
-                                                .get_type_name(var_ty)
+                                                .get_type_name(
+                                                    var_ty,
+                                                    &self.codegen.semantic_context.symbol_map
+                                                )
                                         );
                                     }
                                 }
@@ -2769,7 +2843,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                     .codegen
                                     .semantic_context
                                     .type_system
-                                    .pointer_type_get_pointee_type(pointer_ty);
+                                    .pointer_type_get_pointee_type(
+                                        pointer_ty,
+                                        &self.codegen.semantic_context.symbol_map,
+                                    );
 
                                 (
                                     self.get_address_or_variable(var.id()),
@@ -2837,10 +2914,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
 
                             (
                                 self.get_value(arg.id()),
-                                self.codegen
-                                    .semantic_context
-                                    .type_system
-                                    .is_textfile_type(ty),
+                                self.codegen.semantic_context.type_system.is_textfile_type(
+                                    ty,
+                                    &self.codegen.semantic_context.symbol_map,
+                                ),
                             )
                         };
 
@@ -2869,10 +2946,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         let (value, is_textfile) = {
                             (
                                 self.get_value(arg.id()),
-                                self.codegen
-                                    .semantic_context
-                                    .type_system
-                                    .is_textfile_type(ty),
+                                self.codegen.semantic_context.type_system.is_textfile_type(
+                                    ty,
+                                    &self.codegen.semantic_context.symbol_map,
+                                ),
                             )
                         };
 
@@ -2888,7 +2965,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .codegen
                                 .semantic_context
                                 .type_system
-                                .file_type_get_component_type(ty);
+                                .file_type_get_component_type(
+                                    ty,
+                                    &self.codegen.semantic_context.symbol_map,
+                                );
                             let component_size = self.codegen.size_in_bytes(component_ty);
                             (
                                 self.codegen
@@ -2913,10 +2993,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         let (value, is_textfile) = {
                             (
                                 self.get_value(arg.id()),
-                                self.codegen
-                                    .semantic_context
-                                    .type_system
-                                    .is_textfile_type(ty),
+                                self.codegen.semantic_context.type_system.is_textfile_type(
+                                    ty,
+                                    &self.codegen.semantic_context.symbol_map,
+                                ),
                             )
                         };
 
@@ -2932,7 +3012,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .codegen
                                 .semantic_context
                                 .type_system
-                                .file_type_get_component_type(ty);
+                                .file_type_get_component_type(
+                                    ty,
+                                    &self.codegen.semantic_context.symbol_map,
+                                );
                             let component_size = self.codegen.size_in_bytes(component_ty);
                             (
                                 self.codegen
@@ -2957,10 +3040,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         let (value, is_textfile) = {
                             (
                                 self.get_value(arg.id()),
-                                self.codegen
-                                    .semantic_context
-                                    .type_system
-                                    .is_textfile_type(ty),
+                                self.codegen.semantic_context.type_system.is_textfile_type(
+                                    ty,
+                                    &self.codegen.semantic_context.symbol_map,
+                                ),
                             )
                         };
 
@@ -2976,7 +3059,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                 .codegen
                                 .semantic_context
                                 .type_system
-                                .file_type_get_component_type(ty);
+                                .file_type_get_component_type(
+                                    ty,
+                                    &self.codegen.semantic_context.symbol_map,
+                                );
                             let component_size = self.codegen.size_in_bytes(component_ty);
                             (
                                 self.codegen
@@ -3083,7 +3169,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_char_type(literal_ty)
+            .is_char_type(literal_ty, &self.codegen.semantic_context.symbol_map)
         {
             let x = n.0.get().chars().collect::<Vec<_>>();
             assert!(x.len() == 1);
@@ -3095,7 +3181,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_string_type(literal_ty)
+            .is_string_type(literal_ty, &self.codegen.semantic_context.symbol_map)
         {
             let v = self.emit_string_literal(n.0.get());
             self.set_value(id, v);
@@ -3105,7 +3191,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 self.codegen
                     .semantic_context
                     .type_system
-                    .get_type_name(literal_ty)
+                    .get_type_name(literal_ty, &self.codegen.semantic_context.symbol_map)
             );
         }
     }
@@ -3150,7 +3236,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .set_type_get_element(set_type);
+            .set_type_get_element(set_type, &self.codegen.semantic_context.symbol_map);
         let element_size = self.codegen.size_in_bytes(element_type);
 
         let call = if num_expr_members > 0 {
@@ -3489,34 +3575,44 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             |acc, (current_idx, ..)| {
                 let current_array_type = acc.0;
 
-                let lower_bound = if self
-                    .codegen
-                    .semantic_context
-                    .type_system
-                    .is_array_type(current_array_type)
-                {
+                let lower_bound = if self.codegen.semantic_context.type_system.is_array_type(
+                    current_array_type,
+                    &self.codegen.semantic_context.symbol_map,
+                ) {
                     let current_array_index_type = self
                         .codegen
                         .semantic_context
                         .type_system
-                        .array_type_get_index_type(current_array_type);
+                        .array_type_get_index_type(
+                            current_array_type,
+                            &self.codegen.semantic_context.symbol_map,
+                        );
                     self.emit_const_integer(
                         self.codegen
                             .semantic_context
                             .type_system
-                            .ordinal_type_lower_bound(current_array_index_type),
+                            .ordinal_type_lower_bound(
+                                current_array_index_type,
+                                &self.codegen.semantic_context.symbol_map,
+                            ),
                     )
                 } else if self
                     .codegen
                     .semantic_context
                     .type_system
-                    .is_conformable_array_type(current_array_type)
+                    .is_conformable_array_type(
+                        current_array_type,
+                        &self.codegen.semantic_context.symbol_map,
+                    )
                 {
                     let sym_id = self
                         .codegen
                         .semantic_context
                         .type_system
-                        .conformable_array_type_get_lower(current_array_type);
+                        .conformable_array_type_get_lower(
+                            current_array_type,
+                            &self.codegen.semantic_context.symbol_map,
+                        );
                     self.get_value_of_bound_identifier(sym_id)
                 } else {
                     unreachable!("unexpected type")
@@ -3526,7 +3622,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                     .codegen
                     .semantic_context
                     .type_system
-                    .array_or_conformable_array_type_get_component_type(current_array_type);
+                    .array_or_conformable_array_type_get_component_type(
+                        current_array_type,
+                        &self.codegen.semantic_context.symbol_map,
+                    );
 
                 let (index_type_size, index_type_lb) = if current_idx + 1 == num_idx {
                     (
@@ -3535,36 +3634,43 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         ),
                         lower_bound,
                     )
-                } else if self
-                    .codegen
-                    .semantic_context
-                    .type_system
-                    .is_array_type(current_array_component_type)
-                {
+                } else if self.codegen.semantic_context.type_system.is_array_type(
+                    current_array_component_type,
+                    &self.codegen.semantic_context.symbol_map,
+                ) {
                     let index_type = self
                         .codegen
                         .semantic_context
                         .type_system
-                        .array_type_get_index_type(current_array_component_type);
+                        .array_type_get_index_type(
+                            current_array_component_type,
+                            &self.codegen.semantic_context.symbol_map,
+                        );
                     let extent = self
                         .codegen
                         .semantic_context
                         .type_system
-                        .ordinal_type_extent(index_type);
+                        .ordinal_type_extent(index_type, &self.codegen.semantic_context.symbol_map);
                     let extent = self.emit_const_integer(extent);
                     (extent, lower_bound)
                 } else if self
                     .codegen
                     .semantic_context
                     .type_system
-                    .is_conformable_array_type(current_array_component_type)
+                    .is_conformable_array_type(
+                        current_array_component_type,
+                        &self.codegen.semantic_context.symbol_map,
+                    )
                 {
                     let upper_bound = {
                         let sym_id = self
                             .codegen
                             .semantic_context
                             .type_system
-                            .conformable_array_type_get_upper(current_array_component_type);
+                            .conformable_array_type_get_upper(
+                                current_array_component_type,
+                                &self.codegen.semantic_context.symbol_map,
+                            );
                         self.get_value_of_bound_identifier(sym_id)
                     };
                     let extent = self.builder().ins().isub(upper_bound, lower_bound);
@@ -3668,13 +3774,13 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_file_type(pointee_type)
+            .is_file_type(pointee_type, &self.codegen.semantic_context.symbol_map)
         {
             let is_textfile = self
                 .codegen
                 .semantic_context
                 .type_system
-                .is_textfile_type(pointee_type);
+                .is_textfile_type(pointee_type, &self.codegen.semantic_context.symbol_map);
             let file_addr = self.get_value(n.0.id());
             let pointer_ty = self.codegen.pointer_type;
             let file_value = self.builder().ins().load(
@@ -3687,7 +3793,10 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 .codegen
                 .semantic_context
                 .type_system
-                .file_type_get_component_type(pointee_type);
+                .file_type_get_component_type(
+                    pointee_type,
+                    &self.codegen.semantic_context.symbol_map,
+                );
 
             let (func_ref, args) = if is_textfile {
                 let func_id = self
@@ -3782,6 +3891,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         .semantic_context
                         .get_ast_type(n.1.id())
                         .unwrap(),
+                    &self.codegen.semantic_context.symbol_map,
                 );
                 let result = if is_integer {
                     self.builder().ins().ineg(op_value)
@@ -3816,22 +3926,22 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             .codegen
             .semantic_context
             .type_system
-            .is_integer_type(op_type);
+            .is_integer_type(op_type, &self.codegen.semantic_context.symbol_map);
         let is_real = self
             .codegen
             .semantic_context
             .type_system
-            .is_real_type(op_type);
+            .is_real_type(op_type, &self.codegen.semantic_context.symbol_map);
         let is_bool = self
             .codegen
             .semantic_context
             .type_system
-            .is_bool_type(op_type);
+            .is_bool_type(op_type, &self.codegen.semantic_context.symbol_map);
         let is_set = self
             .codegen
             .semantic_context
             .type_system
-            .is_set_type(op_type);
+            .is_set_type(op_type, &self.codegen.semantic_context.symbol_map);
         if is_integer {
             match operator {
                 ast::BinOperand::Addition => {
@@ -3865,7 +3975,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         self.codegen
                             .semantic_context
                             .type_system
-                            .get_type_name(op_type)
+                            .get_type_name(op_type, &self.codegen.semantic_context.symbol_map)
                     );
                 }
             }
@@ -3894,7 +4004,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         self.codegen
                             .semantic_context
                             .type_system
-                            .get_type_name(op_type)
+                            .get_type_name(op_type, &self.codegen.semantic_context.symbol_map)
                     );
                 }
             }
@@ -3922,17 +4032,17 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         .codegen
                         .semantic_context
                         .type_system
-                        .is_integer_type(lhs_type)
+                        .is_integer_type(lhs_type, &self.codegen.semantic_context.symbol_map)
                         || self
                             .codegen
                             .semantic_context
                             .type_system
-                            .is_bool_type(lhs_type)
+                            .is_bool_type(lhs_type, &self.codegen.semantic_context.symbol_map)
                         || self
                             .codegen
                             .semantic_context
                             .type_system
-                            .is_pointer_type(lhs_type)
+                            .is_pointer_type(lhs_type, &self.codegen.semantic_context.symbol_map)
                     {
                         let cond = match operator {
                             ast::BinOperand::Equal => IntCC::Equal,
@@ -3949,7 +4059,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         .codegen
                         .semantic_context
                         .type_system
-                        .is_real_type(rhs_type)
+                        .is_real_type(rhs_type, &self.codegen.semantic_context.symbol_map)
                     {
                         let cond = match operator {
                             ast::BinOperand::Equal => FloatCC::Equal,
@@ -3966,7 +4076,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         .codegen
                         .semantic_context
                         .type_system
-                        .is_set_type(rhs_type)
+                        .is_set_type(rhs_type, &self.codegen.semantic_context.symbol_map)
                     {
                         let (mut op1_value, mut op2_value) = (lhs_value, rhs_value);
                         let func_id = match operator {
@@ -4003,7 +4113,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                             self.codegen
                                 .semantic_context
                                 .type_system
-                                .get_type_name(op_type)
+                                .get_type_name(op_type, &self.codegen.semantic_context.symbol_map)
                         );
                     }
                 }
@@ -4035,7 +4145,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         self.codegen
                             .semantic_context
                             .type_system
-                            .get_type_name(op_type)
+                            .get_type_name(op_type, &self.codegen.semantic_context.symbol_map)
                     );
                 }
             }
@@ -4057,7 +4167,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         self.codegen
                             .semantic_context
                             .type_system
-                            .get_type_name(op_type)
+                            .get_type_name(op_type, &self.codegen.semantic_context.symbol_map)
                     );
                 }
             };
@@ -4482,36 +4592,67 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                 .codegen
                 .semantic_context
                 .type_system
-                .is_integer_type(ty)
-                || self.codegen.semantic_context.type_system.is_real_type(ty)
-                || self.codegen.semantic_context.type_system.is_bool_type(ty)
-                || self.codegen.semantic_context.type_system.is_char_type(ty)
-                || self.codegen.semantic_context.type_system.is_enum_type(ty)
+                .is_integer_type(ty, &self.codegen.semantic_context.symbol_map)
                 || self
                     .codegen
                     .semantic_context
                     .type_system
-                    .is_subrange_type(ty)
+                    .is_real_type(ty, &self.codegen.semantic_context.symbol_map)
                 || self
                     .codegen
                     .semantic_context
                     .type_system
-                    .is_pointer_type(ty)
+                    .is_bool_type(ty, &self.codegen.semantic_context.symbol_map)
+                || self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .is_char_type(ty, &self.codegen.semantic_context.symbol_map)
+                || self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .is_enum_type(ty, &self.codegen.semantic_context.symbol_map)
+                || self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .is_subrange_type(ty, &self.codegen.semantic_context.symbol_map)
+                || self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .is_pointer_type(ty, &self.codegen.semantic_context.symbol_map)
             {
                 if !sym.is_captured() {
                     self.allocate_variable(sym_id);
                 } else {
                     self.allocate_value_in_stack(sym_id);
                 }
-            } else if self.codegen.semantic_context.type_system.is_array_type(ty)
-                || self.codegen.semantic_context.type_system.is_record_type(ty)
-                || self.codegen.semantic_context.type_system.is_set_type(ty)
+            } else if self
+                .codegen
+                .semantic_context
+                .type_system
+                .is_array_type(ty, &self.codegen.semantic_context.symbol_map)
+                || self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .is_record_type(ty, &self.codegen.semantic_context.symbol_map)
+                || self
+                    .codegen
+                    .semantic_context
+                    .type_system
+                    .is_set_type(ty, &self.codegen.semantic_context.symbol_map)
             {
                 self.allocate_value_in_stack(sym_id);
             } else {
                 panic!(
                     "Unexpected type '{}' in variable declaration",
-                    self.codegen.semantic_context.type_system.get_type_name(ty)
+                    self.codegen
+                        .semantic_context
+                        .type_system
+                        .get_type_name(ty, &self.codegen.semantic_context.symbol_map)
                 );
             }
 
@@ -4601,6 +4742,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                                     .semantic_context
                                     .get_ast_type(args[0].id())
                                     .unwrap(),
+                                &self.codegen.semantic_context.symbol_map,
                             ),
                         ),
                         _ => unreachable!(),
@@ -4649,7 +4791,7 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         self.codegen
                             .semantic_context
                             .get_ast_type(args[0].id())
-                            .unwrap(),
+                            .unwrap(), &self.codegen.semantic_context.symbol_map,
                     );
 
                     let arg = self.get_value(args[0].id());
@@ -4704,17 +4846,17 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         .codegen
                         .semantic_context
                         .type_system
-                        .is_integer_type(arg_ty)
+                        .is_integer_type(arg_ty, &self.codegen.semantic_context.symbol_map)
                         || self
                             .codegen
                             .semantic_context
                             .type_system
-                            .is_enum_type(arg_ty)
+                            .is_enum_type(arg_ty, &self.codegen.semantic_context.symbol_map)
                         || self
                             .codegen
                             .semantic_context
                             .type_system
-                            .is_subrange_type(arg_ty)
+                            .is_subrange_type(arg_ty, &self.codegen.semantic_context.symbol_map)
                     {
                         // No-op
                         self.value_map.insert(id, arg);
@@ -4722,12 +4864,12 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
                         .codegen
                         .semantic_context
                         .type_system
-                        .is_bool_type(arg_ty)
+                        .is_bool_type(arg_ty, &self.codegen.semantic_context.symbol_map)
                         || self
                             .codegen
                             .semantic_context
                             .type_system
-                            .is_char_type(arg_ty)
+                            .is_char_type(arg_ty, &self.codegen.semantic_context.symbol_map)
                     {
                         let x = self.builder().ins().uextend(I64, arg);
                         self.value_map.insert(id, x);
@@ -4782,16 +4924,14 @@ impl<'a, 'b, 'c> VisitorMut for FunctionCodegenVisitor<'a, 'b, 'c> {
             let callee_return_sym = self.codegen.semantic_context.get_symbol(callee_return_sym);
             let callee_return_sym = callee_return_sym.borrow();
             let callee_return_type = callee_return_sym.get_type().unwrap();
-            let return_type_is_simple = self
-                .codegen
-                .semantic_context
-                .type_system
-                .is_simple_type(callee_return_type)
-                || self
-                    .codegen
-                    .semantic_context
-                    .type_system
-                    .is_pointer_type(callee_return_type);
+            let return_type_is_simple =
+                self.codegen.semantic_context.type_system.is_simple_type(
+                    callee_return_type,
+                    &self.codegen.semantic_context.symbol_map,
+                ) || self.codegen.semantic_context.type_system.is_pointer_type(
+                    callee_return_type,
+                    &self.codegen.semantic_context.symbol_map,
+                );
 
             assert!(args.len() == callee_parameters.len());
             let args: Vec<_> = args.iter().zip(callee_parameters).collect();

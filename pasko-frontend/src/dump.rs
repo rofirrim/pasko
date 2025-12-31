@@ -158,10 +158,10 @@ impl<'input> ASTDumper<'input> {
     fn type_to_string(&self, id: span::SpanId) -> String {
         let t = self.semantic_context.get_ast_type(id);
         if let Some(type_id) = t {
-            if self.semantic_context.type_system.is_error_type(type_id) {
+            if self.semantic_context.type_system.is_error_type(type_id, &self.semantic_context.symbol_map) {
                 return String::from("<<error-type>>");
             }
-            self.semantic_context.type_system.get_type_name(type_id)
+            self.semantic_context.type_system.get_type_name(type_id, &self.semantic_context.symbol_map)
         } else {
             String::from("<<no-type>>")
         }

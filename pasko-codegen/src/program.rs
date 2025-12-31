@@ -669,24 +669,56 @@ impl<'a> CodegenVisitor<'a> {
     }
 
     pub fn type_to_cranelift_type(&self, ty: TypeId) -> cranelift_codegen::ir::Type {
-        if self.semantic_context.type_system.is_integer_type(ty)
-            || self.semantic_context.type_system.is_enum_type(ty)
+        if self
+            .semantic_context
+            .type_system
+            .is_integer_type(ty, &self.semantic_context.symbol_map)
+            || self
+                .semantic_context
+                .type_system
+                .is_enum_type(ty, &self.semantic_context.symbol_map)
         {
             I64
-        } else if self.semantic_context.type_system.is_real_type(ty) {
+        } else if self
+            .semantic_context
+            .type_system
+            .is_real_type(ty, &self.semantic_context.symbol_map)
+        {
             F64
-        } else if self.semantic_context.type_system.is_bool_type(ty) {
+        } else if self
+            .semantic_context
+            .type_system
+            .is_bool_type(ty, &self.semantic_context.symbol_map)
+        {
             I8
-        } else if self.semantic_context.type_system.is_char_type(ty) {
+        } else if self
+            .semantic_context
+            .type_system
+            .is_char_type(ty, &self.semantic_context.symbol_map)
+        {
             I32
-        } else if self.semantic_context.type_system.is_subrange_type(ty) {
-            self.type_to_cranelift_type(self.semantic_context.type_system.get_host_type(ty))
-        } else if self.semantic_context.type_system.is_pointer_type(ty) {
+        } else if self
+            .semantic_context
+            .type_system
+            .is_subrange_type(ty, &self.semantic_context.symbol_map)
+        {
+            self.type_to_cranelift_type(
+                self.semantic_context
+                    .type_system
+                    .get_host_type(ty, &self.semantic_context.symbol_map),
+            )
+        } else if self
+            .semantic_context
+            .type_system
+            .is_pointer_type(ty, &self.semantic_context.symbol_map)
+        {
             self.pointer_type
         } else {
             panic!(
                 "Unexpected type {} when mapping to cranelift type",
-                self.semantic_context.type_system.get_type_name(ty)
+                self.semantic_context
+                    .type_system
+                    .get_type_name(ty, &self.semantic_context.symbol_map)
             );
         }
     }
@@ -700,7 +732,10 @@ impl<'a> CodegenVisitor<'a> {
     }
 
     fn size_and_align_in_bytes(&self, ty: TypeId) -> SizeAndAlignment {
-        let ty = self.semantic_context.type_system.ultimate_type(ty);
+        let ty = self
+            .semantic_context
+            .type_system
+            .ultimate_type(ty, &self.semantic_context.symbol_map);
         // Query if already cached.
         if let Some(s) = self.size_align_cache.borrow().get(&ty) {
             return s.clone();
@@ -802,32 +837,61 @@ impl<'a> CodegenVisitor<'a> {
     }
 
     fn size_and_align_in_bytes_impl(&self, ty: TypeId) -> SizeAndAlignment {
-        if self.semantic_context.type_system.is_real_type(ty)
-            || self.semantic_context.type_system.is_integer_type(ty)
-            || self.semantic_context.type_system.is_enum_type(ty)
+        if self
+            .semantic_context
+            .type_system
+            .is_real_type(ty, &self.semantic_context.symbol_map)
+            || self
+                .semantic_context
+                .type_system
+                .is_integer_type(ty, &self.semantic_context.symbol_map)
+            || self
+                .semantic_context
+                .type_system
+                .is_enum_type(ty, &self.semantic_context.symbol_map)
         {
             SizeAndAlignment { size: 8, align: 8 }
-        } else if self.semantic_context.type_system.is_char_type(ty) {
+        } else if self
+            .semantic_context
+            .type_system
+            .is_char_type(ty, &self.semantic_context.symbol_map)
+        {
             SizeAndAlignment { size: 4, align: 4 }
-        } else if self.semantic_context.type_system.is_bool_type(ty) {
+        } else if self
+            .semantic_context
+            .type_system
+            .is_bool_type(ty, &self.semantic_context.symbol_map)
+        {
             SizeAndAlignment { size: 1, align: 1 }
-        } else if self.semantic_context.type_system.is_subrange_type(ty) {
-            self.size_and_align_in_bytes(self.semantic_context.type_system.get_host_type(ty))
-        } else if self.semantic_context.type_system.is_array_type(ty) {
+        } else if self
+            .semantic_context
+            .type_system
+            .is_subrange_type(ty, &self.semantic_context.symbol_map)
+        {
+            self.size_and_align_in_bytes(
+                self.semantic_context
+                    .type_system
+                    .get_host_type(ty, &self.semantic_context.symbol_map),
+            )
+        } else if self
+            .semantic_context
+            .type_system
+            .is_array_type(ty, &self.semantic_context.symbol_map)
+        {
             let component_type = self
                 .semantic_context
                 .type_system
-                .array_type_get_component_type(ty);
+                .array_type_get_component_type(ty, &self.semantic_context.symbol_map);
             let component_size = self.size_in_bytes(component_type);
             let align_component = self.align_in_bytes(component_type);
             let index_ty = self
                 .semantic_context
                 .type_system
-                .array_type_get_index_type(ty);
+                .array_type_get_index_type(ty, &self.semantic_context.symbol_map);
             let index_size = self
                 .semantic_context
                 .type_system
-                .ordinal_type_extent(index_ty);
+                .ordinal_type_extent(index_ty, &self.semantic_context.symbol_map);
             if let Some(x) = component_size.checked_mul(index_size as usize) {
                 SizeAndAlignment {
                     size: x,
@@ -836,10 +900,16 @@ impl<'a> CodegenVisitor<'a> {
             } else {
                 panic!(
                     "Overflow while computing the size of type {}",
-                    self.semantic_context.type_system.get_type_name(ty)
+                    self.semantic_context
+                        .type_system
+                        .get_type_name(ty, &self.semantic_context.symbol_map)
                 );
             }
-        } else if self.semantic_context.type_system.is_record_type(ty) {
+        } else if self
+            .semantic_context
+            .type_system
+            .is_record_type(ty, &self.semantic_context.symbol_map)
+        {
             // TODO: we can do something different with packed records (e.g. we
             // could order them by descending alignmeent rather than follow
             // declaration order)
@@ -847,7 +917,7 @@ impl<'a> CodegenVisitor<'a> {
             let fields = self
                 .semantic_context
                 .type_system
-                .record_type_get_fixed_fields(ty);
+                .record_type_get_fixed_fields(ty, &self.semantic_context.symbol_map);
             for field in fields {
                 let field_sym = self.semantic_context.get_symbol(*field);
                 let field_sym = field_sym.borrow();
@@ -858,7 +928,7 @@ impl<'a> CodegenVisitor<'a> {
             let variant = self
                 .semantic_context
                 .type_system
-                .record_type_get_variant_part(ty);
+                .record_type_get_variant_part(ty, &self.semantic_context.symbol_map);
             max_align = std::cmp::max(max_align, self.align_of_variant(variant));
             // Empty structs take at least one byte.
             if max_align == 0 {
@@ -901,19 +971,31 @@ impl<'a> CodegenVisitor<'a> {
                 size: final_size,
                 align: max_align,
             }
-        } else if self.semantic_context.type_system.is_set_type(ty) {
+        } else if self
+            .semantic_context
+            .type_system
+            .is_set_type(ty, &self.semantic_context.symbol_map)
+        {
             // Sets are opaque reference types, so they take the size and
             // alignment of a pointer.
             SizeAndAlignment {
                 size: self.pointer_type.bytes() as usize,
                 align: 8,
             }
-        } else if self.semantic_context.type_system.is_pointer_type(ty) {
+        } else if self
+            .semantic_context
+            .type_system
+            .is_pointer_type(ty, &self.semantic_context.symbol_map)
+        {
             SizeAndAlignment {
                 size: self.pointer_type.bytes() as usize,
                 align: 8,
             }
-        } else if self.semantic_context.type_system.is_file_type(ty) {
+        } else if self
+            .semantic_context
+            .type_system
+            .is_file_type(ty, &self.semantic_context.symbol_map)
+        {
             // Sets are opaque reference types, so they take the size and
             // alignment of a pointer.
             SizeAndAlignment {
@@ -923,7 +1005,9 @@ impl<'a> CodegenVisitor<'a> {
         } else {
             panic!(
                 "Unexpected size request for type {}",
-                self.semantic_context.type_system.get_type_name(ty)
+                self.semantic_context
+                    .type_system
+                    .get_type_name(ty, &self.semantic_context.symbol_map)
             );
         }
     }
@@ -1012,11 +1096,11 @@ impl<'a> CodegenVisitor<'a> {
             if self
                 .semantic_context
                 .type_system
-                .is_simple_type(return_symbol_type_id)
+                .is_simple_type(return_symbol_type_id, &self.semantic_context.symbol_map)
                 || self
                     .semantic_context
                     .type_system
-                    .is_pointer_type(return_symbol_type_id)
+                    .is_pointer_type(return_symbol_type_id, &self.semantic_context.symbol_map)
             {
                 sig.returns.push(AbiParam::new(
                     self.type_to_cranelift_type(return_symbol_type_id),
@@ -1024,15 +1108,15 @@ impl<'a> CodegenVisitor<'a> {
             } else if self
                 .semantic_context
                 .type_system
-                .is_array_type(return_symbol_type_id)
+                .is_array_type(return_symbol_type_id, &self.semantic_context.symbol_map)
                 || self
                     .semantic_context
                     .type_system
-                    .is_record_type(return_symbol_type_id)
+                    .is_record_type(return_symbol_type_id, &self.semantic_context.symbol_map)
                 || self
                     .semantic_context
                     .type_system
-                    .is_set_type(return_symbol_type_id)
+                    .is_set_type(return_symbol_type_id, &self.semantic_context.symbol_map)
             {
                 // We pass it as a pointer parameter.
                 sig.params.push(AbiParam::new(self.pointer_type));
@@ -1041,7 +1125,7 @@ impl<'a> CodegenVisitor<'a> {
                     "Unexpected return type {} while lowering to cranelift",
                     self.semantic_context
                         .type_system
-                        .get_type_name(return_symbol_type_id)
+                        .get_type_name(return_symbol_type_id, &self.semantic_context.symbol_map)
                 )
             }
         }
@@ -1068,7 +1152,7 @@ impl<'a> CodegenVisitor<'a> {
                     if self
                         .semantic_context
                         .type_system
-                        .is_simple_type(param_symbol_type_id)
+                        .is_simple_type(param_symbol_type_id, &self.semantic_context.symbol_map)
                     {
                         sig.params.push(AbiParam::new(
                             self.type_to_cranelift_type(param_symbol_type_id),
@@ -1076,27 +1160,28 @@ impl<'a> CodegenVisitor<'a> {
                     } else if self
                         .semantic_context
                         .type_system
-                        .is_array_type(param_symbol_type_id)
+                        .is_array_type(param_symbol_type_id, &self.semantic_context.symbol_map)
                         || self
                             .semantic_context
                             .type_system
-                            .is_record_type(param_symbol_type_id)
+                            .is_record_type(param_symbol_type_id, &self.semantic_context.symbol_map)
                         || self
                             .semantic_context
                             .type_system
-                            .is_set_type(param_symbol_type_id)
-                        || self
-                            .semantic_context
-                            .type_system
-                            .is_pointer_type(param_symbol_type_id)
+                            .is_set_type(param_symbol_type_id, &self.semantic_context.symbol_map)
+                        || self.semantic_context.type_system.is_pointer_type(
+                            param_symbol_type_id,
+                            &self.semantic_context.symbol_map,
+                        )
                     {
                         sig.params.push(AbiParam::new(self.pointer_type));
                     } else {
                         panic!(
                             "Unexpected parameter type {} while lowering to cranelift",
-                            self.semantic_context
-                                .type_system
-                                .get_type_name(param_symbol_type_id)
+                            self.semantic_context.type_system.get_type_name(
+                                param_symbol_type_id,
+                                &self.semantic_context.symbol_map
+                            )
                         )
                     }
                 }
@@ -1134,15 +1219,17 @@ impl<'a> CodegenVisitor<'a> {
             match param_sym.get_parameter().unwrap() {
                 ParameterKind::ValueConformableArray | ParameterKind::VariableConformableArray => {
                     let mut conformable_array_ty = param_sym.get_type().unwrap();
-                    while self
-                        .semantic_context
-                        .type_system
-                        .is_conformable_array_type(conformable_array_ty)
-                    {
+                    while self.semantic_context.type_system.is_conformable_array_type(
+                        conformable_array_ty,
+                        &self.semantic_context.symbol_map,
+                    ) {
                         let lower_bound_id = self
                             .semantic_context
                             .type_system
-                            .conformable_array_type_get_lower(conformable_array_ty);
+                            .conformable_array_type_get_lower(
+                                conformable_array_ty,
+                                &self.semantic_context.symbol_map,
+                            );
                         let lower_bound = self.semantic_context.get_symbol(lower_bound_id);
                         let lower_bound = lower_bound.borrow();
                         // The type is the same for lower and upper, so just push it twice.
@@ -1156,7 +1243,10 @@ impl<'a> CodegenVisitor<'a> {
                         conformable_array_ty = self
                             .semantic_context
                             .type_system
-                            .conformable_array_type_get_component_type(conformable_array_ty);
+                            .conformable_array_type_get_component_type(
+                                conformable_array_ty,
+                                &self.semantic_context.symbol_map,
+                            );
                     }
                 }
                 _ => {}
@@ -1241,24 +1331,24 @@ impl<'a> CodegenVisitor<'a> {
             if self
                 .semantic_context
                 .type_system
-                .is_simple_type(return_symbol_type_id)
+                .is_simple_type(return_symbol_type_id, &self.semantic_context.symbol_map)
                 || self
                     .semantic_context
                     .type_system
-                    .is_pointer_type(return_symbol_type_id)
+                    .is_pointer_type(return_symbol_type_id, &self.semantic_context.symbol_map)
             {
             } else if self
                 .semantic_context
                 .type_system
-                .is_array_type(return_symbol_type_id)
+                .is_array_type(return_symbol_type_id, &self.semantic_context.symbol_map)
                 || self
                     .semantic_context
                     .type_system
-                    .is_record_type(return_symbol_type_id)
+                    .is_record_type(return_symbol_type_id, &self.semantic_context.symbol_map)
                 || self
                     .semantic_context
                     .type_system
-                    .is_set_type(return_symbol_type_id)
+                    .is_set_type(return_symbol_type_id, &self.semantic_context.symbol_map)
             {
                 // We pass it as a pointer parameter.
                 return_type_id_not_simple = Some(return_symbol_type_id);
@@ -1267,7 +1357,7 @@ impl<'a> CodegenVisitor<'a> {
                     "Unexpected return type {} while lowering to cranelift",
                     self.semantic_context
                         .type_system
-                        .get_type_name(return_symbol_type_id)
+                        .get_type_name(return_symbol_type_id, &self.semantic_context.symbol_map)
                 )
             }
         }
@@ -1301,24 +1391,24 @@ impl<'a> CodegenVisitor<'a> {
                     if self
                         .semantic_context
                         .type_system
-                        .is_simple_type(param_symbol_type_id)
+                        .is_simple_type(param_symbol_type_id, &self.semantic_context.symbol_map)
                     {
                     } else if self
                         .semantic_context
                         .type_system
-                        .is_array_type(param_symbol_type_id)
+                        .is_array_type(param_symbol_type_id, &self.semantic_context.symbol_map)
                         || self
                             .semantic_context
                             .type_system
-                            .is_record_type(param_symbol_type_id)
+                            .is_record_type(param_symbol_type_id, &self.semantic_context.symbol_map)
                         || self
                             .semantic_context
                             .type_system
-                            .is_set_type(param_symbol_type_id)
-                        || self
-                            .semantic_context
-                            .type_system
-                            .is_pointer_type(param_symbol_type_id)
+                            .is_set_type(param_symbol_type_id, &self.semantic_context.symbol_map)
+                        || self.semantic_context.type_system.is_pointer_type(
+                            param_symbol_type_id,
+                            &self.semantic_context.symbol_map,
+                        )
                     {
                         if self.type_contains_set_types(param_symbol_type_id) {
                             parameters_to_dispose.push(*param_symbol_id);
@@ -1326,9 +1416,10 @@ impl<'a> CodegenVisitor<'a> {
                     } else {
                         panic!(
                             "Unexpected parameter type {} while lowering to cranelift",
-                            self.semantic_context
-                                .type_system
-                                .get_type_name(param_symbol_type_id)
+                            self.semantic_context.type_system.get_type_name(
+                                param_symbol_type_id,
+                                &self.semantic_context.symbol_map
+                            )
                         )
                     }
                 }
@@ -1354,25 +1445,33 @@ impl<'a> CodegenVisitor<'a> {
             match param_sym.get_parameter().unwrap() {
                 ParameterKind::ValueConformableArray | ParameterKind::VariableConformableArray => {
                     let mut conformable_array_ty = param_sym.get_type().unwrap();
-                    while self
-                        .semantic_context
-                        .type_system
-                        .is_conformable_array_type(conformable_array_ty)
-                    {
+                    while self.semantic_context.type_system.is_conformable_array_type(
+                        conformable_array_ty,
+                        &self.semantic_context.symbol_map,
+                    ) {
                         bound_identifiers.push(
                             self.semantic_context
                                 .type_system
-                                .conformable_array_type_get_lower(conformable_array_ty),
+                                .conformable_array_type_get_lower(
+                                    conformable_array_ty,
+                                    &self.semantic_context.symbol_map,
+                                ),
                         );
                         bound_identifiers.push(
                             self.semantic_context
                                 .type_system
-                                .conformable_array_type_get_upper(conformable_array_ty),
+                                .conformable_array_type_get_upper(
+                                    conformable_array_ty,
+                                    &self.semantic_context.symbol_map,
+                                ),
                         );
                         conformable_array_ty = self
                             .semantic_context
                             .type_system
-                            .conformable_array_type_get_component_type(conformable_array_ty);
+                            .conformable_array_type_get_component_type(
+                                conformable_array_ty,
+                                &self.semantic_context.symbol_map,
+                            );
                     }
                 }
                 _ => {}
@@ -1423,22 +1522,24 @@ impl<'a> CodegenVisitor<'a> {
             .for_each(|(param_sym_id, param_sym, param_type_id, is_return)| {
                 let (is_simple_type, is_set_type, is_pointer_type) =
                     param_type_id.map_or((false, false, false), |ty| {
+                        let symbol_map =
+                            &function_codegen.get_codegen().semantic_context.symbol_map;
                         (
                             function_codegen
                                 .get_codegen()
                                 .semantic_context
                                 .type_system
-                                .is_simple_type(ty),
+                                .is_simple_type(ty, symbol_map),
                             function_codegen
                                 .get_codegen()
                                 .semantic_context
                                 .type_system
-                                .is_set_type(ty),
+                                .is_set_type(ty, symbol_map),
                             function_codegen
                                 .get_codegen()
                                 .semantic_context
                                 .type_system
-                                .is_pointer_type(ty),
+                                .is_pointer_type(ty, symbol_map),
                         )
                     });
                 let param_sym = param_sym.borrow();
@@ -1617,21 +1718,27 @@ impl<'a> CodegenVisitor<'a> {
 
     fn type_contains_set_types_impl(&self, ty: TypeId) -> bool {
         let ts = &self.semantic_context.type_system;
-        if ts.is_set_type(ty) {
+        if ts.is_set_type(ty, &self.semantic_context.symbol_map) {
             true
-        } else if ts.is_array_type(ty) {
-            self.type_contains_set_types(ts.array_type_get_component_type(ty))
-        } else if ts.is_conformable_array_type(ty) {
-            self.type_contains_set_types(ts.conformable_array_type_get_component_type(ty))
-        } else if ts.is_record_type(ty) {
-            let fields = ts.record_type_get_fixed_fields(ty);
+        } else if ts.is_array_type(ty, &self.semantic_context.symbol_map) {
+            self.type_contains_set_types(
+                ts.array_type_get_component_type(ty, &self.semantic_context.symbol_map),
+            )
+        } else if ts.is_conformable_array_type(ty, &self.semantic_context.symbol_map) {
+            self.type_contains_set_types(
+                ts.conformable_array_type_get_component_type(ty, &self.semantic_context.symbol_map),
+            )
+        } else if ts.is_record_type(ty, &self.semantic_context.symbol_map) {
+            let fields = ts.record_type_get_fixed_fields(ty, &self.semantic_context.symbol_map);
             let fixed_fields = fields.iter().any(|&field| {
                 let field_sym = self.semantic_context.get_symbol(field);
                 let field_sym = field_sym.borrow();
                 let field_ty = field_sym.get_type().unwrap();
                 self.type_contains_set_types(field_ty)
             });
-            let variant_part = self.variant_contains_set_types(ts.record_type_get_variant_part(ty));
+            let variant_part = self.variant_contains_set_types(
+                ts.record_type_get_variant_part(ty, &self.semantic_context.symbol_map),
+            );
             if variant_part {
                 unimplemented!("Variants with set types");
             }
@@ -2077,17 +2184,50 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             let sym = sym.borrow();
             let ty = sym.get_type().unwrap();
 
-            if self.semantic_context.type_system.is_integer_type(ty)
-                || self.semantic_context.type_system.is_real_type(ty)
-                || self.semantic_context.type_system.is_bool_type(ty)
-                || self.semantic_context.type_system.is_char_type(ty)
-                || self.semantic_context.type_system.is_enum_type(ty)
-                || self.semantic_context.type_system.is_subrange_type(ty)
-                || self.semantic_context.type_system.is_array_type(ty)
-                || self.semantic_context.type_system.is_record_type(ty)
-                || self.semantic_context.type_system.is_set_type(ty)
-                || self.semantic_context.type_system.is_pointer_type(ty)
-                || self.semantic_context.type_system.is_file_type(ty)
+            if self
+                .semantic_context
+                .type_system
+                .is_integer_type(ty, &self.semantic_context.symbol_map)
+                || self
+                    .semantic_context
+                    .type_system
+                    .is_real_type(ty, &self.semantic_context.symbol_map)
+                || self
+                    .semantic_context
+                    .type_system
+                    .is_bool_type(ty, &self.semantic_context.symbol_map)
+                || self
+                    .semantic_context
+                    .type_system
+                    .is_char_type(ty, &self.semantic_context.symbol_map)
+                || self
+                    .semantic_context
+                    .type_system
+                    .is_enum_type(ty, &self.semantic_context.symbol_map)
+                || self
+                    .semantic_context
+                    .type_system
+                    .is_subrange_type(ty, &self.semantic_context.symbol_map)
+                || self
+                    .semantic_context
+                    .type_system
+                    .is_array_type(ty, &self.semantic_context.symbol_map)
+                || self
+                    .semantic_context
+                    .type_system
+                    .is_record_type(ty, &self.semantic_context.symbol_map)
+                || self
+                    .semantic_context
+                    .type_system
+                    .is_set_type(ty, &self.semantic_context.symbol_map)
+                || self
+                    .semantic_context
+                    .type_system
+                    .is_pointer_type(ty, &self.semantic_context.symbol_map)
+                || self
+                    .semantic_context
+                    .type_system
+                    .is_file_type(ty, &self.semantic_context.symbol_map)
             {
                 let data_id = self
                     .object_module
@@ -2133,7 +2273,9 @@ impl<'a> VisitorMut for CodegenVisitor<'a> {
             } else {
                 panic!(
                     "Unexpected type {} in variable declaration",
-                    self.semantic_context.type_system.get_type_name(ty)
+                    self.semantic_context
+                        .type_system
+                        .get_type_name(ty, &self.semantic_context.symbol_map)
                 );
             }
         }

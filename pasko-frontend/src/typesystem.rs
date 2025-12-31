@@ -367,12 +367,10 @@ pub struct TypeSystem {
     generic_set_type_id: TypeId,
     generic_pointer_type_id: TypeId,
     textfile_type_id: TypeId,
-
-    symbol_map: symbol::SymbolMap,
 }
 
 impl TypeSystem {
-    pub fn new(symbol_map: symbol::SymbolMap) -> TypeSystem {
+    pub fn new() -> TypeSystem {
         let mut types = HashMap::new();
 
         let none_type = Type::default();
@@ -431,7 +429,6 @@ impl TypeSystem {
             generic_set_type_id,
             generic_pointer_type_id,
             textfile_type_id,
-            symbol_map,
         }
     }
 
@@ -456,36 +453,36 @@ impl TypeSystem {
         self.integer_type_id
     }
 
-    pub fn is_integer_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_integer_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_integer_type()
     }
 
-    pub fn is_enum_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_enum_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_enum_type()
     }
 
-    pub fn enum_type_get_enumerators(&self, ty: TypeId) -> Vec<SymbolId> {
-        let ty = self.ultimate_type(ty);
+    pub fn enum_type_get_enumerators(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> Vec<SymbolId> {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.enum_type_get_enumerators()
     }
 
-    pub fn is_subrange_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_subrange_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_subrange_type()
     }
 
-    pub fn get_host_type(&self, ty: TypeId) -> TypeId {
-        let ty = self.ultimate_type(ty);
+    pub fn get_host_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> TypeId {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.get_host_type()
@@ -495,8 +492,8 @@ impl TypeSystem {
         self.real_type_id
     }
 
-    pub fn is_real_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_real_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_real_type()
@@ -506,8 +503,8 @@ impl TypeSystem {
         self.bool_type_id
     }
 
-    pub fn is_bool_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_bool_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_bool_type()
@@ -517,8 +514,8 @@ impl TypeSystem {
         self.char_type_id
     }
 
-    pub fn is_char_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_char_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_char_type()
@@ -528,8 +525,8 @@ impl TypeSystem {
         self.error_type_id
     }
 
-    pub fn is_error_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_error_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_error_type()
@@ -579,16 +576,16 @@ impl TypeSystem {
         new_id
     }
 
-    pub fn is_string_type(&self, ty: TypeId) -> bool {
+    pub fn is_string_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
         // FIXME: We could cache this.
-        let ty = self.ultimate_type(ty);
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         if ty.is_array_type() {
-            let index_ty = self.ultimate_type(ty.array_type_get_index_type());
+            let index_ty = self.ultimate_type(ty.array_type_get_index_type(), symbol_map);
             let index_ty = self.get_type_internal(index_ty);
 
-            let component_ty = self.ultimate_type(ty.array_type_get_component_type());
+            let component_ty = self.ultimate_type(ty.array_type_get_component_type(), symbol_map);
             let component_ty = self.get_type_internal(component_ty);
 
             return ty.array_type_is_packed()
@@ -601,121 +598,124 @@ impl TypeSystem {
         false
     }
 
-    pub fn is_array_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_array_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_array_type()
     }
 
-    pub fn array_type_is_packed(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn array_type_is_packed(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.array_type_is_packed()
     }
 
-    pub fn array_type_get_component_type(&self, ty: TypeId) -> TypeId {
-        let ty = self.ultimate_type(ty);
+    pub fn array_type_get_component_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> TypeId {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.array_type_get_component_type()
     }
 
-    pub fn array_type_get_index_type(&self, ty: TypeId) -> TypeId {
-        let ty = self.ultimate_type(ty);
+    pub fn array_type_get_index_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> TypeId {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.array_type_get_index_type()
     }
 
-    pub fn is_conformable_array_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_conformable_array_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_conformable_array_type()
     }
 
-    pub fn conformable_array_type_get_component_type(&self, ty: TypeId) -> TypeId {
-        let ty = self.ultimate_type(ty);
+    pub fn conformable_array_type_get_component_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> TypeId {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.conformable_array_type_get_component_type()
     }
 
-    pub fn conformable_array_type_is_packed(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn conformable_array_type_is_packed(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.conformable_array_type_is_packed()
     }
 
-    pub fn conformable_array_type_get_lower(&self, ty: TypeId) -> SymbolId {
-        let ty = self.ultimate_type(ty);
+    pub fn conformable_array_type_get_lower(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> SymbolId {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.conformable_array_type_get_lower()
     }
 
-    pub fn conformable_array_type_get_upper(&self, ty: TypeId) -> SymbolId {
-        let ty = self.ultimate_type(ty);
+    pub fn conformable_array_type_get_upper(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> SymbolId {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.conformable_array_type_get_upper()
     }
 
-    pub fn array_or_conformable_array_type_get_component_type(&self, ty: TypeId) -> TypeId {
-        if self.is_array_type(ty) {
-            self.array_type_get_component_type(ty)
+    pub fn array_or_conformable_array_type_get_component_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> TypeId {
+        if self.is_array_type(ty, symbol_map) {
+            self.array_type_get_component_type(ty, symbol_map)
         } else {
-            self.conformable_array_type_get_component_type(ty)
+            self.conformable_array_type_get_component_type(ty, symbol_map)
         }
     }
 
-    pub fn array_or_conformable_array_type_get_index_type(&self, ty: TypeId) -> TypeId {
-        if self.is_array_type(ty) {
-            let ty = self.ultimate_type(ty);
+    pub fn array_or_conformable_array_type_get_index_type(
+        &self,
+        ty: TypeId, symbol_map: &symbol::SymbolMap,
+    ) -> TypeId {
+        if self.is_array_type(ty, symbol_map) {
+            let ty = self.ultimate_type(ty, symbol_map);
             let ty = self.get_type_internal(ty);
 
             ty.array_type_get_index_type()
         } else {
-            let lower = self.conformable_array_type_get_lower(ty);
-            let lower_sym = self.symbol_map.borrow().get_symbol(lower);
+            let lower = self.conformable_array_type_get_lower(ty, symbol_map);
+            let lower_sym = symbol_map.borrow().get_symbol(lower);
             let lower_sym = lower_sym.borrow();
             lower_sym.get_type().unwrap()
         }
     }
 
-    pub fn is_record_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_record_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_record_type()
     }
 
-    pub fn record_type_get_all_fields(&self, ty: TypeId) -> &Vec<symbol::SymbolId> {
-        let ty = self.ultimate_type(ty);
+    pub fn record_type_get_all_fields(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> &Vec<symbol::SymbolId> {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.record_type_get_all_fields()
     }
 
-    pub fn record_type_get_fixed_fields(&self, ty: TypeId) -> &Vec<symbol::SymbolId> {
-        let ty = self.ultimate_type(ty);
+    pub fn record_type_get_fixed_fields(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> &Vec<symbol::SymbolId> {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.record_type_get_fixed_fields()
     }
 
-    pub fn record_type_get_variant_part(&self, ty: TypeId) -> &Option<VariantPart> {
-        let ty = self.ultimate_type(ty);
+    pub fn record_type_get_variant_part(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> &Option<VariantPart> {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.record_type_get_variant_part()
     }
 
-    pub fn record_type_is_packed(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn record_type_is_packed(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.record_type_is_packed()
@@ -725,8 +725,8 @@ impl TypeSystem {
         self.generic_set_type_id
     }
 
-    pub fn is_generic_set_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_generic_set_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_generic_set_type()
@@ -748,22 +748,22 @@ impl TypeSystem {
         new_id
     }
 
-    pub fn is_set_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_set_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_set_type()
     }
 
-    pub fn set_type_get_packed(&self, ty: TypeId) -> Option<bool> {
-        let ty = self.ultimate_type(ty);
+    pub fn set_type_get_packed(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> Option<bool> {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.set_type_get_packed()
     }
 
-    pub fn set_type_get_element(&self, ty: TypeId) -> TypeId {
-        let ty = self.ultimate_type(ty);
+    pub fn set_type_get_element(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> TypeId {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.set_type_get_element_type()
@@ -773,8 +773,8 @@ impl TypeSystem {
         self.generic_pointer_type_id
     }
 
-    pub fn is_generic_pointer_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_generic_pointer_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_generic_pointer_type()
@@ -796,15 +796,15 @@ impl TypeSystem {
         new_id
     }
 
-    pub fn is_pointer_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_pointer_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_pointer_type()
     }
 
-    pub fn pointer_type_get_pointee_type(&self, ty: TypeId) -> TypeId {
-        let ty = self.ultimate_type(ty);
+    pub fn pointer_type_get_pointee_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> TypeId {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.pointer_type_get_pointee_type()
@@ -830,22 +830,22 @@ impl TypeSystem {
         self.textfile_type_id
     }
 
-    pub fn is_file_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_file_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_file_type()
     }
 
-    pub fn is_textfile_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_textfile_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_textfile_type()
     }
 
-    pub fn file_type_get_component_type(&self, ty: TypeId) -> TypeId {
-        let ty = self.ultimate_type(ty);
+    pub fn file_type_get_component_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> TypeId {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         if ty.is_textfile_type() {
@@ -869,8 +869,8 @@ impl TypeSystem {
             .unwrap()
     }
 
-    pub fn get_type_name(&self, id: TypeId) -> String {
-        self.get_type_name_impl(id, false, HashSet::new())
+    pub fn get_type_name(&self, id: TypeId, symbol_map: &symbol::SymbolMap) -> String {
+        self.get_type_name_impl(id, false, HashSet::new(), symbol_map)
             .to_string()
     }
 
@@ -879,16 +879,22 @@ impl TypeSystem {
         variant: &Option<VariantPart>,
         skip_alias: bool,
         cycles: HashSet<TypeId>,
+        symbol_map: &symbol::SymbolMap,
     ) -> String {
         if let Some(variant_part) = variant {
             format!(
                 "case {}{} of {}",
                 {
-                    let sym = self.symbol_map.borrow().get_symbol(variant_part.tag_name);
+                    let sym = symbol_map.borrow().get_symbol(variant_part.tag_name);
                     let sym = sym.borrow();
                     format!("{} : ", sym.get_name())
                 },
-                self.get_type_name_impl(variant_part.tag_type, skip_alias, cycles.clone()),
+                self.get_type_name_impl(
+                    variant_part.tag_type,
+                    skip_alias,
+                    cycles.clone(),
+                    symbol_map
+                ),
                 variant_part
                     .cases
                     .iter()
@@ -906,8 +912,7 @@ impl TypeSystem {
                                     case.fields
                                         .iter()
                                         .map(|field_sym| {
-                                            let sym =
-                                                self.symbol_map.borrow().get_symbol(*field_sym);
+                                            let sym = symbol_map.borrow().get_symbol(*field_sym);
                                             let sym = sym.borrow();
                                             format!(
                                                 "{}: {};",
@@ -915,7 +920,8 @@ impl TypeSystem {
                                                 self.get_type_name_impl(
                                                     sym.get_type().unwrap(),
                                                     /* skip_alias */ true,
-                                                    cycles.clone()
+                                                    cycles.clone(),
+                                                    symbol_map
                                                 )
                                             )
                                         })
@@ -923,7 +929,14 @@ impl TypeSystem {
                                         .join(" "),
                                 )
                             },
-                            { self.print_variant_part(&case.variant, skip_alias, cycles.clone()) }
+                            {
+                                self.print_variant_part(
+                                    &case.variant,
+                                    skip_alias,
+                                    cycles.clone(),
+                                    symbol_map,
+                                )
+                            }
                         )
                     })
                     .collect::<Vec<_>>()
@@ -939,21 +952,28 @@ impl TypeSystem {
         id: TypeId,
         skip_alias: bool,
         mut cycles: HashSet<TypeId>,
+        symbol_map: &symbol::SymbolMap,
     ) -> String {
         let ty = self.get_type_internal(id);
         let was_already_visited = cycles.contains(&id);
         cycles.insert(id);
         match ty.get_kind() {
             TypeKind::NamedType(sym_id) => {
-                let sym = self.symbol_map.borrow().get_symbol(sym_id);
+                let sym = symbol_map.borrow().get_symbol(sym_id);
                 let sym = sym.borrow();
                 assert!(!self.is_builtin_type_name(sym.get_name()));
                 if was_already_visited {
                     return sym.get_name().clone();
                 } else if skip_alias {
-                    return self.get_type_name_impl(self.ultimate_type(id), skip_alias, cycles);
+                    return self.get_type_name_impl(
+                        self.ultimate_type(id, symbol_map),
+                        skip_alias,
+                        cycles,
+                        symbol_map,
+                    );
                 } else {
-                    let aliased_to = self.get_type_name_impl(self.ultimate_type(id), true, cycles);
+                    let aliased_to =
+                        self.get_type_name_impl(self.ultimate_type(id, symbol_map), true, cycles, symbol_map);
                     return format!("{} (an alias of {})", sym.get_name().clone(), aliased_to);
                 }
             }
@@ -972,8 +992,8 @@ impl TypeSystem {
                 format!(
                     "{}array [{}] of {}",
                     if packed { "packed " } else { "" },
-                    self.get_type_name_impl(index, skip_alias, cycles.clone()),
-                    self.get_type_name_impl(component, skip_alias, cycles)
+                    self.get_type_name_impl(index, skip_alias, cycles.clone(), symbol_map),
+                    self.get_type_name_impl(component, skip_alias, cycles, symbol_map)
                 )
             }
             TypeKind::ConformableArray {
@@ -986,16 +1006,16 @@ impl TypeSystem {
                     "conformable {}array [{}..{}] of {}",
                     if packed { "packed " } else { "" },
                     {
-                        let sym = self.symbol_map.borrow().get_symbol(lower);
+                        let sym = symbol_map.borrow().get_symbol(lower);
                         let sym = sym.borrow();
                         sym.get_name().clone()
                     },
                     {
-                        let sym = self.symbol_map.borrow().get_symbol(upper);
+                        let sym = symbol_map.borrow().get_symbol(upper);
                         let sym = sym.borrow();
                         sym.get_name().clone()
                     },
-                    self.get_type_name_impl(component, skip_alias, cycles)
+                    self.get_type_name_impl(component, skip_alias, cycles, symbol_map)
                 )
             }
             TypeKind::Enum(enumerators) => {
@@ -1004,7 +1024,7 @@ impl TypeSystem {
                     enumerators
                         .iter()
                         .map(|sym_id| {
-                            let sym = self.symbol_map.borrow().get_symbol(*sym_id);
+                            let sym = symbol_map.borrow().get_symbol(*sym_id);
                             let sym = sym.borrow();
                             sym.get_name().clone()
                         })
@@ -1025,7 +1045,7 @@ impl TypeSystem {
                     fixed_fields
                         .iter()
                         .map(|sym_id| {
-                            let sym = self.symbol_map.borrow().get_symbol(*sym_id);
+                            let sym = symbol_map.borrow().get_symbol(*sym_id);
                             let sym = sym.borrow();
                             format!(
                                 "{} : {};",
@@ -1033,13 +1053,14 @@ impl TypeSystem {
                                 self.get_type_name_impl(
                                     sym.get_type().unwrap(),
                                     /* skip_alias */ true,
-                                    cycles.clone()
+                                    cycles.clone(),
+                                    symbol_map,
                                 )
                             )
                         })
                         .collect::<Vec<_>>()
                         .join(" "),
-                    self.print_variant_part(&variant, skip_alias, cycles)
+                    self.print_variant_part(&variant, skip_alias, cycles, symbol_map)
                 )
             }
             TypeKind::Set { packed, element } => {
@@ -1054,19 +1075,19 @@ impl TypeSystem {
                     } else {
                         "<no packedness> "
                     },
-                    self.get_type_name_impl(element, skip_alias, cycles.clone())
+                    self.get_type_name_impl(element, skip_alias, cycles.clone(), symbol_map)
                 )
             }
             TypeKind::GenericSet => "any set".to_owned(),
             TypeKind::GenericPointer => "generic pointer".to_owned(),
             TypeKind::Pointer(pointee) => format!(
                 "^{}",
-                self.get_type_name_impl(pointee, skip_alias, cycles.clone()),
+                self.get_type_name_impl(pointee, skip_alias, cycles.clone(), symbol_map),
             ),
             TypeKind::File { packed, component } => format!(
                 "{}file of {}",
                 if packed { "packed " } else { "" },
-                self.get_type_name_impl(component, skip_alias, cycles.clone())
+                self.get_type_name_impl(component, skip_alias, cycles.clone(), symbol_map)
             ),
             TypeKind::TextFile => "text".to_owned(),
             TypeKind::None => "<no type>".to_owned(),
@@ -1078,23 +1099,23 @@ impl TypeSystem {
         matches!(name, "integer" | "real" | "boolean" | "char" | "text")
     }
 
-    pub fn is_none_type(&self, a: TypeId) -> bool {
-        let a = self.ultimate_type(a);
+    pub fn is_none_type(&self, a: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let a = self.ultimate_type(a, symbol_map);
 
         a == self.none_type_id
     }
 
-    pub fn ultimate_type(&self, ty: TypeId) -> TypeId {
+    pub fn ultimate_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> TypeId {
         let lhs_type = self.get_type_internal(ty);
         if let Some(sym_id) = lhs_type.get_symbol_of_named_type() {
-            let sym = self.symbol_map.borrow().get_symbol(sym_id);
+            let sym = symbol_map.borrow().get_symbol(sym_id);
             let sym = sym.borrow();
-            return self.ultimate_type(sym.get_type().unwrap());
+            return self.ultimate_type(sym.get_type().unwrap(), symbol_map);
         }
         ty
     }
 
-    pub fn same_type(&self, a: TypeId, b: TypeId) -> bool {
+    pub fn same_type(&self, a: TypeId, b: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
         let id_a = self.get_type_internal(a).get_kind();
         let id_b = self.get_type_internal(b).get_kind();
         match (id_a, id_b) {
@@ -1102,13 +1123,13 @@ impl TypeSystem {
             (TypeKind::None, _) => false,
             (_, TypeKind::None) => false,
             // See through named types
-            (TypeKind::NamedType(_), _) => self.same_type(self.ultimate_type(a), b),
-            (_, TypeKind::NamedType(_)) => self.same_type(a, self.ultimate_type(b)),
+            (TypeKind::NamedType(_), _) => self.same_type(self.ultimate_type(a, symbol_map), b, symbol_map),
+            (_, TypeKind::NamedType(_)) => self.same_type(a, self.ultimate_type(b, symbol_map), symbol_map),
             // Structural checking
             (TypeKind::SubRange(t1, ca1, cb1), TypeKind::SubRange(t2, ca2, cb2)) => {
-                ca1 == ca2 && cb1 == cb2 && self.same_type(t1, t2)
+                ca1 == ca2 && cb1 == cb2 && self.same_type(t1, t2, symbol_map)
             }
-            (TypeKind::Pointer(p1), TypeKind::Pointer(p2)) => self.same_type(p1, p2),
+            (TypeKind::Pointer(p1), TypeKind::Pointer(p2)) => self.same_type(p1, p2, symbol_map),
             (
                 TypeKind::Set {
                     packed: p1,
@@ -1118,7 +1139,7 @@ impl TypeSystem {
                     packed: p2,
                     element: s2,
                 },
-            ) => (p1.is_some() == p2.is_some()) && self.same_type(s1, s2),
+            ) => (p1.is_some() == p2.is_some()) && self.same_type(s1, s2, symbol_map),
             (
                 TypeKind::Array {
                     packed: p1,
@@ -1130,7 +1151,7 @@ impl TypeSystem {
                     index: i2,
                     component: c2,
                 },
-            ) => (p1 == p2) && self.same_type(i1, i2) && self.same_type(c1, c2),
+            ) => (p1 == p2) && self.same_type(i1, i2, symbol_map) && self.same_type(c1, c2, symbol_map),
             (
                 TypeKind::File {
                     packed: p1,
@@ -1140,48 +1161,48 @@ impl TypeSystem {
                     packed: p2,
                     component: c2,
                 },
-            ) => p1 == p2 && self.same_type(c1, c2),
+            ) => p1 == p2 && self.same_type(c1, c2, symbol_map),
             // Integer, Real, Bool, Char, Error, Enum and Record
             // GenericSet, GenericPointer
             _ => a == b,
         }
     }
 
-    pub fn is_valid_component_type_of_file_type(&self, ty: TypeId) -> bool {
-        if self.is_file_type(ty) {
+    pub fn is_valid_component_type_of_file_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        if self.is_file_type(ty, symbol_map) {
             return false;
-        } else if self.is_record_type(ty) {
-            let fields = self.record_type_get_all_fields(ty);
+        } else if self.is_record_type(ty, symbol_map) {
+            let fields = self.record_type_get_all_fields(ty, symbol_map);
 
             fields.iter().all(|field| {
-                let sym = self.symbol_map.borrow().get_symbol(*field);
+                let sym = symbol_map.borrow().get_symbol(*field);
                 let sym = sym.borrow();
 
-                self.is_valid_component_type_of_file_type(sym.get_type().unwrap())
+                self.is_valid_component_type_of_file_type(sym.get_type().unwrap(), symbol_map)
             });
         }
 
         true
     }
 
-    pub fn is_simple_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_simple_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_simple_type()
     }
 
-    pub fn is_ordinal_type(&self, ty: TypeId) -> bool {
-        let ty = self.ultimate_type(ty);
+    pub fn is_ordinal_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         ty.is_ordinal_type()
     }
 
-    pub fn ordinal_type_lower_bound(&self, ty: TypeId) -> i64 {
-        assert!(self.is_ordinal_type(ty));
+    pub fn ordinal_type_lower_bound(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> i64 {
+        assert!(self.is_ordinal_type(ty, symbol_map));
 
-        let ty = self.ultimate_type(ty);
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         if ty.is_integer_type() {
@@ -1197,10 +1218,10 @@ impl TypeSystem {
         panic!("Unhandled ordinal type {:?}", ty.get_kind());
     }
 
-    pub fn ordinal_type_upper_bound(&self, ty: TypeId) -> i64 {
-        assert!(self.is_ordinal_type(ty));
+    pub fn ordinal_type_upper_bound(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> i64 {
+        assert!(self.is_ordinal_type(ty, symbol_map));
 
-        let ty = self.ultimate_type(ty);
+        let ty = self.ultimate_type(ty, symbol_map);
         let ty = self.get_type_internal(ty);
 
         if ty.is_integer_type() {
@@ -1220,9 +1241,9 @@ impl TypeSystem {
         panic!("Unhandled ordinal type {:?}", ty.get_kind());
     }
 
-    pub fn ordinal_type_extent(&self, ty: TypeId) -> i64 {
-        let lower_bound = self.ordinal_type_lower_bound(ty);
-        let upper_bound = self.ordinal_type_upper_bound(ty);
+    pub fn ordinal_type_extent(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> i64 {
+        let lower_bound = self.ordinal_type_lower_bound(ty, symbol_map);
+        let upper_bound = self.ordinal_type_upper_bound(ty, symbol_map);
 
         if let Some(x) = upper_bound
             .checked_sub(lower_bound)
@@ -1232,7 +1253,7 @@ impl TypeSystem {
         } else {
             panic!(
                 "Overflow while computing the number of elements of ordinal type {}",
-                self.get_type_name(ty)
+                self.get_type_name(ty, symbol_map)
             );
         }
     }
