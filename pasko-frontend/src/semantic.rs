@@ -95,14 +95,6 @@ impl SemanticContext {
         self.symbol_map.new_symbol(sym)
     }
 
-    pub fn get_symbol(&self, id: SymbolId) -> &Symbol {
-        self.symbol_map.get_symbol(id)
-    }
-
-    pub fn get_symbol_mut(&mut self, id: SymbolId) -> &mut Symbol {
-        self.symbol_map.get_symbol_mut(id)
-    }
-
     pub fn set_ast_symbol(&mut self, id: span::SpanId, sym: SymbolId) {
         self.ast_symbols.insert(id, sym);
     }
@@ -295,7 +287,7 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
         let sym = self.ctx.scope.lookup_current_scope(name);
         match sym {
             Some(x) => {
-                let extra = self.extra_diag_previous_location(self.ctx.get_symbol(x));
+                let extra = self.extra_diag_previous_location(self.ctx.symbol_map.get_symbol(x));
                 self.diagnostics.add_with_extra(
                     DiagnosticKind::Error,
                     *span,
@@ -315,7 +307,7 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
     fn is_pending_type_definition(&mut self, name: &str) -> Option<SymbolId> {
         let sym = self.ctx.scope.lookup_current_scope(name);
         if let Some(sym_id) = sym {
-            let sym = self.ctx.get_symbol(sym_id);
+            let sym = self.ctx.symbol_map.get_symbol(sym_id);
             if sym.get_kind() != SymbolKind::PendingTypeDefinition {
                 return None;
             }
@@ -331,7 +323,7 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
         is_procedure: bool,
     ) -> FunctionProcedureDeclarationStatus {
         if let Some(sym_id) = self.ctx.scope.lookup_current_scope(name) {
-            let sym = self.ctx.get_symbol(sym_id);
+            let sym = self.ctx.symbol_map.get_symbol(sym_id);
 
             match sym.get_kind() {
                 SymbolKind::Function if !is_procedure => {
@@ -482,10 +474,10 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
 
         for p in params_a.iter().flatten().zip(params_b.iter().flatten()) {
             let sym_id_a = *p.0;
-            let sym_a = self.ctx.get_symbol(sym_id_a);
+            let sym_a = self.ctx.symbol_map.get_symbol(sym_id_a);
 
             let sym_id_b = *p.1;
-            let sym_b = self.ctx.get_symbol(sym_id_b);
+            let sym_b = self.ctx.symbol_map.get_symbol(sym_id_b);
 
             let param_kind_a = sym_a.get_parameter().unwrap();
             let param_kind_b = sym_b.get_parameter().unwrap();
@@ -534,12 +526,12 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
         formal_parameters: &[Vec<SymbolId>],
         result_type: TypeId,
     ) -> bool {
-        let prev_sym = self.ctx.get_symbol(prev_sym_id);
+        let prev_sym = self.ctx.symbol_map.get_symbol(prev_sym_id);
 
         let prev_params = prev_sym.get_formal_parameters().unwrap();
 
         let prev_result_sym_id = prev_sym.get_return_symbol().unwrap();
-        let prev_result_sym = self.ctx.get_symbol(prev_result_sym_id);
+        let prev_result_sym = self.ctx.symbol_map.get_symbol(prev_result_sym_id);
         let prev_result_type = prev_result_sym.get_type().unwrap();
 
         self.compare_parameter_declarations(&prev_params, formal_parameters)
@@ -550,10 +542,10 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
     }
 
     fn equivalent_function_symbols(&self, sym_id_1: SymbolId, sym_id_2: SymbolId) -> bool {
-        let sym_1 = self.ctx.get_symbol(sym_id_1);
+        let sym_1 = self.ctx.symbol_map.get_symbol(sym_id_1);
         let sym_1_return_type = {
             let result_sym_id = sym_1.get_return_symbol().unwrap();
-            let result_sym = self.ctx.get_symbol(result_sym_id);
+            let result_sym = self.ctx.symbol_map.get_symbol(result_sym_id);
             result_sym.get_type().unwrap()
         };
         self.equivalent_function_declarations(
@@ -594,6 +586,7 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
         let return_symbol_id = self.ctx.new_symbol(return_symbol);
 
         self.ctx
+            .symbol_map
             .get_symbol_mut(function_sym_id)
             .set_return_symbol(return_symbol_id);
 
@@ -605,7 +598,7 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
         prev_sym_id: SymbolId,
         formal_parameters: &[Vec<SymbolId>],
     ) -> bool {
-        let prev_sym = self.ctx.get_symbol(prev_sym_id);
+        let prev_sym = self.ctx.symbol_map.get_symbol(prev_sym_id);
 
         let prev_params = prev_sym.get_formal_parameters().unwrap();
 
@@ -613,7 +606,7 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
     }
 
     fn equivalent_procedure_symbols(&self, sym_id_1: SymbolId, sym_id_2: SymbolId) -> bool {
-        let sym_1 = self.ctx.get_symbol(sym_id_1);
+        let sym_1 = self.ctx.symbol_map.get_symbol(sym_id_1);
         self.equivalent_procedure_declarations(
             sym_id_2,
             sym_1.get_formal_parameters().as_ref().unwrap(),
@@ -1437,6 +1430,7 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
         let return_symbol_id = self.ctx.new_symbol(return_symbol);
 
         self.ctx
+            .symbol_map
             .get_symbol_mut(function_sym_id)
             .set_return_symbol(return_symbol_id);
 
@@ -1509,7 +1503,7 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
         callee_symbol_id: SymbolId,
     ) -> bool {
         let params = {
-            let callee_symbol = self.ctx.get_symbol(callee_symbol_id);
+            let callee_symbol = self.ctx.symbol_map.get_symbol(callee_symbol_id);
             callee_symbol.get_formal_parameters().unwrap()
         };
 
@@ -1556,7 +1550,7 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
         for ((current_arg_idx, arg), (current_param_pack_idx, param_sym_id)) in
             args.iter_mut().enumerate().zip(params_flattened)
         {
-            let param_sym = self.ctx.get_symbol(param_sym_id);
+            let param_sym = self.ctx.symbol_map.get_symbol(param_sym_id);
             let (param_kind, param_type_id, param_name) = {
                 (
                     param_sym.get_parameter().unwrap(),
@@ -1694,7 +1688,7 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
                         if let ast::Assig::Variable(var) = expr_var.0.get() {
                             let name = var.0.get();
                             if let Some(arg_sym_id) = self.lookup_symbol(name, var.0.loc()) {
-                                let arg_sym = self.ctx.get_symbol(arg_sym_id);
+                                let arg_sym = self.ctx.symbol_map.get_symbol(arg_sym_id);
                                 match (param_kind, arg_sym.get_kind()) {
                                     (ParameterKind::Function, SymbolKind::Function)
                                     | (ParameterKind::Procedure, SymbolKind::Procedure) => {
@@ -1719,7 +1713,7 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
                                            vec![],
                                            vec![Diagnostic::new(DiagnosticKind::Error,
                                             {
-                                              let param_sym = self.ctx.get_symbol(param_sym_id);
+                                              let param_sym = self.ctx.symbol_map.get_symbol(param_sym_id);
                                               param_sym.get_defining_point().unwrap()
                                             }, format!("declaration of the {} parameter", param_kind_name))],);
                                         } else {
@@ -1936,7 +1930,7 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
             return false;
         } else if self.ctx.type_system.is_named_type(ty) {
             let sym_id = self.ctx.type_system.named_type_get_symbol(ty);
-            let sym = self.ctx.get_symbol(sym_id);
+            let sym = self.ctx.symbol_map.get_symbol(sym_id);
             return self.contains_invalid_type_cycle_impl(
                 false,
                 root_ty,
@@ -1961,7 +1955,7 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
                 .type_system
                 .record_type_get_all_fields(ty, &self.ctx.symbol_map);
             for field in fields {
-                let field_sym = self.ctx.get_symbol(*field);
+                let field_sym = self.ctx.symbol_map.get_symbol(*field);
                 if self.contains_invalid_type_cycle_impl(
                     false,
                     root_ty,
@@ -2175,7 +2169,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
     fn visit_post_block(&mut self, _n: &mut ast::Block, _span: &span::SpanLoc, _id: span::SpanId) {
         let label_declarations = self.ctx.label_declarations.pop().unwrap();
         for label in label_declarations {
-            let label_sym = self.ctx.get_symbol(label);
+            let label_sym = self.ctx.symbol_map.get_symbol(label);
             if !label_sym.is_defined() {
                 self.diagnostics.add(
                     DiagnosticKind::Error,
@@ -2199,7 +2193,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
             // so checking later if it was declared is very easy.
             let label_name = self.get_label_name(*label.get());
             if let Some(label_decl) = self.ctx.scope.lookup_current_scope(&label_name) {
-                let previous_label = self.ctx.get_symbol(label_decl);
+                let previous_label = self.ctx.symbol_map.get_symbol(label_decl);
                 self.diagnostics.add_with_extra(
                     DiagnosticKind::Error,
                     *label.loc(),
@@ -2286,7 +2280,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
     ) {
         self.in_type_definition_part = false;
         for sym_id in &self.ctx.pending_type_definitions {
-            let sym = self.ctx.get_symbol(*sym_id);
+            let sym = self.ctx.symbol_map.get_symbol(*sym_id);
             self.diagnostics.add(
                 DiagnosticKind::Error,
                 sym.get_defining_point().unwrap(),
@@ -2306,7 +2300,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
         // So check that first.
         let name = n.0.get();
         let new_sym = if let Some(symbol_id) = self.is_pending_type_definition(name) {
-            let sym = self.ctx.get_symbol_mut(symbol_id);
+            let sym = self.ctx.symbol_map.get_symbol_mut(symbol_id);
             sym.set_kind(SymbolKind::Type);
             sym.set_defining_point(*n.0.loc());
             self.ctx.set_ast_symbol(n.0.id(), symbol_id);
@@ -2345,7 +2339,10 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
         let type_denoter = self.ctx.get_ast_type(n.1.id()).unwrap();
 
         // Update the type stored in the type symbol.
-        self.ctx.get_symbol_mut(new_sym).set_type(type_denoter);
+        self.ctx
+            .symbol_map
+            .get_symbol_mut(new_sym)
+            .set_type(type_denoter);
 
         // Check for cycles in the definition.
         if (self.ctx.type_system.is_named_type(type_denoter)
@@ -2358,7 +2355,10 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                 "invalid cyclic reference to type being declared".to_string(),
             );
             let error_type = self.ctx.type_system.get_error_type();
-            self.ctx.get_symbol_mut(new_sym).set_type(error_type);
+            self.ctx
+                .symbol_map
+                .get_symbol_mut(new_sym)
+                .set_type(error_type);
             return false;
         }
 
@@ -2405,9 +2405,12 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
         let enum_type_id = self.ctx.type_system.new_type(enum_type);
 
         // Now link the enumerators to its enum type.
-        enum_ids
-            .iter()
-            .for_each(|enum_id| self.ctx.get_symbol_mut(*enum_id).set_type(enum_type_id));
+        enum_ids.iter().for_each(|enum_id| {
+            self.ctx
+                .symbol_map
+                .get_symbol_mut(*enum_id)
+                .set_type(enum_type_id)
+        });
 
         if enum_error {
             self.ctx
@@ -2983,7 +2986,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
             FunctionProcedureDeclarationStatus::ForwardDeclared(prev_sym_id)
             | FunctionProcedureDeclarationStatus::AlreadyDefined(prev_sym_id) => {
                 if !self.equivalent_procedure_declarations(prev_sym_id, &formal_parameters) {
-                    let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                    let prev_sym = self.ctx.symbol_map.get_symbol(prev_sym_id);
                     self.diagnostics.add_with_extra(DiagnosticKind::Error, *n.0.loc(),
                     "procedure declaration is incompatible with a previous procedure declaration".to_string(),
                      vec![],
@@ -3073,7 +3076,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                     &formal_parameters,
                     result_type,
                 ) {
-                    let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                    let prev_sym = self.ctx.symbol_map.get_symbol(prev_sym_id);
                     self.diagnostics.add_with_extra(
                         DiagnosticKind::Error,
                         *n.0.loc(),
@@ -3166,7 +3169,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
         let function_sym_id = match redeclaration_status {
             FunctionProcedureDeclarationStatus::ForwardDeclared(prev_sym_id) => {
                 let prev_formal_parameters = {
-                    let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                    let prev_sym = self.ctx.symbol_map.get_symbol(prev_sym_id);
                     prev_sym.get_formal_parameters().unwrap()
                 };
 
@@ -3174,7 +3177,10 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                 for prev_formal_param_sym_id in prev_formal_parameters.iter().flatten() {
                     let current_scope = self.ctx.scope.get_current_scope_id();
                     let prev_formal_param_name = {
-                        let prev_formal_param = self.ctx.get_symbol_mut(*prev_formal_param_sym_id);
+                        let prev_formal_param = self
+                            .ctx
+                            .symbol_map
+                            .get_symbol_mut(*prev_formal_param_sym_id);
                         prev_formal_param.set_scope(current_scope);
                         prev_formal_param.get_name().clone()
                     };
@@ -3184,12 +3190,12 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                         .add_entry(&prev_formal_param_name, *prev_formal_param_sym_id);
                 }
 
-                let prev_sym = self.ctx.get_symbol_mut(prev_sym_id);
+                let prev_sym = self.ctx.symbol_map.get_symbol_mut(prev_sym_id);
                 prev_sym.set_defined(true);
                 prev_sym.set_defining_point(*n.0.loc());
 
                 let return_sym_id = prev_sym.get_return_symbol().unwrap();
-                let return_sym = self.ctx.get_symbol_mut(return_sym_id);
+                let return_sym = self.ctx.symbol_map.get_symbol_mut(return_sym_id);
                 return_sym.set_defining_point(*n.0.loc());
 
                 prev_sym_id
@@ -3226,7 +3232,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
             node.0.loc(),
             context_disallows_undeclared_types,
         ) {
-            let type_name = self.ctx.get_symbol(symbol_id);
+            let type_name = self.ctx.symbol_map.get_symbol(symbol_id);
             match type_name.get_kind() {
                 SymbolKind::Type => {
                     let named_type = if self
@@ -3314,7 +3320,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
             let program_parameters = self.ctx.program_parameters.clone();
             for (program_param, loc) in program_parameters {
                 if let Some(sym_id) = self.lookup_symbol(&program_param, &loc) {
-                    let sym = self.ctx.get_symbol(sym_id);
+                    let sym = self.ctx.symbol_map.get_symbol(sym_id);
                     let ty = sym
                         .get_type()
                         .unwrap_or_else(|| self.ctx.type_system.get_error_type());
@@ -3384,7 +3390,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
     ) {
         if let Some(sym_id) = self.lookup_symbol(node.0.get(), node.0.loc()) {
             let (sym_kind, sym_type, scope_id) = {
-                let var_name = self.ctx.get_symbol(sym_id);
+                let var_name = self.ctx.symbol_map.get_symbol(sym_id);
                 (
                     var_name.get_kind(),
                     var_name.get_type(),
@@ -3409,7 +3415,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                         (Some(symbol_of_current_scope), Some(symbol_of_variable_scope)) => {
                             if symbol_of_current_scope != symbol_of_variable_scope {
                                 let symbol_of_current_scope =
-                                    self.ctx.get_symbol_mut(symbol_of_current_scope);
+                                    self.ctx.symbol_map.get_symbol_mut(symbol_of_current_scope);
 
                                 assert!(
                                     symbol_of_current_scope.get_kind() == SymbolKind::Function
@@ -3419,7 +3425,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                                 symbol_of_current_scope.add_to_required_environment(sym_id);
 
                                 // Mark the symbol as being captured.
-                                let sym = self.ctx.get_symbol_mut(sym_id);
+                                let sym = self.ctx.symbol_map.get_symbol_mut(sym_id);
                                 sym.set_captured(true);
                             }
                         }
@@ -3442,7 +3448,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                 }
                 _ => {
                     let extra = {
-                        let var_name = self.ctx.get_symbol(sym_id);
+                        let var_name = self.ctx.symbol_map.get_symbol(sym_id);
                         self.extra_diag_previous_location(&var_name)
                     };
                     self.diagnostics.add_with_extra(
@@ -3573,13 +3579,13 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
             .type_system
             .record_type_get_all_fields(base_type, &self.ctx.symbol_map);
         if let Some(named_field) = record_fields.iter().find(|record_field| {
-            let record_field_sym = self.ctx.get_symbol(**record_field);
+            let record_field_sym = self.ctx.symbol_map.get_symbol(**record_field);
 
             current_field_name.to_ascii_lowercase()
                 == record_field_sym.get_name().to_ascii_lowercase()
         }) {
             let (named_field_sym_id, named_field_type) = {
-                let s = self.ctx.get_symbol(*named_field);
+                let s = self.ctx.symbol_map.get_symbol(*named_field);
                 (s.id(), s.get_type().unwrap())
             };
 
@@ -3678,7 +3684,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
             if let ast::Assig::Variable(x) = assig {
                 if let Some(sym_id) = self.ctx.scope.lookup(x.0.get()) {
                     let (sym_kind, sym_type, sym_const, formal_parameters) = {
-                        let var_name = self.ctx.get_symbol(sym_id);
+                        let var_name = self.ctx.symbol_map.get_symbol(sym_id);
                         (
                             var_name.get_kind(),
                             var_name.get_type(),
@@ -3730,10 +3736,11 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                                 let new_call = ast::Expr::FunctionCall(new_call_expr);
 
                                 let return_symbol_id = {
-                                    let callee_symbol = self.ctx.get_symbol(sym_id);
+                                    let callee_symbol = self.ctx.symbol_map.get_symbol(sym_id);
                                     callee_symbol.get_return_symbol().unwrap()
                                 };
-                                let return_symbol = self.ctx.get_symbol(return_symbol_id);
+                                let return_symbol =
+                                    self.ctx.symbol_map.get_symbol(return_symbol_id);
                                 self.ctx.set_ast_type(id, return_symbol.get_type().unwrap());
 
                                 *n = new_call;
@@ -3886,7 +3893,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
             .scope
             .get_innermost_scope_symbol(self.ctx.scope.get_current_scope_id())
         {
-            let scope_symbol = self.ctx.get_symbol(scope_symbol_id);
+            let scope_symbol = self.ctx.symbol_map.get_symbol(scope_symbol_id);
             if scope_symbol.get_kind() == SymbolKind::Function {
                 if let ast::Assig::Variable(assig_var) = lhs.get_mut() {
                     let name = assig_var.0.get();
@@ -3894,7 +3901,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                         if symbol_id == scope_symbol_id {
                             // This is an assignment to the return variable. Fixup.
                             let return_id = scope_symbol.get_return_symbol().unwrap();
-                            let return_sym = self.ctx.get_symbol(return_id);
+                            let return_sym = self.ctx.symbol_map.get_symbol(return_id);
                             let return_type = return_sym.get_type().unwrap();
 
                             self.ctx.set_ast_symbol(assig_var.0.id(), return_id);
@@ -3926,7 +3933,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
         let rhs_type = self.ctx.get_ast_type(rhs.id()).unwrap();
 
         if let Some(assig_sym_id) = self.ctx.get_ast_symbol(node.0.id()) {
-            let assig_sym = self.ctx.get_symbol(assig_sym_id);
+            let assig_sym = self.ctx.symbol_map.get_symbol(assig_sym_id);
             if assig_sym.get_kind() != SymbolKind::Variable
                 && assig_sym.get_kind() != SymbolKind::AssociatedField
             {
@@ -4033,7 +4040,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
             {
                 let sym_id = self.ctx.get_ast_symbol(node.1.id()).unwrap();
                 let extra = {
-                    let var_name = self.ctx.get_symbol(sym_id);
+                    let var_name = self.ctx.symbol_map.get_symbol(sym_id);
                     self.extra_diag_previous_location(&var_name)
                 };
                 self.diagnostics.add_with_extra(
@@ -4786,7 +4793,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                 }
             }
         } else if let Some(callee_symbol_id) = self.lookup_symbol(callee.get(), callee.loc()) {
-            let callee_symbol_kind = self.ctx.get_symbol(callee_symbol_id).get_kind();
+            let callee_symbol_kind = self.ctx.symbol_map.get_symbol(callee_symbol_id).get_kind();
             match callee_symbol_kind {
                 SymbolKind::Function => {
                     let argument_error = self.common_check_parameters(
@@ -4807,11 +4814,11 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                     self.ctx.set_ast_symbol(callee.id(), callee_symbol_id);
 
                     let return_symbol_id = {
-                        let callee_symbol = self.ctx.get_symbol(callee_symbol_id);
+                        let callee_symbol = self.ctx.symbol_map.get_symbol(callee_symbol_id);
                         callee_symbol.get_return_symbol().unwrap()
                     };
 
-                    let return_symbol = self.ctx.get_symbol(return_symbol_id);
+                    let return_symbol = self.ctx.symbol_map.get_symbol(return_symbol_id);
                     self.ctx.set_ast_type(id, return_symbol.get_type().unwrap());
                 }
                 SymbolKind::ErrorLookup => {
@@ -4820,7 +4827,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                 }
                 _ => {
                     let extra = {
-                        let var_name = self.ctx.get_symbol(callee_symbol_id);
+                        let var_name = self.ctx.symbol_map.get_symbol(callee_symbol_id);
                         self.extra_diag_previous_location(&var_name)
                     };
                     self.diagnostics.add_with_extra(
@@ -4979,7 +4986,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
     ) {
         if let Some(sym_id) = self.lookup_symbol(node.0.get(), node.0.loc()) {
             let (sym_kind, sym_type, sym_value) = {
-                let var_name = self.ctx.get_symbol(sym_id);
+                let var_name = self.ctx.symbol_map.get_symbol(sym_id);
                 (
                     var_name.get_kind(),
                     var_name.get_type(),
@@ -5007,7 +5014,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                 }
                 _ => {
                     let extra = {
-                        let var_name = self.ctx.get_symbol(sym_id);
+                        let var_name = self.ctx.symbol_map.get_symbol(sym_id);
                         self.extra_diag_previous_location(&var_name)
                     };
                     self.diagnostics.add_with_extra(
@@ -5039,7 +5046,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
     ) {
         if let Some(sym_id) = self.lookup_symbol(node.0.get(), node.0.loc()) {
             let (sym_kind, sym_type, sym_value) = {
-                let var_name = self.ctx.get_symbol(sym_id);
+                let var_name = self.ctx.symbol_map.get_symbol(sym_id);
                 (
                     var_name.get_kind(),
                     var_name.get_type(),
@@ -5131,7 +5138,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                 .ctx
                 .scope
                 .get_innermost_scope_symbol(self.ctx.scope.get_current_scope_id());
-            let label_sym = self.ctx.get_symbol(label_decl);
+            let label_sym = self.ctx.symbol_map.get_symbol(label_decl);
             let label_scope = label_sym.get_scope().unwrap();
             let label_innermost_scope = self.ctx.scope.get_innermost_scope_symbol(label_scope);
             match (innermost_scope_symbol, label_innermost_scope) {
@@ -5168,7 +5175,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                 .ctx
                 .scope
                 .get_innermost_scope_symbol(self.ctx.scope.get_current_scope_id());
-            let label_sym = self.ctx.get_symbol(label_decl);
+            let label_sym = self.ctx.symbol_map.get_symbol(label_decl);
             let label_scope = label_sym.get_scope().unwrap();
             let label_innermost_scope = self.ctx.scope.get_innermost_scope_symbol(label_scope);
             let mut wrong_label = false;
@@ -5197,7 +5204,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                     )],
                 );
             } else {
-                let label_sym = self.ctx.get_symbol_mut(label_decl);
+                let label_sym = self.ctx.symbol_map.get_symbol_mut(label_decl);
                 label_sym.set_defined(true);
                 label_sym.set_defining_point(*n.0.loc());
             }
@@ -5529,7 +5536,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                 ),
             );
         } else if let Some(callee_symbol_id) = self.lookup_symbol(callee.get(), callee.loc()) {
-            let callee_symbol_kind = self.ctx.get_symbol(callee_symbol_id).get_kind();
+            let callee_symbol_kind = self.ctx.symbol_map.get_symbol(callee_symbol_id).get_kind();
             match callee_symbol_kind {
                 SymbolKind::Procedure => {
                     if let Some(args) = args {
@@ -5549,7 +5556,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                 }
                 _ => {
                     let extra = {
-                        let var_name = self.ctx.get_symbol(callee_symbol_id);
+                        let var_name = self.ctx.symbol_map.get_symbol(callee_symbol_id);
                         self.extra_diag_previous_location(&var_name)
                     };
                     self.diagnostics.add_with_extra(
@@ -5743,7 +5750,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                     .clone();
                 for field_id in fields {
                     let (field_name, field_type) = {
-                        let s = self.ctx.get_symbol(field_id);
+                        let s = self.ctx.symbol_map.get_symbol(field_id);
                         (s.get_name().clone(), s.get_type().unwrap())
                     };
 
@@ -5883,7 +5890,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                     match proc {
                         ast::ProcedureDeclaration::Definition(proc) => {
                             if let Some(proc_sym) = self.ctx.get_ast_symbol(proc.0.id()) {
-                                let proc_sym = self.ctx.get_symbol(proc_sym);
+                                let proc_sym = self.ctx.symbol_map.get_symbol(proc_sym);
                                 proc_sym.get_required_environment().iter().for_each(|item| {
                                     items.insert(*item);
                                 });
@@ -5897,7 +5904,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                     match func {
                         ast::FunctionDeclaration::Definition(func) => {
                             if let Some(func_sym) = self.ctx.get_ast_symbol(func.0.id()) {
-                                let func_sym = self.ctx.get_symbol(func_sym);
+                                let func_sym = self.ctx.symbol_map.get_symbol(func_sym);
                                 func_sym.get_required_environment().iter().for_each(|item| {
                                     items.insert(*item);
                                 });
@@ -5905,7 +5912,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                         }
                         ast::FunctionDeclaration::LateDefinition(func) => {
                             if let Some(func_sym) = self.ctx.get_ast_symbol(func.0.id()) {
-                                let func_sym = self.ctx.get_symbol(func_sym);
+                                let func_sym = self.ctx.symbol_map.get_symbol(func_sym);
                                 func_sym.get_required_environment().iter().for_each(|item| {
                                     items.insert(*item);
                                 });
@@ -5918,14 +5925,14 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
         }
 
         items.iter().for_each(|sym_id| {
-            let sym = self.ctx.get_symbol(*sym_id);
+            let sym = self.ctx.symbol_map.get_symbol(*sym_id);
             let sym_scope = sym.get_scope().unwrap();
             if self
                 .ctx
                 .scope
                 .scope_is_same_or_nested_in(self.ctx.scope.get_current_scope_id(), sym_scope)
             {
-                let current_scope_symbol = self.ctx.get_symbol_mut(current_scope_symbol);
+                let current_scope_symbol = self.ctx.symbol_map.get_symbol_mut(current_scope_symbol);
                 current_scope_symbol.add_to_required_environment(*sym_id);
             }
         });
@@ -5987,7 +5994,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                     &formal_parameters,
                     result_type,
                 ) {
-                    let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                    let prev_sym = self.ctx.symbol_map.get_symbol(prev_sym_id);
                     self.diagnostics.add_with_extra(
                         DiagnosticKind::Error,
                         *n.0.loc(),
@@ -6002,13 +6009,13 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                     );
                     None
                 } else {
-                    let prev_sym = self.ctx.get_symbol_mut(prev_sym_id);
+                    let prev_sym = self.ctx.symbol_map.get_symbol_mut(prev_sym_id);
                     prev_sym.set_defined(true);
                     prev_sym.set_defining_point(*n.0.loc());
                     prev_sym.set_formal_parameters(formal_parameters);
 
                     let return_sym_id = prev_sym.get_return_symbol().unwrap();
-                    let return_sym = self.ctx.get_symbol_mut(return_sym_id);
+                    let return_sym = self.ctx.symbol_map.get_symbol_mut(return_sym_id);
                     return_sym.set_defined(true);
                     return_sym.set_defining_point(*n.0.loc());
 
@@ -6104,26 +6111,26 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                 // If there are no formal parameters at all we will use those of the prev_sym.
                 if let Some(formal_parameters) = formal_parameters {
                     if !self.equivalent_procedure_declarations(prev_sym_id, &formal_parameters) {
-                        let prev_sym = self.ctx.get_symbol_mut(prev_sym_id);
+                        let prev_sym = self.ctx.symbol_map.get_symbol_mut(prev_sym_id);
                         self.diagnostics.add_with_extra(DiagnosticKind::Error, *n.0.loc(),
                     "procedure definition is incompatible with a previous procedure declaration".to_string(),
                      vec![],
                      vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), "previous declaration".to_string())]);
                         None
                     } else {
-                        let prev_sym = self.ctx.get_symbol_mut(prev_sym_id);
+                        let prev_sym = self.ctx.symbol_map.get_symbol_mut(prev_sym_id);
                         prev_sym.set_formal_parameters(formal_parameters);
                         Some(prev_sym_id)
                     }
                 } else {
-                    let prev_sym = self.ctx.get_symbol(prev_sym_id);
+                    let prev_sym = self.ctx.symbol_map.get_symbol(prev_sym_id);
 
                     let prev_formal_parameters = prev_sym.get_formal_parameters();
                     // Insert the formal parameters in the scope, so name resolution works.
                     let current_scope_id =self.ctx.scope.get_current_scope_id() ;
                     if let Some(prev_formal_parameters) = prev_formal_parameters {
                         for prev_formal_param_sym_id in prev_formal_parameters.iter().flatten().cloned() {
-                            let prev_formal_param = self.ctx.get_symbol_mut(prev_formal_param_sym_id);
+                            let prev_formal_param = self.ctx.symbol_map.get_symbol_mut(prev_formal_param_sym_id);
                             prev_formal_param.set_scope(current_scope_id);
                             let prev_formal_param_name = prev_formal_param.get_name().clone();
                             self.ctx.scope
@@ -6132,7 +6139,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                     }
                     Some(prev_sym_id)
                 }.inspect(|&prev_sym_id| {
-                    let prev_sym = self.ctx.get_symbol_mut(prev_sym_id);
+                    let prev_sym = self.ctx.symbol_map.get_symbol_mut(prev_sym_id);
                     prev_sym.set_defined(true);
                     prev_sym.set_defining_point(*n.0.loc());
                 })

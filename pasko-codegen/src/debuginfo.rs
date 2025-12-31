@@ -489,7 +489,7 @@ impl DebugContext {
 
         let mut function_name;
 
-        let function_symbol = semantic_context.get_symbol(function_symbol_id);
+        let function_symbol = semantic_context.symbol_map.get_symbol(function_symbol_id);
         let function_symbol_scope = function_symbol.get_scope().unwrap();
 
         function_name = function_symbol.get_name().clone();
@@ -835,7 +835,7 @@ impl DebugContext {
             .for_each(|(value, enumerator)| {
                 let enum_entry = self.dwarf.unit.add(type_id, gimli::DW_TAG_enumerator);
                 let entry = self.dwarf.unit.get_mut(enum_entry);
-                let enumerator_sym = semantic_context.get_symbol(*enumerator);
+                let enumerator_sym = semantic_context.symbol_map.get_symbol(*enumerator);
                 let enumerator_name = enumerator_sym.get_name();
                 entry.set(
                     gimli::DW_AT_name,
@@ -949,7 +949,7 @@ impl DebugContext {
             unimplemented!("Variant records");
         }
         fields.iter().for_each(|field_sym_id| {
-            let field_sym = semantic_context.get_symbol(*field_sym_id);
+            let field_sym = semantic_context.symbol_map.get_symbol(*field_sym_id);
             let field_entry_id = self.dwarf.unit.add(type_id, gimli::DW_TAG_member);
 
             let field_type_id = self.debug_type(
@@ -1353,7 +1353,7 @@ impl DebugContext {
         offset_cache: &OffsetCache,
     ) -> gimli::write::UnitEntryId {
         let sym_id = semantic_context.type_system.named_type_get_symbol(ty);
-        let sym = semantic_context.get_symbol(sym_id);
+        let sym = semantic_context.symbol_map.get_symbol(sym_id);
         let sym_type = sym.get_type().unwrap();
         let base_type = self.debug_type(
             semantic_context,
@@ -1418,11 +1418,11 @@ impl DebugContext {
         let mut value_label_ranges: Vec<_> = value_label_ranges.iter().collect();
         value_label_ranges.sort_by(|label_a, label_b| {
             let sym_id_a = SymbolId::build_from_id(label_a.0.as_u32() as usize);
-            let sym_a = semantic_context.get_symbol(sym_id_a);
+            let sym_a = semantic_context.symbol_map.get_symbol(sym_id_a);
             let loc_a = sym_a.get_defining_point().unwrap();
 
             let sym_id_b = SymbolId::build_from_id(label_b.0.as_u32() as usize);
-            let sym_b = semantic_context.get_symbol(sym_id_b);
+            let sym_b = semantic_context.symbol_map.get_symbol(sym_id_b);
             let loc_b = sym_b.get_defining_point().unwrap();
 
             loc_a.begin().cmp(&loc_b.begin())
@@ -1430,7 +1430,7 @@ impl DebugContext {
 
         for (label, ranges) in value_label_ranges {
             let sym_id = SymbolId::build_from_id(label.as_u32() as usize);
-            let sym = semantic_context.get_symbol(sym_id);
+            let sym = semantic_context.symbol_map.get_symbol(sym_id);
 
             let (line, col) =
                 linemap.offset_to_line_and_col(sym.get_defining_point().unwrap().begin());
