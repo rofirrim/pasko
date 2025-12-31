@@ -3,23 +3,21 @@ use crate::constant::Constant;
 use crate::limits;
 use crate::symbol;
 use crate::symbol::SymbolId;
-use crate::utils;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
-pub struct TypeId(pub utils::Identifier);
+pub struct TypeId(pub usize);
 
-impl From<TypeId> for utils::Identifier {
-    fn from(id: TypeId) -> utils::Identifier {
+impl From<TypeId> for usize {
+    fn from(id: TypeId) -> usize {
         id.0
     }
 }
 
 impl Default for TypeId {
     fn default() -> TypeId {
-        TypeId(utils::new_id())
+        TypeId(usize::MAX)
     }
 }
 
@@ -84,13 +82,14 @@ pub enum TypeKind {
     TextFile,
 }
 
-#[derive(Debug, Default, Hash, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Hash, PartialEq, Eq)]
 struct TypeInfo {
     kind: TypeKind,
 }
 
 #[derive(Debug, Default)]
 pub struct Type {
+    // The id is not part of the hash!
     id: TypeId,
     info: TypeInfo,
 }
@@ -333,6 +332,11 @@ impl Type {
             _ => panic!("This is not a (non-text) file type"),
         }
     }
+
+    // Does not clone the id!
+    fn cloned_type(&self) -> Type {
+        Type { id: TypeId::default(), info: self.info.clone() }
+    }
 }
 
 impl Hash for Type {
@@ -340,12 +344,14 @@ impl Hash for Type {
     where
         H: Hasher,
     {
+        // id is not hashed
         self.info.hash(state);
     }
 }
 
 impl PartialEq for Type {
     fn eq(&self, other: &Self) -> bool {
+        // id is not hashed
         self.info.eq(&other.info)
     }
 }
@@ -355,8 +361,9 @@ impl Eq for Type {}
 // TypeSystem
 
 pub struct TypeSystem {
-    types: HashMap<TypeId, Rc<Type>>,
-    derived_types: HashSet<Rc<Type>>,
+    types: Vec<Type>,
+    // Used to avoid creating (structurally) repeated types.
+    derived_types: HashMap<Type, TypeId>,
 
     none_type_id: TypeId,
     integer_type_id: TypeId,
@@ -371,55 +378,46 @@ pub struct TypeSystem {
 
 impl TypeSystem {
     pub fn new() -> TypeSystem {
-        let mut types = HashMap::new();
+        let mut types = Vec::new();
 
         let none_type = Type::default();
-        let none_type_id = none_type.id();
-        types.insert(none_type_id, Rc::new(none_type));
+        let none_type_id = Self::insert_type(&mut types, none_type);
 
         let mut integer_type = Type::default();
         integer_type.set_kind(TypeKind::Integer);
-        let integer_type_id = integer_type.id();
-        types.insert(integer_type_id, Rc::new(integer_type));
+        let integer_type_id = Self::insert_type(&mut types, integer_type);
 
         let mut real_type = Type::default();
         real_type.set_kind(TypeKind::Real);
-        let real_type_id = real_type.id();
-        types.insert(real_type_id, Rc::new(real_type));
+        let real_type_id = Self::insert_type(&mut types, real_type);
 
         let mut bool_type = Type::default();
         bool_type.set_kind(TypeKind::Bool);
-        let bool_type_id = bool_type.id();
-        types.insert(bool_type_id, Rc::new(bool_type));
+        let bool_type_id = Self::insert_type(&mut types, bool_type);
 
         let mut char_type = Type::default();
         char_type.set_kind(TypeKind::Char);
-        let char_type_id = char_type.id();
-        types.insert(char_type_id, Rc::new(char_type));
+        let char_type_id = Self::insert_type(&mut types, char_type);
 
         let mut error_type = Type::default();
         error_type.set_kind(TypeKind::Error);
-        let error_type_id = error_type.id();
-        types.insert(error_type_id, Rc::new(error_type));
+        let error_type_id = Self::insert_type(&mut types, error_type);
 
         let mut generic_set_type = Type::default();
         generic_set_type.set_kind(TypeKind::GenericSet);
-        let generic_set_type_id = generic_set_type.id();
-        types.insert(generic_set_type_id, Rc::new(generic_set_type));
+        let generic_set_type_id = Self::insert_type(&mut types, generic_set_type);
 
         let mut generic_pointer_type = Type::default();
         generic_pointer_type.set_kind(TypeKind::GenericPointer);
-        let generic_pointer_type_id = generic_pointer_type.id();
-        types.insert(generic_pointer_type_id, Rc::new(generic_pointer_type));
+        let generic_pointer_type_id = Self::insert_type(&mut types, generic_pointer_type);
 
         let mut textfile_type = Type::default();
         textfile_type.set_kind(TypeKind::TextFile);
-        let textfile_type_id = textfile_type.id();
-        types.insert(textfile_type_id, Rc::new(textfile_type));
+        let textfile_type_id = Self::insert_type(&mut types, textfile_type);
 
         Self {
             types,
-            derived_types: HashSet::new(),
+            derived_types: HashMap::new(),
             none_type_id,
             integer_type_id,
             real_type_id,
@@ -432,17 +430,23 @@ impl TypeSystem {
         }
     }
 
-    pub fn new_type(&mut self, ty: Type) -> TypeId {
-        if let Some(ty) = self.types.get(&ty.id()) {
-            return ty.id();
-        }
-        let new_id = ty.id();
-        self.types.insert(new_id, Rc::new(ty));
+    fn insert_type(types: &mut Vec<Type>, mut ty: Type) -> TypeId {
+        assert!(ty.id.0 == usize::MAX, "Invalid identifier");
+
+        let new_id = TypeId(types.len());
+
+        ty.id = new_id;
+        types.push(ty);
+
         new_id
     }
 
+    pub fn new_type(&mut self, ty: Type) -> TypeId {
+        Self::insert_type(&mut self.types, ty)
+    }
+
     fn get_type_internal(&self, id: TypeId) -> &Type {
-        self.types.get(&id).unwrap()
+        &self.types[id.0]
     }
 
     pub fn get_none_type(&self) -> TypeId {
@@ -536,6 +540,17 @@ impl TypeSystem {
         ty.is_error_type()
     }
 
+    fn insert_and_cache(&mut self, ty: Type) -> TypeId { 
+        if let Some(x) = self.derived_types.get(&ty) {
+            return *x;
+        }
+
+        let cached_ty = ty.cloned_type();
+        let new_id = self.new_type(ty);
+        self.derived_types.insert(cached_ty, new_id);
+        new_id
+    }
+
     pub fn get_subrange_type_one_to_len(&mut self, len: usize) -> TypeId {
         let mut new_subrange_type = Type::default();
         new_subrange_type.set_kind(TypeKind::SubRange(
@@ -544,16 +559,7 @@ impl TypeSystem {
             Constant::Integer(len as i64),
         ));
 
-        let new_subrange_type = Rc::new(new_subrange_type);
-        if let Some(x) = self.derived_types.get(&new_subrange_type.clone()) {
-            return x.id();
-        }
-
-        let new_id = new_subrange_type.id();
-        self.derived_types.insert(new_subrange_type.clone());
-        self.types.insert(new_id, new_subrange_type);
-
-        new_id
+        self.insert_and_cache(new_subrange_type)
     }
 
     pub fn get_string_type(&mut self, len: usize) -> TypeId {
@@ -567,17 +573,7 @@ impl TypeSystem {
             component: self.get_char_type(),
         });
 
-        let new_string_type = Rc::new(new_string_type);
-        if let Some(x) = self.derived_types.get(&new_string_type.clone()) {
-            return x.id();
-        }
-
-        let new_id = new_string_type.id();
-
-        self.derived_types.insert(new_string_type.clone());
-        self.types.insert(new_id, new_string_type);
-
-        new_id
+        self.insert_and_cache(new_string_type)
     }
 
     pub fn is_string_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
@@ -776,16 +772,7 @@ impl TypeSystem {
         let mut new_set_type = Type::default();
         new_set_type.set_kind(TypeKind::Set { packed, element });
 
-        let new_set_type = Rc::new(new_set_type);
-        if let Some(x) = self.derived_types.get(&new_set_type.clone()) {
-            return x.id();
-        }
-
-        let new_id = new_set_type.id();
-        self.derived_types.insert(new_set_type.clone());
-        self.types.insert(new_id, new_set_type);
-
-        new_id
+        self.insert_and_cache(new_set_type)
     }
 
     pub fn is_set_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
@@ -824,16 +811,7 @@ impl TypeSystem {
         let mut new_pointer_type = Type::default();
         new_pointer_type.set_kind(TypeKind::Pointer(ty));
 
-        let new_pointer_type = Rc::new(new_pointer_type);
-        if let Some(x) = self.derived_types.get(&new_pointer_type.clone()) {
-            return x.id();
-        }
-
-        let new_id = new_pointer_type.id();
-        self.derived_types.insert(new_pointer_type.clone());
-        self.types.insert(new_id, new_pointer_type);
-
-        new_id
+        self.insert_and_cache(new_pointer_type)
     }
 
     pub fn is_pointer_type(&self, ty: TypeId, symbol_map: &symbol::SymbolMap) -> bool {
@@ -858,16 +836,7 @@ impl TypeSystem {
         let mut new_file_type = Type::default();
         new_file_type.set_kind(TypeKind::File { packed, component });
 
-        let new_file_type = Rc::new(new_file_type);
-        if let Some(x) = self.derived_types.get(&new_file_type.clone()) {
-            return x.id();
-        }
-
-        let new_id = new_file_type.id();
-        self.derived_types.insert(new_file_type.clone());
-        self.types.insert(new_id, new_file_type);
-
-        new_id
+        self.insert_and_cache(new_file_type)
     }
 
     pub fn get_textfile_type(&self) -> TypeId {
