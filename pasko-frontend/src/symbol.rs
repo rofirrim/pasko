@@ -2,34 +2,32 @@ use crate::constant::Constant;
 use crate::scope;
 use crate::span;
 use crate::typesystem::TypeId;
-use crate::utils;
-use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy, Ord, PartialOrd)]
-pub struct SymbolId(utils::Identifier);
+pub struct SymbolId(usize);
 
-impl From<SymbolId> for utils::Identifier {
-    fn from(id: SymbolId) -> utils::Identifier {
+impl From<SymbolId> for usize {
+    fn from(id: SymbolId) -> usize {
         id.0
     }
 }
 
 impl Default for SymbolId {
     fn default() -> SymbolId {
-        SymbolId(utils::new_id())
+        SymbolId(usize::MAX)
     }
 }
 
 impl SymbolId {
     pub fn get_id(&self) -> usize {
         // FIXME: get number is only for debugging.
-        self.0.get_number()
+        self.0
     }
 
     // Use only for debugging.
     pub fn build_from_id(id: usize) -> SymbolId {
-        SymbolId(utils::to_id(id))
+        SymbolId(id)
     }
 }
 
@@ -84,7 +82,6 @@ struct SymbolInfo {
 #[derive(Debug)]
 pub struct Symbol {
     id: SymbolId,
-    external_id: Cell<usize>,
     info: SymbolInfo,
 }
 
@@ -98,7 +95,6 @@ impl Symbol {
     pub fn new() -> Symbol {
         let mut sym = Symbol {
             id: SymbolId::default(),
-            external_id: Cell::new(usize::MAX),
             info: SymbolInfo::default(),
         };
         sym.info.defined = true;
@@ -163,18 +159,6 @@ impl Symbol {
             SymbolKind::BoundIdentifier => Some("bound identifier"),
             _ => None,
         }
-    }
-
-    pub fn has_external_id(&self) -> bool {
-        self.get_external_id() != usize::MAX
-    }
-
-    pub fn get_external_id(&self) -> usize {
-        self.external_id.get()
-    }
-
-    pub fn set_external_id(&self, external_id: usize) {
-        self.external_id.set(external_id);
     }
 
     pub fn get_const(&self) -> Option<Constant> {
@@ -260,7 +244,7 @@ impl Symbol {
 
 #[derive(Default)]
 pub struct SymbolMap {
-    symbols: HashMap<SymbolId, Symbol>,
+    symbols: Vec<Symbol>,
 }
 
 impl SymbolMap {
@@ -268,20 +252,22 @@ impl SymbolMap {
         SymbolMap::default()
     }
 
-    pub fn new_symbol(&mut self, sym: Symbol) -> SymbolId {
-        if let Some(sym) = self.symbols.get(&sym.id()) {
-            return sym.id();
-        }
-        let new_id = sym.id();
-        self.symbols.insert(new_id, sym);
+    pub fn new_symbol(&mut self, mut sym: Symbol) -> SymbolId {
+        assert!(sym.id().get_id() == usize::MAX, "Invalid symbol id");
+
+        let new_id = SymbolId(self.symbols.len());
+        sym.id = new_id;
+
+        self.symbols.push(sym);
+
         new_id
     }
 
     pub fn get_symbol(&self, id: SymbolId) -> &Symbol {
-        self.symbols.get(&id).unwrap()
+        &self.symbols[id.get_id()]
     }
 
     pub fn get_symbol_mut(&mut self, id: SymbolId) -> &mut Symbol {
-        self.symbols.get_mut(&id).unwrap()
+        &mut self.symbols[id.get_id()]
     }
 }
