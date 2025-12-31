@@ -8,7 +8,7 @@ pub struct ASTDumper<'input> {
     prefix: String,
     output: String,
     linemap: &'input span::LineMap,
-    semantic_context: &'input SemanticContext<'input>,
+    semantic_context: &'input SemanticContext,
     no_ids: bool,
 }
 

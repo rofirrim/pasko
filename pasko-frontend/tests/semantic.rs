@@ -14,7 +14,7 @@ fn semantic_check_diags(input: &str, errors: Vec<String>) {
     let mut diags = diagnostics::Diagnostics::new();
     let mut p = parser::parse_pasko_program(input, &mut diags);
 
-    let mut semantic_context = semantic::SemanticContext::new(&linemap);
+    let mut semantic_context = semantic::SemanticContext::new();
 
     match p.as_mut() {
         Some(parse) => {
@@ -41,7 +41,7 @@ fn do_ast_dump(input: &str) -> String {
     let mut diags = diagnostics::Diagnostics::new();
     let mut p = parser::parse_pasko_program(input, &mut diags);
 
-    let mut semantic_context = semantic::SemanticContext::new(&linemap);
+    let mut semantic_context = semantic::SemanticContext::new();
 
     match p.as_mut() {
         Some(parse) => {

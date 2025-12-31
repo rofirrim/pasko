@@ -55,7 +55,7 @@ pub type OffsetCache = RefCell<HashMap<SymbolId, usize>>;
 pub struct CodegenVisitor<'input> {
     pub object_module: Option<Box<cranelift_object::ObjectModule>>,
     pub ctx: cranelift_codegen::Context,
-    pub semantic_context: &'input SemanticContext<'input>,
+    pub semantic_context: &'input SemanticContext,
     pub pointer_type: cranelift_codegen::ir::Type,
     pub string_table: HashMap<String, cranelift_module::DataId>,
 

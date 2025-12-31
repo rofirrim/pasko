@@ -209,7 +209,7 @@ impl<'input_file> pasko_frontend::diagnostics::DiagnosticEmitter for SimpleEmitt
         // FIXME: This is odd.
         let extra_locations: Vec<_> = match &diag.extra_locus {
             None => vec![],
-            Some(v) => v.iter().map(|(loc, _message)| *loc).collect(), 
+            Some(v) => v.iter().map(|(loc, _message)| *loc).collect(),
         };
 
         self.print_location(linemap, main_location, extra_locations);

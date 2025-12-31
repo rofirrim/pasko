@@ -148,7 +148,7 @@ fn main() -> ExitCode {
     }
 
     let mut program = parse_result.unwrap();
-    let mut semantic_context = pasko_frontend::semantic::SemanticContext::new(&linemap);
+    let mut semantic_context = pasko_frontend::semantic::SemanticContext::new();
 
     if cli.mode == Mode::ASTDumpPre {
         let mut dumper = dump::ASTDumper::new(&semantic_context, &linemap);

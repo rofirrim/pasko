@@ -2,7 +2,7 @@ use crate::ast::{self, ExprVariableReference, UnaryOp};
 use crate::ast::{BinOperand, FormalParameter};
 use crate::constant::Constant;
 use crate::diagnostics::{Diagnostic, DiagnosticKind, Diagnostics};
-use crate::span::{self, LineMap, SpanLoc, SpannedBox};
+use crate::span::{self, SpannedBox};
 use crate::symbol::{
     self, ParameterKind, Symbol, SymbolId, SymbolKind, SymbolMap, SymbolMapImpl, SymbolRef,
 };
@@ -13,8 +13,7 @@ use crate::{scope, typesystem};
 
 use std::collections::{HashMap, HashSet};
 
-pub struct SemanticContext<'input> {
-    line_map: &'input LineMap,
+pub struct SemanticContext {
     symbol_map: SymbolMap,
     pub type_system: TypeSystem,
 
@@ -57,13 +56,12 @@ pub fn is_required_function_zeroadic(name: &str) -> bool {
 }
 
 // In bytes.
-impl<'input> SemanticContext<'input> {
-    pub fn new(line_map: &'input LineMap) -> SemanticContext<'input> {
+impl SemanticContext {
+    pub fn new() -> SemanticContext {
         let symbol_map = SymbolMapImpl::new();
         let type_system = TypeSystem::new(symbol_map.clone());
 
         SemanticContext {
-            line_map,
             symbol_map,
             type_system,
             scope: scope::Scope::new(),
@@ -77,10 +75,6 @@ impl<'input> SemanticContext<'input> {
             pending_type_definitions: vec![],
             label_declarations: vec![],
         }
-    }
-
-    pub fn get_line_column(&self, loc: &SpanLoc) -> (usize, usize) {
-        self.line_map.offset_to_line_and_col(loc.0)
     }
 
     pub fn get_ast_type(&self, id: span::SpanId) -> Option<TypeId> {
@@ -210,9 +204,9 @@ impl<'input> SemanticContext<'input> {
     }
 }
 
-struct SemanticCheckerVisitor<'input, 'ctx> {
-    ctx: &'input mut SemanticContext<'ctx>,
-    diagnostics: &'input mut Diagnostics,
+struct SemanticCheckerVisitor<'ctx> {
+    ctx: &'ctx mut SemanticContext,
+    diagnostics: &'ctx mut Diagnostics,
 
     in_type_definition_part: bool,
     in_pointer_type: bool,
@@ -235,7 +229,7 @@ enum FunctionProcedureDeclarationStatus {
     AlreadyDefined(SymbolId),
 }
 
-impl<'input, 'ctx> SemanticCheckerVisitor<'input, 'ctx> {
+impl<'ctx> SemanticCheckerVisitor<'ctx> {
     fn _lookup_symbol_impl(
         &mut self,
         name: &str,
@@ -1792,7 +1786,7 @@ impl<'input, 'ctx> SemanticCheckerVisitor<'input, 'ctx> {
     }
 }
 
-impl<'input, 'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'input, 'ctx> {
+impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
     fn visit_program_heading(
         &mut self,
         node: &mut ast::ProgramHeading,
@@ -5831,7 +5825,7 @@ impl<'input, 'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'input, 'ctx> {
 
 pub fn check_program(
     program: &mut span::SpannedBox<ast::Program>,
-    semantic_context: &mut SemanticContext<'_>,
+    semantic_context: &mut SemanticContext,
     diagnostics: &mut Diagnostics,
 ) {
     // Init global scope.

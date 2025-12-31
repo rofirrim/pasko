@@ -127,12 +127,12 @@ impl<'a> pasko_frontend::diagnostics::DiagnosticEmitter for LspEmitter<'a> {
                 let mut related_information = Vec::new();
                 for extra_locus in diag.extra_locus.as_ref().unwrap() {
                     let start_position = Position::new(
-                        linemap.offset_to_line_0based(extra_locus.0.0) as u32,
-                        linemap.offset_to_column_0based(extra_locus.0.0) as u32,
+                        linemap.offset_to_line_0based(extra_locus.0 .0) as u32,
+                        linemap.offset_to_column_0based(extra_locus.0 .0) as u32,
                     );
                     let end_position = Position::new(
-                        linemap.offset_to_line_0based(extra_locus.0.1) as u32,
-                        linemap.offset_to_column_0based(extra_locus.0.1) as u32,
+                        linemap.offset_to_line_0based(extra_locus.0 .1) as u32,
+                        linemap.offset_to_column_0based(extra_locus.0 .1) as u32,
                     );
                     let range = Range::new(start_position, end_position);
                     let location = Location {
@@ -208,7 +208,7 @@ impl Backend {
         let mut lsp_emitter = LspEmitter::new(uri.clone(), &mut lsp_diagnostics);
 
         if let Some(mut program) = parse_result {
-            let mut semantic_context = pasko_frontend::semantic::SemanticContext::new(&linemap);
+            let mut semantic_context = pasko_frontend::semantic::SemanticContext::new();
             pasko_frontend::semantic::check_program(
                 &mut program,
                 &mut semantic_context,
