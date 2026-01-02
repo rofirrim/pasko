@@ -33,7 +33,7 @@ impl LanguageServer for Backend {
                         ..Default::default()
                     },
                 )),
-                hover_provider: Some(HoverProviderCapability::Simple(false)),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: None, // Some(CompletionOptions::default()),
                 definition_provider: Some(OneOf::Left(true)),
                 ..Default::default()
@@ -115,7 +115,11 @@ impl LanguageServer for Backend {
         let result = offset
             .and_then(|offset| {
                 file_info.get(&uri).and_then(|file_info| {
-                    self.search_identifier(&file_info.program, &file_info.semantic_context, offset)
+                    self.search_definition_location_of_identifier(
+                        &file_info.program,
+                        &file_info.semantic_context,
+                        offset,
+                    )
                 })
             })
             .and_then(|found| {
@@ -137,6 +141,41 @@ impl LanguageServer for Backend {
                         Range::new(start_position, end_position),
                     )))
                 })
+            });
+
+        Ok(result)
+    }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        let offset = {
+            let file_info = self.file_info.lock().unwrap();
+            file_info.get(&uri).and_then(|file_info| {
+                file_info.line_map.line_and_col_to_offset(
+                    (position.line + 1) as usize,
+                    (position.character + 1) as usize,
+                )
+            })
+        };
+
+        let file_info = self.file_info.lock().unwrap();
+        let file_info = file_info.get(&uri);
+        let result = offset
+            .and_then(|offset| {
+                let file_info = file_info?;
+                self.search_identifier(&file_info.program, &file_info.semantic_context, offset)
+            })
+            .and_then(|sym_id| {
+                let file_info = file_info?;
+                let semantic_context = file_info.semantic_context.as_ref()?;
+                let sym = semantic_context.symbol_map.get_symbol(sym_id);
+                self.describe_symbol(sym, semantic_context)
+            })
+            .map(|contents| Hover {
+                contents,
+                range: None,
             });
 
         Ok(result)
@@ -296,23 +335,59 @@ impl Backend {
         program: &Option<pasko_frontend::span::SpannedBox<pasko_frontend::ast::Program>>,
         semantic_context: &Option<pasko_frontend::semantic::SemanticContext>,
         offset: usize,
+    ) -> Option<pasko_frontend::symbol::SymbolId> {
+        let program = program.as_ref()?;
+        let semantic_context = semantic_context.as_ref()?;
+        let mut ast_identifier_search = ASTIdentifierSearch {
+            offset,
+            semantic_context,
+            found_symbol: None,
+        };
+
+        program
+            .get()
+            .walk_mut(&mut ast_identifier_search, program.loc(), program.id());
+
+        ast_identifier_search.found_symbol
+    }
+
+    fn search_definition_location_of_identifier(
+        &self,
+        program: &Option<pasko_frontend::span::SpannedBox<pasko_frontend::ast::Program>>,
+        semantic_context: &Option<pasko_frontend::semantic::SemanticContext>,
+        offset: usize,
     ) -> Option<pasko_frontend::span::SpanLoc> {
-        if let Some(program) = program {
-            if let Some(semantic_context) = semantic_context {
-                let mut ast_identifier_search = ASTIdentifierSearch {
-                    offset,
-                    semantic_context,
-                    found_offset: None,
-                };
+        self.search_identifier(program, semantic_context, offset)
+            .and_then(|symbol_id| {
+                semantic_context
+                    .as_ref()?
+                    .symbol_map
+                    .get_symbol(symbol_id)
+                    .get_defining_point()
+            })
+    }
 
-                program
-                    .get()
-                    .walk_mut(&mut ast_identifier_search, program.loc(), program.id());
-
-                return ast_identifier_search.found_offset;
+    fn describe_symbol(
+        &self,
+        sym: &pasko_frontend::symbol::Symbol,
+        semantic_context: &pasko_frontend::semantic::SemanticContext,
+    ) -> Option<HoverContents> {
+        match sym.get_kind() {
+            pasko_frontend::symbol::SymbolKind::Variable => {
+                let type_name = semantic_context
+                    .type_system
+                    .get_type_name(sym.get_type()?, &semantic_context.symbol_map);
+                Some(HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: [
+                        "variable `", sym.get_name(), "`\n",
+                        "---\n",
+                        "type: `", &type_name, "`\n",
+                    ].join(""),
+                }))
             }
+            _ => None,
         }
-        None
     }
 }
 
@@ -321,7 +396,7 @@ struct ASTIdentifierSearch<'a> {
     semantic_context: &'a pasko_frontend::semantic::SemanticContext,
 
     // Output
-    found_offset: Option<pasko_frontend::span::SpanLoc>,
+    found_symbol: Option<pasko_frontend::symbol::SymbolId>,
 }
 
 impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
@@ -332,7 +407,7 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
         _id: pasko_frontend::span::SpanId,
     ) -> bool {
         // Limit ourselves to nodes that include the offset we are looking for
-        span.0 <= self.offset && self.offset < span.1 && self.found_offset.is_none()
+        span.0 <= self.offset && self.offset < span.1 && self.found_symbol.is_none()
     }
 
     fn visit_assig_variable(
@@ -341,14 +416,10 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
         _span: &pasko_frontend::span::SpanLoc,
         id: pasko_frontend::span::SpanId,
     ) {
-        if self.found_offset.is_some() {
+        if self.found_symbol.is_some() {
             return;
         }
-        if let Some(symbol_id) = self.semantic_context.get_ast_symbol(id) {
-            let symbol = self.semantic_context.symbol_map.get_symbol(symbol_id);
-
-            self.found_offset = symbol.get_defining_point();
-        }
+        self.found_symbol = self.semantic_context.get_ast_symbol(id);
     }
 }
 
