@@ -367,6 +367,44 @@ impl Backend {
             })
     }
 
+    fn describe_procedure(
+        &self,
+        sym: &pasko_frontend::symbol::Symbol,
+        semantic_context: &pasko_frontend::semantic::SemanticContext,
+    ) -> String {
+        let mut result = sym.get_name().clone();
+        if let Some(params) = sym.get_formal_parameters() {
+            let mut param_str_vec = Vec::<String>::new();
+            for param_decls in params {
+                let mut param_names = param_decls
+                    .iter()
+                    .map(|sym_id| semantic_context.symbol_map.get_symbol(*sym_id).get_name())
+                    .cloned() // FIXME
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                let first_sym = param_decls[0];
+                let type_id = semantic_context
+                    .symbol_map
+                    .get_symbol(first_sym)
+                    .get_type()
+                    .unwrap_or_else(|| semantic_context.type_system.get_error_type());
+                let type_name = semantic_context
+                    .type_system
+                    .get_type_name(type_id, &semantic_context.symbol_map);
+
+                param_names += ": ";
+                param_names += &type_name;
+
+                param_str_vec.push(param_names);
+            }
+            result += "(";
+            result += &param_str_vec.join("; ");
+            result += ")";
+        }
+        result
+    }
+
     fn describe_symbol(
         &self,
         sym: &pasko_frontend::symbol::Symbol,
@@ -380,10 +418,43 @@ impl Backend {
                 Some(HoverContents::Markup(MarkupContent {
                     kind: MarkupKind::Markdown,
                     value: [
-                        "variable `", sym.get_name(), "`\n",
+                        "variable `",
+                        sym.get_name(),
+                        "`\n",
                         "---\n",
-                        "type: `", &type_name, "`\n",
-                    ].join(""),
+                        "type: `",
+                        &type_name,
+                        "`\n",
+                    ]
+                    .join(""),
+                }))
+            }
+            pasko_frontend::symbol::SymbolKind::Procedure => {
+                let procedure_desc = self.describe_procedure(sym, semantic_context);
+                Some(HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: ["procedure `", &procedure_desc, "`\n", "---\n"].join(""),
+                }))
+            }
+            pasko_frontend::symbol::SymbolKind::Function => {
+                let mut procedure_desc = self.describe_procedure(sym, semantic_context);
+
+                let return_sym = sym.get_return_symbol()?;
+                let return_sym = semantic_context.symbol_map.get_symbol(return_sym);
+
+                let return_type_name = semantic_context.type_system.get_type_name(
+                    return_sym
+                        .get_type()
+                        .unwrap_or_else(|| semantic_context.type_system.get_error_type()),
+                    &semantic_context.symbol_map,
+                );
+
+                procedure_desc += " : ";
+                procedure_desc += &return_type_name;
+
+                Some(HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: ["function `", &procedure_desc, "`\n", "---\n"].join(""),
                 }))
             }
             _ => None,
@@ -397,6 +468,15 @@ struct ASTIdentifierSearch<'a> {
 
     // Output
     found_symbol: Option<pasko_frontend::symbol::SymbolId>,
+}
+
+impl<'a> ASTIdentifierSearch<'a> {
+    fn register_symbol(&mut self, id: pasko_frontend::span::SpanId) {
+        if self.found_symbol.is_some() {
+            return;
+        }
+        self.found_symbol = self.semantic_context.get_ast_symbol(id);
+    }
 }
 
 impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
@@ -416,10 +496,27 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
         _span: &pasko_frontend::span::SpanLoc,
         id: pasko_frontend::span::SpanId,
     ) {
-        if self.found_symbol.is_some() {
-            return;
-        }
-        self.found_symbol = self.semantic_context.get_ast_symbol(id);
+        self.register_symbol(id);
+    }
+
+    fn visit_post_stmt_procedure_call(
+        &mut self,
+        n: &pasko_frontend::ast::StmtProcedureCall,
+        _span: &pasko_frontend::span::SpanLoc,
+        _id: pasko_frontend::span::SpanId,
+    ) {
+        let callee = &n.0;
+        self.register_symbol(callee.id());
+    }
+
+    fn visit_post_expr_function_call(
+        &mut self,
+        n: &pasko_frontend::ast::ExprFunctionCall,
+        _span: &pasko_frontend::span::SpanLoc,
+        _id: pasko_frontend::span::SpanId,
+    ) {
+        let callee = &n.0;
+        self.register_symbol(callee.id());
     }
 }
 
