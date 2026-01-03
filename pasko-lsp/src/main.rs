@@ -477,6 +477,10 @@ impl<'a> ASTIdentifierSearch<'a> {
         }
         self.found_symbol = self.semantic_context.get_ast_symbol(id);
     }
+
+    fn inside_span(&self, span: &pasko_frontend::span::SpanLoc) -> bool {
+        span.0 <= self.offset && self.offset < span.1 && self.found_symbol.is_none()
+    }
 }
 
 impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
@@ -487,7 +491,7 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
         _id: pasko_frontend::span::SpanId,
     ) -> bool {
         // Limit ourselves to nodes that include the offset we are looking for
-        span.0 <= self.offset && self.offset < span.1 && self.found_symbol.is_none()
+        self.inside_span(span)
     }
 
     fn visit_assig_variable(
@@ -506,7 +510,9 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
         _id: pasko_frontend::span::SpanId,
     ) {
         let callee = &n.0;
-        self.register_symbol(callee.id());
+        if self.inside_span(callee.loc()) {
+            self.register_symbol(callee.id());
+        }
     }
 
     fn visit_post_expr_function_call(
@@ -516,7 +522,9 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
         _id: pasko_frontend::span::SpanId,
     ) {
         let callee = &n.0;
+        if self.inside_span(callee.loc()) {
         self.register_symbol(callee.id());
+        }
     }
 }
 
