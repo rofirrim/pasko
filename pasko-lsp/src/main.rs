@@ -402,7 +402,9 @@ impl Backend {
                         .unwrap_or_else(|| semantic_context.type_system.get_error_type());
 
                     result += ": `";
-                    result +=  &semantic_context.type_system.get_type_name(type_id, &semantic_context.symbol_map);
+                    result += &semantic_context
+                        .type_system
+                        .get_type_name(type_id, &semantic_context.symbol_map);
                     result += "`\n";
                 }
             }
@@ -491,6 +493,24 @@ impl Backend {
                     value: values.join(""),
                 }))
             }
+            pasko_frontend::symbol::SymbolKind::Type => {
+                let type_name = semantic_context
+                    .type_system
+                    .get_type_name(sym.get_type()?, &semantic_context.symbol_map);
+                Some(HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: [
+                        "type `",
+                        sym.get_name(),
+                        "`\n",
+                        "---\n",
+                        "alias of: `",
+                        &type_name,
+                        "`\n",
+                    ]
+                    .join(""),
+                }))
+            }
             _ => None,
         }
     }
@@ -505,7 +525,11 @@ struct ASTIdentifierSearch<'a> {
 }
 
 impl<'a> ASTIdentifierSearch<'a> {
-    fn register_symbol(&mut self, id: pasko_frontend::span::SpanId) {
+    fn register_symbol(&mut self, id: pasko_frontend::symbol::SymbolId) {
+        self.found_symbol = Some(id);
+    }
+
+    fn register_symbol_from_span(&mut self, id: pasko_frontend::span::SpanId) {
         if self.found_symbol.is_some() {
             return;
         }
@@ -534,7 +558,7 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
         _span: &pasko_frontend::span::SpanLoc,
         id: pasko_frontend::span::SpanId,
     ) {
-        self.register_symbol(id);
+        self.register_symbol_from_span(id);
     }
 
     fn visit_post_stmt_procedure_call(
@@ -545,7 +569,7 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
     ) {
         let callee = &n.0;
         if self.is_in_span(callee.loc()) {
-            self.register_symbol(callee.id());
+            self.register_symbol_from_span(callee.id());
         }
     }
 
@@ -557,7 +581,7 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
     ) {
         let callee = &n.0;
         if self.is_in_span(callee.loc()) {
-            self.register_symbol(callee.id());
+            self.register_symbol_from_span(callee.id());
         }
     }
 
@@ -569,7 +593,24 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
     ) {
         let field = &n.1;
         if self.is_in_span(field.loc()) {
-            self.register_symbol(field.id());
+            self.register_symbol_from_span(field.id());
+        }
+    }
+
+    fn visit_type_identifier(
+        &mut self,
+        _n: &pasko_frontend::ast::TypeIdentifier,
+        span: &pasko_frontend::span::SpanLoc,
+        id: pasko_frontend::span::SpanId,
+    ) {
+        if !self.is_in_span(span) {
+            return;
+        }
+        if let Some(ty) = self.semantic_context.get_ast_type(id) {
+            if self.semantic_context.type_system.is_named_type(ty) {
+                let sym_id = self.semantic_context.type_system.named_type_get_symbol(ty);
+                self.register_symbol(sym_id);
+            }
         }
     }
 }
