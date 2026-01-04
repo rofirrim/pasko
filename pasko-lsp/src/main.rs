@@ -35,6 +35,7 @@ impl LanguageServer for Backend {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: None, // Some(CompletionOptions::default()),
+                type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
@@ -101,15 +102,7 @@ impl LanguageServer for Backend {
         let uri: Url = params.text_document_position_params.text_document.uri;
         let position: Position = params.text_document_position_params.position;
 
-        let offset = {
-            let file_info = self.file_info.lock().unwrap();
-            file_info.get(&uri).and_then(|file_info| {
-                file_info.line_map.line_and_col_to_offset(
-                    (position.line + 1) as usize,
-                    (position.character + 1) as usize,
-                )
-            })
-        };
+        let offset = self.compute_offset_from_position(&uri, position);
 
         let file_info = self.file_info.lock().unwrap();
         let result = offset
@@ -146,19 +139,55 @@ impl LanguageServer for Backend {
         Ok(result)
     }
 
+    async fn goto_type_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let uri: Url = params.text_document_position_params.text_document.uri;
+        let position: Position = params.text_document_position_params.position;
+
+        let offset = self.compute_offset_from_position(&uri, position);
+
+        let file_info = self.file_info.lock().unwrap();
+        let result = offset
+            .and_then(|offset| {
+                file_info.get(&uri).and_then(|file_info| {
+                    self.search_type_definition_location_of_identifier(
+                        &file_info.program,
+                        &file_info.semantic_context,
+                        offset,
+                    )
+                })
+            })
+            .and_then(|found| {
+                let line_map = file_info
+                    .get(&uri)
+                    .and_then(|file_info| Some(&file_info.line_map));
+
+                line_map.and_then(|line_map| {
+                    let start_position = Position::new(
+                        line_map.offset_to_line_0based(found.0) as u32,
+                        line_map.offset_to_column_0based(found.0) as u32,
+                    );
+                    let end_position = Position::new(
+                        line_map.offset_to_line_0based(found.1) as u32,
+                        line_map.offset_to_column_0based(found.1) as u32,
+                    );
+                    Some(GotoDefinitionResponse::Scalar(Location::new(
+                        uri,
+                        Range::new(start_position, end_position),
+                    )))
+                })
+            });
+
+        Ok(result)
+    }
+
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
 
-        let offset = {
-            let file_info = self.file_info.lock().unwrap();
-            file_info.get(&uri).and_then(|file_info| {
-                file_info.line_map.line_and_col_to_offset(
-                    (position.line + 1) as usize,
-                    (position.character + 1) as usize,
-                )
-            })
-        };
+        let offset = self.compute_offset_from_position(&uri, position);
 
         let file_info = self.file_info.lock().unwrap();
         let file_info = file_info.get(&uri);
@@ -351,6 +380,16 @@ impl Backend {
         ast_identifier_search.found_symbol
     }
 
+    fn compute_offset_from_position(&self, uri: &Url, position: Position) -> Option<usize> {
+            let file_info = self.file_info.lock().unwrap();
+            file_info.get(&uri).and_then(|file_info| {
+                file_info.line_map.line_and_col_to_offset(
+                    (position.line + 1) as usize,
+                    (position.character + 1) as usize,
+                )
+            })
+    }
+
     fn search_definition_location_of_identifier(
         &self,
         program: &Option<pasko_frontend::span::SpannedBox<pasko_frontend::ast::Program>>,
@@ -364,6 +403,36 @@ impl Backend {
                     .symbol_map
                     .get_symbol(symbol_id)
                     .get_defining_point()
+            })
+    }
+
+    fn search_type_definition_location_of_identifier(
+        &self,
+        program: &Option<pasko_frontend::span::SpannedBox<pasko_frontend::ast::Program>>,
+        semantic_context: &Option<pasko_frontend::semantic::SemanticContext>,
+        offset: usize,
+    ) -> Option<pasko_frontend::span::SpanLoc> {
+        self.search_identifier(program, semantic_context, offset)
+            .and_then(|symbol_id| {
+                let sym = semantic_context.as_ref()?.symbol_map.get_symbol(symbol_id);
+                match sym.get_kind() {
+                    pasko_frontend::symbol::SymbolKind::Variable => sym.get_type().and_then(|ty| {
+                        if semantic_context.as_ref()?.type_system.is_named_type(ty) {
+                            let named_type_sym = semantic_context
+                                .as_ref()?
+                                .type_system
+                                .named_type_get_symbol(ty);
+                            let named_type_sym = semantic_context
+                                .as_ref()?
+                                .symbol_map
+                                .get_symbol(named_type_sym);
+                            named_type_sym.get_defining_point()
+                        } else {
+                            sym.get_defining_point()
+                        }
+                    }),
+                    _ => None,
+                }
             })
     }
 
