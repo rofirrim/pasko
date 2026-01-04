@@ -372,35 +372,41 @@ impl Backend {
         sym: &pasko_frontend::symbol::Symbol,
         semantic_context: &pasko_frontend::semantic::SemanticContext,
     ) -> String {
-        let mut result = sym.get_name().clone();
-        if let Some(params) = sym.get_formal_parameters() {
-            let mut param_str_vec = Vec::<String>::new();
-            for param_decls in params {
-                let mut param_names = param_decls
-                    .iter()
-                    .map(|sym_id| semantic_context.symbol_map.get_symbol(*sym_id).get_name())
-                    .cloned() // FIXME
-                    .collect::<Vec<_>>()
-                    .join(", ");
+        let mut result = String::new();
+        if let Some(return_sym) = sym.get_return_symbol() {
+            result += "→ ";
 
-                let first_sym = param_decls[0];
-                let type_id = semantic_context
-                    .symbol_map
-                    .get_symbol(first_sym)
+            let return_sym = semantic_context.symbol_map.get_symbol(return_sym);
+            let return_type_name = semantic_context.type_system.get_type_name(
+                return_sym
                     .get_type()
-                    .unwrap_or_else(|| semantic_context.type_system.get_error_type());
-                let type_name = semantic_context
-                    .type_system
-                    .get_type_name(type_id, &semantic_context.symbol_map);
+                    .unwrap_or_else(|| semantic_context.type_system.get_error_type()),
+                &semantic_context.symbol_map,
+            );
 
-                param_names += ": ";
-                param_names += &type_name;
+            result += &return_type_name;
+            result += "\n\n";
+        }
 
-                param_str_vec.push(param_names);
+        if let Some(params) = sym.get_formal_parameters() {
+            result += "Parameters:\n";
+            for param_decls in params {
+                for param_decl in param_decls {
+                    let param_sym = semantic_context.symbol_map.get_symbol(param_decl);
+                    result += "  - `";
+                    result += param_sym.get_name();
+                    result += "`";
+
+                    let type_id = param_sym
+                        .get_type()
+                        .unwrap_or_else(|| semantic_context.type_system.get_error_type());
+
+                    result += ": `";
+                    result +=  &semantic_context.type_system.get_type_name(type_id, &semantic_context.symbol_map);
+                    result += "`\n";
+                }
             }
-            result += "(";
-            result += &param_str_vec.join("; ");
-            result += ")";
+            result += "\n";
         }
         result
     }
@@ -433,28 +439,56 @@ impl Backend {
                 let procedure_desc = self.describe_procedure(sym, semantic_context);
                 Some(HoverContents::Markup(MarkupContent {
                     kind: MarkupKind::Markdown,
-                    value: ["procedure `", &procedure_desc, "`\n", "---\n"].join(""),
+                    value: [
+                        "procedure `",
+                        sym.get_name(),
+                        "`\n",
+                        "---\n",
+                        &procedure_desc,
+                        "\n",
+                    ]
+                    .join(""),
                 }))
             }
             pasko_frontend::symbol::SymbolKind::Function => {
-                let mut procedure_desc = self.describe_procedure(sym, semantic_context);
-
-                let return_sym = sym.get_return_symbol()?;
-                let return_sym = semantic_context.symbol_map.get_symbol(return_sym);
-
-                let return_type_name = semantic_context.type_system.get_type_name(
-                    return_sym
-                        .get_type()
-                        .unwrap_or_else(|| semantic_context.type_system.get_error_type()),
-                    &semantic_context.symbol_map,
-                );
-
-                procedure_desc += " : ";
-                procedure_desc += &return_type_name;
+                let procedure_desc = self.describe_procedure(sym, semantic_context);
 
                 Some(HoverContents::Markup(MarkupContent {
                     kind: MarkupKind::Markdown,
-                    value: ["function `", &procedure_desc, "`\n", "---\n"].join(""),
+                    value: [
+                        "function `",
+                        sym.get_name(),
+                        "`\n",
+                        "---\n",
+                        &procedure_desc,
+                        "\n",
+                    ]
+                    .join(""),
+                }))
+            }
+            pasko_frontend::symbol::SymbolKind::Field => {
+                let type_name = semantic_context
+                    .type_system
+                    .get_type_name(sym.get_type()?, &semantic_context.symbol_map);
+                let mut values = vec![
+                    "field `",
+                    sym.get_name(),
+                    "`\n",
+                    "---\n",
+                    "type: `",
+                    &type_name,
+                    "`\n",
+                ];
+                let record_type_name;
+                if let Some(associated_record_type) = sym.associated_record_type() {
+                    record_type_name = semantic_context
+                        .type_system
+                        .get_type_name(associated_record_type, &semantic_context.symbol_map);
+                    values.append(&mut vec!["\n", "record type: `", &record_type_name, "`\n"]);
+                }
+                Some(HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: values.join(""),
                 }))
             }
             _ => None,
@@ -524,6 +558,18 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
         let callee = &n.0;
         if self.is_in_span(callee.loc()) {
             self.register_symbol(callee.id());
+        }
+    }
+
+    fn visit_post_assig_field_access(
+        &mut self,
+        n: &pasko_frontend::ast::AssigFieldAccess,
+        _span: &pasko_frontend::span::SpanLoc,
+        _id: pasko_frontend::span::SpanId,
+    ) {
+        let field = &n.1;
+        if self.is_in_span(field.loc()) {
+            self.register_symbol(field.id());
         }
     }
 }

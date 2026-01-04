@@ -72,10 +72,15 @@ struct SymbolInfo {
     // FIXME: We can reduce the memory used by this by grouping these less
     // common things by the kind of Symbol.
     parameter: Option<ParameterKind>,
+    // Used only for functions or procedures.
     formal_parameters: Option<Vec<Vec<SymbolId>>>,
-    return_symbol: Option<SymbolId>,
     required_environment: HashSet<SymbolId>,
-    associated_record: Option<span::SpanId>,
+    // Used only for functions.
+    return_symbol: Option<SymbolId>,
+    // Used only for Fields
+    associated_record_type: Option<TypeId>,
+    // This is only for AssociatedFields
+    associated_record: Option<span::SpanId>, // This is an ExprVariable
     associated_field: Option<SymbolId>,
 }
 
@@ -223,6 +228,14 @@ impl Symbol {
 
     pub fn set_captured(&mut self, captured: bool) {
         self.info.captured = captured;
+    }
+
+    pub fn associated_record_type(&self) -> Option<TypeId> {
+        self.info.associated_record_type
+    }
+
+    pub fn set_associated_record_type(&mut self, ty: TypeId) {
+        self.info.associated_record_type = Some(ty);
     }
 
     pub fn associated_record(&self) -> Option<span::SpanId> {

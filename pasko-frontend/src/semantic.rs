@@ -2802,11 +2802,17 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
             packed,
             fixed_fields,
             variant,
-            all_fields,
+            all_fields: all_fields.clone(),
         });
 
         let new_record_type = self.ctx.type_system.new_type(new_record_type);
         self.ctx.set_ast_type(id, new_record_type);
+
+        // Remmber the type. This is not very useful in general helps in diagnostics.
+        for field in all_fields  {
+            let field_sym = self.ctx.symbol_map.get_symbol_mut(field);
+            field_sym.set_associated_record_type(new_record_type);
+        }
 
         self.record_info = keep_record_info;
 
