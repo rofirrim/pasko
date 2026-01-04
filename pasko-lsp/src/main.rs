@@ -384,7 +384,9 @@ impl Backend {
                 &semantic_context.symbol_map,
             );
 
+            result += "`";
             result += &return_type_name;
+            result += "`";
             result += "\n\n";
         }
 
