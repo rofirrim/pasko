@@ -69,6 +69,12 @@ pub enum Tok {
     With,
 }
 
+#[derive(Clone, Debug)]
+enum CommentStyle {
+    Old,
+    New,
+}
+
 use std::fmt;
 
 impl fmt::Display for Tok {
@@ -190,34 +196,37 @@ impl<'input> Lexer<'input> {
         self.peek_nth(0)
     }
 
-    fn consume_comment(&mut self, offset: usize) -> (usize, usize) {
+    fn consume_comment(&mut self, offset: usize, comment_style: CommentStyle) -> (usize, usize) {
         let mut offset_end = offset + 1;
-        let mut nesting_level = 1;
+        let mut nesting_style = vec![comment_style];
         while let Some((_, c2)) = self.peek() {
             self.skip();
             offset_end += 1;
-            match c2 {
-                '}' => {
-                    nesting_level -= 1;
-                    if nesting_level == 0 {
+            let current_style = nesting_style.last().unwrap().clone();
+            match (c2, current_style) {
+                ('}', CommentStyle::New) => {
+                    nesting_style.pop();
+                    if nesting_style.is_empty() {
                         break;
                     }
                 }
-                '{' => {
-                    nesting_level += 1;
+                ('{', _) => {
+                    nesting_style.push(CommentStyle::New);
                 }
                 // Old style comments.
-                '(' => {
+                ('(', _) => {
                     if let Some((_, '*')) = self.peek() {
                         self.skip();
-                        nesting_level += 1;
+                        offset_end += 1;
+                        nesting_style.push(CommentStyle::Old);
                     }
                 }
-                '*' => {
+                ('*', CommentStyle::Old) => {
                     if let Some((_, ')')) = self.peek() {
                         self.skip();
-                        nesting_level -= 1;
-                        if nesting_level == 0 {
+                        offset_end += 1;
+                        nesting_style.pop();
+                        if nesting_style.is_empty() {
                             break;
                         }
                     }
@@ -226,7 +235,7 @@ impl<'input> Lexer<'input> {
             }
         }
 
-        (offset_end, nesting_level)
+        (offset_end, nesting_style.len())
     }
 }
 
@@ -245,7 +254,8 @@ impl<'input> Iterator for Lexer<'input> {
                     // Whitespace. Discard.
                 }
                 '{' => {
-                    let (offset_end, nesting_level) = self.consume_comment(offset);
+                    let (offset_end, nesting_level) =
+                        self.consume_comment(offset, CommentStyle::New);
                     if nesting_level != 0 {
                         return Some(Err(LexicalError {
                             start: offset,
@@ -313,7 +323,8 @@ impl<'input> Iterator for Lexer<'input> {
                             // (* starts an old style comment.
                             // Consume '*'
                             self.skip();
-                            let (offset_end, nesting_level) = self.consume_comment(offset);
+                            let (offset_end, nesting_level) =
+                                self.consume_comment(offset, CommentStyle::Old);
                             if nesting_level != 0 {
                                 return Some(Err(LexicalError {
                                     start: offset,
