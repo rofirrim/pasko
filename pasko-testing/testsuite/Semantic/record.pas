@@ -58,8 +58,8 @@ CHECK-NEXT:       │                 │     └─╴ConstReal 18:10 2.3 real
 CHECK-NEXT:       │                 ├─╴StmtAssignment 19:3 lhs real rhs real
 CHECK-NEXT:       │                 │  ├─╴AssigFieldAccess 19:3 field:<b> real
 CHECK-NEXT:       │                 │  │  └─╴AssigVariable 19:3 "r" my_record (an alias of record a : integer; b : real; end)
-CHECK-NEXT:       │                 │  └─╴BinOp 19:10 + real
-CHECK-NEXT:       │                 │     ├─╴Conversion 19:10 real
+CHECK-NEXT:       │                 │  └─╴ExprBinOp 19:10 + real
+CHECK-NEXT:       │                 │     ├─╴ExprConversion 19:10 real
 CHECK-NEXT:       │                 │     │  └─╴ExprVariable 19:10 integer
 CHECK-NEXT:       │                 │     │     └─╴AssigFieldAccess 19:10 field:<a> integer
 CHECK-NEXT:       │                 │     │        └─╴AssigVariable 19:10 "r" my_record (an alias of record a : integer; b : real; end)

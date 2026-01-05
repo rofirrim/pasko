@@ -68,15 +68,10 @@ pub fn parse_pasko_program(
 ) -> Option<span::SpannedBox<ast::Program>> {
     let lex = lexer::Lexer::new(input);
 
-    let num_diagnostics = diagnostics.num_diagnostics();
-
     let r = pasko::ProgramParser::new().parse(diagnostics, lex);
     if let Err(x) = &r {
         diagnose_parse_error(diagnostics, x);
     }
 
-    if num_diagnostics < diagnostics.num_diagnostics() {
-        return None;
-    }
     r.ok()
 }

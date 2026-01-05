@@ -194,6 +194,7 @@ macro_rules! define_visitor_trait {
             $define_visitor!(ExprWriteParameter);
             $define_visitor!(ExprConversion);
             $define_visitor_leaf!(ExprBoundIdentifier);
+            $define_visitor_leaf!(ExprError);
         }
     };
 }
@@ -2214,7 +2215,8 @@ define_visitable_enum!(Expr, {
     ast::Expr::BinOp,
     ast::Expr::WriteParameter,
     ast::Expr::Conversion,
-    ast::Expr::BoundIdentifier
+    ast::Expr::BoundIdentifier,
+    ast::Expr::Error
 });
 
 define_mutating_visitable_enum!(Expr, {
@@ -2229,7 +2231,8 @@ define_mutating_visitable_enum!(Expr, {
     ast::Expr::BinOp,
     ast::Expr::WriteParameter,
     ast::Expr::Conversion,
-    ast::Expr::BoundIdentifier
+    ast::Expr::BoundIdentifier,
+    ast::Expr::Error
 });
 
 // ExprConst
@@ -2526,3 +2529,7 @@ define_mutating_visitable!(
 // ExprBoundIdentifier
 define_visitable_leaf!(ExprBoundIdentifier);
 define_mutating_visitable_leaf!(ExprBoundIdentifier);
+
+// ExprError
+define_visitable_leaf!(ExprError);
+define_mutating_visitable_leaf!(ExprError);

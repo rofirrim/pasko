@@ -3788,6 +3788,10 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
         true
     }
 
+    fn visit_expr_error(&mut self,_n: &mut ast::ExprError,_span: &span::SpanLoc,id:span::SpanId) {
+        self.ctx.set_ast_type(id, self.ctx.type_system.get_error_type());
+    }
+
     fn visit_post_expr_range(
         &mut self,
         n: &mut ast::ExprRange,
@@ -5165,6 +5169,10 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                 "undeclared label".to_string(),
             );
         }
+    }
+
+    fn visit_stmt_error(&mut self, _n: &mut ast::StmtError, _span: &span::SpanLoc, _id: span::SpanId) {
+        // Ignore error-stmts.
     }
 
     fn visit_post_stmt_label(

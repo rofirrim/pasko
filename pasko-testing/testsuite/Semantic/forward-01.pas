@@ -43,7 +43,7 @@ CHECK-NEXT:       │  │        └─╴Statement 10:1
 CHECK-NEXT:       │  │           └─╴StmtCompound 10:1
 CHECK-NEXT:       │  │              ├─╴StmtAssignment 11:4 lhs real rhs real
 CHECK-NEXT:       │  │              │  ├─╴AssigVariable 11:4 "increment" real
-CHECK-NEXT:       │  │              │  └─╴BinOp 11:17 + real
+CHECK-NEXT:       │  │              │  └─╴ExprBinOp 11:17 + real
 CHECK-NEXT:       │  │              │     ├─╴ExprVariable 11:17 real
 CHECK-NEXT:       │  │              │     │  └─╴AssigVariable 11:17 "x" real
 CHECK-NEXT:       │  │              │     └─╴ExprConst 11:21 "real" <<no const>>
@@ -59,7 +59,7 @@ CHECK-NEXT:       │           └─╴Statement 16:1
 CHECK-NEXT:       │              └─╴StmtCompound 16:1
 CHECK-NEXT:       │                 ├─╴StmtAssignment 17:4 lhs real rhs real
 CHECK-NEXT:       │                 │  ├─╴AssigVariable 17:4 "x" real
-CHECK-NEXT:       │                 │  └─╴BinOp 17:9 + real
+CHECK-NEXT:       │                 │  └─╴ExprBinOp 17:9 + real
 CHECK-NEXT:       │                 │     ├─╴ExprVariable 17:9 real
 CHECK-NEXT:       │                 │     │  └─╴AssigVariable 17:9 "x" real
 CHECK-NEXT:       │                 │     └─╴ExprConst 17:13 "real" <<no const>>

@@ -79,14 +79,14 @@ CHECK-NEXT:       │                 │  ├─╴AssigVariable 30:3 "midpoint
 CHECK-NEXT:       │                 │  └─╴ExprVariable 30:15 <<no-type>>
 CHECK-NEXT:       │                 │     └─╴AssigVariable 30:15 "a" <<no-type>>
 CHECK-NEXT:       │                 ├─╴StmtWhileDo 31:3 
-CHECK-NEXT:       │                 │  ├─╴BinOp 31:9 > <<no-type>>
+CHECK-NEXT:       │                 │  ├─╴ExprBinOp 31:9 > <<no-type>>
 CHECK-NEXT:       │                 │  │  ├─╴ExprFunctionCall 31:9 abs
-CHECK-NEXT:       │                 │  │  │  └─╴BinOp 31:13 - <<no-type>>
+CHECK-NEXT:       │                 │  │  │  └─╴ExprBinOp 31:13 - <<no-type>>
 CHECK-NEXT:       │                 │  │  │     ├─╴ExprVariable 31:13 <<no-type>>
 CHECK-NEXT:       │                 │  │  │     │  └─╴AssigVariable 31:13 "a" <<no-type>>
 CHECK-NEXT:       │                 │  │  │     └─╴ExprVariable 31:17 <<no-type>>
 CHECK-NEXT:       │                 │  │  │        └─╴AssigVariable 31:17 "b" <<no-type>>
-CHECK-NEXT:       │                 │  │  └─╴BinOp 31:22 * <<no-type>>
+CHECK-NEXT:       │                 │  │  └─╴ExprBinOp 31:22 * <<no-type>>
 CHECK-NEXT:       │                 │  │     ├─╴ExprVariable 31:22 <<no-type>>
 CHECK-NEXT:       │                 │  │     │  └─╴AssigVariable 31:22 "eps" <<no-type>>
 CHECK-NEXT:       │                 │  │     └─╴ExprFunctionCall 31:28 abs
@@ -95,9 +95,9 @@ CHECK-NEXT:       │                 │  │           └─╴AssigVariable 
 CHECK-NEXT:       │                 │  └─╴StmtCompound 31:38 
 CHECK-NEXT:       │                 │     ├─╴StmtAssignment 32:5 lhs <<no-type>> rhs <<no-type>>
 CHECK-NEXT:       │                 │     │  ├─╴AssigVariable 32:5 "midpoint" <<no-type>>
-CHECK-NEXT:       │                 │     │  └─╴BinOp 32:17 / <<no-type>>
+CHECK-NEXT:       │                 │     │  └─╴ExprBinOp 32:17 / <<no-type>>
 CHECK-NEXT:       │                 │     │     ├─╴ExprParentheses 32:17 
-CHECK-NEXT:       │                 │     │     │  └─╴BinOp 32:18 + <<no-type>>
+CHECK-NEXT:       │                 │     │     │  └─╴ExprBinOp 32:18 + <<no-type>>
 CHECK-NEXT:       │                 │     │     │     ├─╴ExprVariable 32:18 <<no-type>>
 CHECK-NEXT:       │                 │     │     │     │  └─╴AssigVariable 32:18 "a" <<no-type>>
 CHECK-NEXT:       │                 │     │     │     └─╴ExprVariable 32:22 <<no-type>>
@@ -105,7 +105,7 @@ CHECK-NEXT:       │                 │     │     │        └─╴AssigV
 CHECK-NEXT:       │                 │     │     └─╴ExprConst 32:27 "<<no-type>>" <<no const>>
 CHECK-NEXT:       │                 │     │        └─╴ConstInteger 32:27 2 <<no-type>>
 CHECK-NEXT:       │                 │     └─╴StmtIf 33:5 
-CHECK-NEXT:       │                 │        ├─╴BinOp 33:8 < <<no-type>>
+CHECK-NEXT:       │                 │        ├─╴ExprBinOp 33:8 < <<no-type>>
 CHECK-NEXT:       │                 │        │  ├─╴ExprFunctionCall 33:8 f
 CHECK-NEXT:       │                 │        │  │  └─╴ExprVariable 33:10 <<no-type>>
 CHECK-NEXT:       │                 │        │  │     └─╴AssigVariable 33:10 "midpoint" <<no-type>>

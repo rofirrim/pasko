@@ -301,10 +301,6 @@ StatementSequence : Vec<SpannedBox<ast::Stmt>> = {
 Statement : SpannedBox<ast::Stmt> = {
     <s:ClosedStatement> => s,
     <s:OpenStatement> => s,
-    <start:@L> <e:!> <end:@R> => {
-        parser::diagnose_parse_error(diagnostics, &e.error);
-        SpannedBox::new(span_loc!(start, end), ast::Stmt::Error(ast::StmtError(e.error)))
-    }
 };
 
 ClosedStatement : SpannedBox<ast::Stmt> = {
@@ -340,6 +336,10 @@ SimpleStatement : SpannedBox<ast::Stmt> = {
         SpannedBox::new(span_loc!(start, end), ast::Stmt::Goto(ast::StmtGoto(label))),
     <start:@L> <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::Stmt::Empty(ast::StmtEmpty)),
+    <start:@L> <e:!> <end:@R> => {
+        parser::diagnose_parse_error(diagnostics, &e.error);
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::Error(ast::StmtError(e.error)))
+    }
 };
 
 ProcedureActualParameterList : Vec<SpannedBox<ast::Expr>> = {
@@ -637,7 +637,11 @@ SingleExpression : SpannedBox<ast::Expr> = {
     <start:@L> "[" <members:OptionalCommaSeparated<SetMember>> "]" <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::SetLiteral(ast::ExprSetLiteral(members))),
     <start:@L> "not" <end_op:@R> <operand:SingleExpression> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::UnOp(ast::ExprUnOp(Spanned::new(span_loc!(start, end_op), ast::UnaryOp::LogicalNot), operand))),
     <start:@L> <identifier:Identifier> "(" <arguments:CommaSeparated<Expression>> ")" <end:@R> =>
-       SpannedBox::new(span_loc!(start, end), ast::Expr::FunctionCall(ast::ExprFunctionCall(identifier, arguments)))
+       SpannedBox::new(span_loc!(start, end), ast::Expr::FunctionCall(ast::ExprFunctionCall(identifier, arguments))),
+    <start:@L> <e:!> <end:@R> => {
+        parser::diagnose_parse_error(diagnostics, &e.error);
+        SpannedBox::new(span_loc!(start, end), ast::Expr::Error(ast::ExprError(e.error)))
+    }
 };
 
 SetMember : SpannedBox<ast::Expr> = {

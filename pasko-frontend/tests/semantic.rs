@@ -141,8 +141,8 @@ Program 1:1
             │     └─╴ConstReal 7:9 2.3 real
             └─╴StmtAssignment 8:4 lhs real rhs real
                ├─╴AssigVariable 8:4 "z" real
-               └─╴BinOp 8:9 + real
-                  ├─╴Conversion 8:9 real
+               └─╴ExprBinOp 8:9 + real
+                  ├─╴ExprConversion 8:9 real
                   │  └─╴ExprVariable 8:9 integer
                   │     └─╴AssigVariable 8:9 "x" integer
                   └─╴ExprVariable 8:13 real

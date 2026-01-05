@@ -638,7 +638,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         id: span::SpanId,
     ) -> bool {
         self.emit_line_payload(
-            "BinOp",
+            "ExprBinOp",
             span,
             id,
             &format!("{} {}", n.0.get(), self.type_to_string(id)),
@@ -657,7 +657,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         id: span::SpanId,
     ) -> bool {
         self.emit_line_payload(
-            "UnOp",
+            "ExprUnOp",
             span,
             id,
             &format!("{} {}", n.0.get(), self.type_to_string(id)),
@@ -687,7 +687,7 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
-        self.emit_line_payload("Conversion", span, id, &self.type_to_string(id).to_string());
+        self.emit_line_payload("ExprConversion", span, id, &self.type_to_string(id).to_string());
 
         self.walk_last_child(&n.0);
 
@@ -701,11 +701,15 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         id: span::SpanId,
     ) {
         self.emit_line_payload(
-            "BoundIdentifier",
+            "ExprBoundIdentifier",
             span,
             id,
             &format!("{} {}", n.0.get(), self.type_to_string(id)),
         );
+    }
+
+    fn visit_expr_error(&mut self, _n: &ast::ExprError, span: &span::SpanLoc, id: span::SpanId) {
+        self.emit_line("ExprError", span, id);
     }
 
     fn visit_pre_variable_declaration_part(
@@ -1391,6 +1395,10 @@ impl<'a> VisitorMut for ASTDumper<'a> {
 
     fn visit_stmt_goto(&mut self, n: &ast::StmtGoto, span: &span::SpanLoc, id: span::SpanId) {
         self.emit_line_payload("StmtGoto", span, id, &format!("label {}", n.0.get()));
+    }
+
+    fn visit_stmt_error(&mut self, _n: &ast::StmtError, span: &span::SpanLoc, id: span::SpanId) {
+        self.emit_line("StmtError", span, id);
     }
 
     fn visit_pre_stmt_label(

@@ -33,7 +33,7 @@ CHECK-NEXT:       │           └─╴Statement 9:1
 CHECK-NEXT:       │              └─╴StmtCompound 9:1
 CHECK-NEXT:       │                 ├─╴StmtAssignment 10:4 lhs real rhs real
 CHECK-NEXT:       │                 │  ├─╴AssigVariable 10:4 "x" real
-CHECK-NEXT:       │                 │  └─╴BinOp 10:9 + real
+CHECK-NEXT:       │                 │  └─╴ExprBinOp 10:9 + real
 CHECK-NEXT:       │                 │     ├─╴ExprVariable 10:9 real
 CHECK-NEXT:       │                 │     │  └─╴AssigVariable 10:9 "x" real
 CHECK-NEXT:       │                 │     └─╴ExprConst 10:13 "real" <<no const>>

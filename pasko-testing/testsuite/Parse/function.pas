@@ -60,26 +60,26 @@ CHECK-NEXT:       │                 │  │  └─╴ExprVariable 24:13 <<no
 CHECK-NEXT:       │                 │  │     └─╴AssigVariable 24:13 "estimate" <<no-type>>
 CHECK-NEXT:       │                 │  ├─╴StmtAssignment 25:6 lhs <<no-type>> rhs <<no-type>>
 CHECK-NEXT:       │                 │  │  ├─╴AssigVariable 25:6 "estimate" <<no-type>>
-CHECK-NEXT:       │                 │  │  └─╴BinOp 25:18 * <<no-type>>
+CHECK-NEXT:       │                 │  │  └─╴ExprBinOp 25:18 * <<no-type>>
 CHECK-NEXT:       │                 │  │     ├─╴ExprParentheses 25:18 
-CHECK-NEXT:       │                 │  │     │  └─╴BinOp 25:19 + <<no-type>>
+CHECK-NEXT:       │                 │  │     │  └─╴ExprBinOp 25:19 + <<no-type>>
 CHECK-NEXT:       │                 │  │     │     ├─╴ExprVariable 25:19 <<no-type>>
 CHECK-NEXT:       │                 │  │     │     │  └─╴AssigVariable 25:19 "old" <<no-type>>
-CHECK-NEXT:       │                 │  │     │     └─╴BinOp 25:25 / <<no-type>>
+CHECK-NEXT:       │                 │  │     │     └─╴ExprBinOp 25:25 / <<no-type>>
 CHECK-NEXT:       │                 │  │     │        ├─╴ExprVariable 25:25 <<no-type>>
 CHECK-NEXT:       │                 │  │     │        │  └─╴AssigVariable 25:25 "x" <<no-type>>
 CHECK-NEXT:       │                 │  │     │        └─╴ExprVariable 25:29 <<no-type>>
 CHECK-NEXT:       │                 │  │     │           └─╴AssigVariable 25:29 "old" <<no-type>>
 CHECK-NEXT:       │                 │  │     └─╴ExprConst 25:36 "<<no-type>>" <<no const>>
 CHECK-NEXT:       │                 │  │        └─╴ConstReal 25:36 0.5 <<no-type>>
-CHECK-NEXT:       │                 │  └─╴BinOp 26:10 < <<no-type>>
+CHECK-NEXT:       │                 │  └─╴ExprBinOp 26:10 < <<no-type>>
 CHECK-NEXT:       │                 │     ├─╴ExprFunctionCall 26:10 abs
-CHECK-NEXT:       │                 │     │  └─╴BinOp 26:14 - <<no-type>>
+CHECK-NEXT:       │                 │     │  └─╴ExprBinOp 26:14 - <<no-type>>
 CHECK-NEXT:       │                 │     │     ├─╴ExprVariable 26:14 <<no-type>>
 CHECK-NEXT:       │                 │     │     │  └─╴AssigVariable 26:14 "estimate" <<no-type>>
 CHECK-NEXT:       │                 │     │     └─╴ExprVariable 26:25 <<no-type>>
 CHECK-NEXT:       │                 │     │        └─╴AssigVariable 26:25 "old" <<no-type>>
-CHECK-NEXT:       │                 │     └─╴BinOp 26:32 * <<no-type>>
+CHECK-NEXT:       │                 │     └─╴ExprBinOp 26:32 * <<no-type>>
 CHECK-NEXT:       │                 │        ├─╴ExprVariable 26:32 <<no-type>>
 CHECK-NEXT:       │                 │        │  └─╴AssigVariable 26:32 "eps" <<no-type>>
 CHECK-NEXT:       │                 │        └─╴ExprVariable 26:38 <<no-type>>

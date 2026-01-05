@@ -371,6 +371,9 @@ pub struct ExprConversion(pub SpannedBox<Expr>);
 pub struct ExprBoundIdentifier(pub Spanned<String>);
 
 #[derive(Debug)]
+pub struct ExprError(pub ParseError<usize, lexer::Tok, lexer::LexicalError>);
+
+#[derive(Debug)]
 pub enum Expr {
     Const(ExprConst),
     SetLiteral(ExprSetLiteral),
@@ -384,6 +387,7 @@ pub enum Expr {
     WriteParameter(ExprWriteParameter),
     Conversion(ExprConversion),
     BoundIdentifier(ExprBoundIdentifier),
+    Error(ExprError),
 }
 
 #[derive(Debug)]

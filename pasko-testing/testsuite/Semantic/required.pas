@@ -89,37 +89,37 @@ CHECK-NEXT:       │  │              │        └─╴AssigVariable 13:12 
 CHECK-NEXT:       │  │              ├─╴StmtAssignment 15:3 lhs real rhs real
 CHECK-NEXT:       │  │              │  ├─╴AssigVariable 15:3 "x" real
 CHECK-NEXT:       │  │              │  └─╴ExprFunctionCall 15:8 sin real
-CHECK-NEXT:       │  │              │     └─╴Conversion 15:12 real
+CHECK-NEXT:       │  │              │     └─╴ExprConversion 15:12 real
 CHECK-NEXT:       │  │              │        └─╴ExprVariable 15:12 integer
 CHECK-NEXT:       │  │              │           └─╴AssigVariable 15:12 "n" integer
 CHECK-NEXT:       │  │              ├─╴StmtAssignment 16:3 lhs real rhs real
 CHECK-NEXT:       │  │              │  ├─╴AssigVariable 16:3 "x" real
 CHECK-NEXT:       │  │              │  └─╴ExprFunctionCall 16:8 cos real
-CHECK-NEXT:       │  │              │     └─╴Conversion 16:12 real
+CHECK-NEXT:       │  │              │     └─╴ExprConversion 16:12 real
 CHECK-NEXT:       │  │              │        └─╴ExprVariable 16:12 integer
 CHECK-NEXT:       │  │              │           └─╴AssigVariable 16:12 "n" integer
 CHECK-NEXT:       │  │              ├─╴StmtAssignment 17:3 lhs real rhs real
 CHECK-NEXT:       │  │              │  ├─╴AssigVariable 17:3 "x" real
 CHECK-NEXT:       │  │              │  └─╴ExprFunctionCall 17:8 exp real
-CHECK-NEXT:       │  │              │     └─╴Conversion 17:12 real
+CHECK-NEXT:       │  │              │     └─╴ExprConversion 17:12 real
 CHECK-NEXT:       │  │              │        └─╴ExprVariable 17:12 integer
 CHECK-NEXT:       │  │              │           └─╴AssigVariable 17:12 "n" integer
 CHECK-NEXT:       │  │              ├─╴StmtAssignment 18:3 lhs real rhs real
 CHECK-NEXT:       │  │              │  ├─╴AssigVariable 18:3 "x" real
 CHECK-NEXT:       │  │              │  └─╴ExprFunctionCall 18:8 ln real
-CHECK-NEXT:       │  │              │     └─╴Conversion 18:11 real
+CHECK-NEXT:       │  │              │     └─╴ExprConversion 18:11 real
 CHECK-NEXT:       │  │              │        └─╴ExprVariable 18:11 integer
 CHECK-NEXT:       │  │              │           └─╴AssigVariable 18:11 "n" integer
 CHECK-NEXT:       │  │              ├─╴StmtAssignment 19:3 lhs real rhs real
 CHECK-NEXT:       │  │              │  ├─╴AssigVariable 19:3 "x" real
 CHECK-NEXT:       │  │              │  └─╴ExprFunctionCall 19:8 sqrt real
-CHECK-NEXT:       │  │              │     └─╴Conversion 19:13 real
+CHECK-NEXT:       │  │              │     └─╴ExprConversion 19:13 real
 CHECK-NEXT:       │  │              │        └─╴ExprVariable 19:13 integer
 CHECK-NEXT:       │  │              │           └─╴AssigVariable 19:13 "n" integer
 CHECK-NEXT:       │  │              ├─╴StmtAssignment 20:3 lhs real rhs real
 CHECK-NEXT:       │  │              │  ├─╴AssigVariable 20:3 "x" real
 CHECK-NEXT:       │  │              │  └─╴ExprFunctionCall 20:8 arctan real
-CHECK-NEXT:       │  │              │     └─╴Conversion 20:15 real
+CHECK-NEXT:       │  │              │     └─╴ExprConversion 20:15 real
 CHECK-NEXT:       │  │              │        └─╴ExprVariable 20:15 integer
 CHECK-NEXT:       │  │              │           └─╴AssigVariable 20:15 "n" integer
 CHECK-NEXT:       │  │              ├─╴StmtAssignment 22:3 lhs real rhs real
