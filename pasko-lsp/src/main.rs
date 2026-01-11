@@ -1,5 +1,6 @@
 use pasko_frontend::visitor::Visitable;
 use std::collections::HashMap;
+use std::ops::ControlFlow;
 use std::sync::Mutex;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{self, *};
@@ -381,13 +382,13 @@ impl Backend {
     }
 
     fn compute_offset_from_position(&self, uri: &Url, position: Position) -> Option<usize> {
-            let file_info = self.file_info.lock().unwrap();
-            file_info.get(&uri).and_then(|file_info| {
-                file_info.line_map.line_and_col_to_offset(
-                    (position.line + 1) as usize,
-                    (position.character + 1) as usize,
-                )
-            })
+        let file_info = self.file_info.lock().unwrap();
+        file_info.get(&uri).and_then(|file_info| {
+            file_info.line_map.line_and_col_to_offset(
+                (position.line + 1) as usize,
+                (position.character + 1) as usize,
+            )
+        })
     }
 
     fn search_definition_location_of_identifier(
@@ -683,6 +684,21 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
                 self.register_symbol(sym_id);
             }
         }
+    }
+
+    fn visit_post_variable_declaration(
+        &mut self,
+        n: &pasko_frontend::ast::VariableDeclaration,
+        _span: &pasko_frontend::span::SpanLoc,
+        _id: pasko_frontend::span::SpanId,
+    ) {
+        let _ = n.0.iter().try_for_each(|e| {
+            if self.is_in_span(e.loc()) {
+                self.register_symbol_from_span(e.id());
+                return ControlFlow::Break(());
+            }
+            ControlFlow::Continue(())
+        });
     }
 }
 
