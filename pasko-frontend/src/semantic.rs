@@ -5098,7 +5098,15 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                     self.ctx
                         .set_ast_type(id, self.ctx.type_system.get_error_type());
                 }
-                _ => {}
+                _ => {
+                    self.diagnostics.add(
+                        DiagnosticKind::Error,
+                        *node.0.loc(),
+                        "this is not the name of a constant".to_string(),
+                    );
+                    self.ctx
+                        .set_ast_type(id, self.ctx.type_system.get_error_type());
+                }
             }
         } else {
             self.ctx
