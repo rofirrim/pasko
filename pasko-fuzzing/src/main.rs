@@ -10,7 +10,7 @@ fn main() {
             let parse_result =
                 pasko_frontend::parser::parse_pasko_program(&input, &mut diagnostics);
             if let Some(mut program) = parse_result {
-                let mut semantic_context = pasko_frontend::semantic::SemanticContext::new(&input);
+                let mut semantic_context = pasko_frontend::semantic::SemanticContext::new();
                 pasko_frontend::semantic::check_program(
                     &mut program,
                     &mut semantic_context,
