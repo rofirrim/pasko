@@ -102,7 +102,14 @@ macro_rules! define_mutating_visitor_leaf_mut {
 macro_rules! define_visitor_trait {
     ($trait_name:ident, $define_visitor:ident, $define_visitor_leaf:ident) => {
         pub trait $trait_name {
-            fn unhandled_node_pre(&self, _class: &str, _span: &span::SpanLoc, _id: span::SpanId) -> bool { true }
+            fn unhandled_node_pre(
+                &self,
+                _class: &str,
+                _span: &span::SpanLoc,
+                _id: span::SpanId,
+            ) -> bool {
+                true
+            }
             fn unhandled_node_post(&self, _class: &str, _span: &span::SpanLoc, _id: span::SpanId) {}
             fn unhandled_node_leaf(&self, _class: &str, _span: &span::SpanLoc, _id: span::SpanId) {}
             $define_visitor!(Program);

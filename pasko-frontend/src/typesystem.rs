@@ -335,7 +335,10 @@ impl Type {
 
     // Does not clone the id!
     fn cloned_type(&self) -> Type {
-        Type { id: TypeId::default(), info: self.info.clone() }
+        Type {
+            id: TypeId::default(),
+            info: self.info.clone(),
+        }
     }
 }
 
@@ -540,7 +543,7 @@ impl TypeSystem {
         ty.is_error_type()
     }
 
-    fn insert_and_cache(&mut self, ty: Type) -> TypeId { 
+    fn insert_and_cache(&mut self, ty: Type) -> TypeId {
         if let Some(x) = self.derived_types.get(&ty) {
             return *x;
         }

@@ -687,7 +687,12 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         span: &span::SpanLoc,
         id: span::SpanId,
     ) -> bool {
-        self.emit_line_payload("ExprConversion", span, id, &self.type_to_string(id).to_string());
+        self.emit_line_payload(
+            "ExprConversion",
+            span,
+            id,
+            &self.type_to_string(id).to_string(),
+        );
 
         self.walk_last_child(&n.0);
 

@@ -2809,7 +2809,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
         self.ctx.set_ast_type(id, new_record_type);
 
         // Remmber the type. This is not very useful in general helps in diagnostics.
-        for field in all_fields  {
+        for field in all_fields {
             let field_sym = self.ctx.symbol_map.get_symbol_mut(field);
             field_sym.set_associated_record_type(new_record_type);
         }
@@ -3788,8 +3788,14 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
         true
     }
 
-    fn visit_expr_error(&mut self,_n: &mut ast::ExprError,_span: &span::SpanLoc,id:span::SpanId) {
-        self.ctx.set_ast_type(id, self.ctx.type_system.get_error_type());
+    fn visit_expr_error(
+        &mut self,
+        _n: &mut ast::ExprError,
+        _span: &span::SpanLoc,
+        id: span::SpanId,
+    ) {
+        self.ctx
+            .set_ast_type(id, self.ctx.type_system.get_error_type());
     }
 
     fn visit_post_expr_range(
@@ -5179,7 +5185,12 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
         }
     }
 
-    fn visit_stmt_error(&mut self, _n: &mut ast::StmtError, _span: &span::SpanLoc, _id: span::SpanId) {
+    fn visit_stmt_error(
+        &mut self,
+        _n: &mut ast::StmtError,
+        _span: &span::SpanLoc,
+        _id: span::SpanId,
+    ) {
         // Ignore error-stmts.
     }
 
