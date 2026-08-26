@@ -99,19 +99,40 @@ macro_rules! define_mutating_visitor_leaf_mut {
     };
 }
 
+macro_rules! define_unhandled_visitor {
+    () => {
+        fn unhandled_node_pre(
+            &self,
+            _class: &str,
+            _span: &span::SpanLoc,
+            _id: span::SpanId,
+        ) -> bool {
+            true
+        }
+        fn unhandled_node_post(&self, _class: &str, _span: &span::SpanLoc, _id: span::SpanId) {}
+        fn unhandled_node_leaf(&self, _class: &str, _span: &span::SpanLoc, _id: span::SpanId) {}
+    };
+}
+
+macro_rules! define_unhandled_mutating_visitor {
+    () => {
+        fn unhandled_node_pre(
+            &mut self,
+            _class: &str,
+            _span: &span::SpanLoc,
+            _id: span::SpanId,
+        ) -> bool {
+            true
+        }
+        fn unhandled_node_post(&mut self, _class: &str, _span: &span::SpanLoc, _id: span::SpanId) {}
+        fn unhandled_node_leaf(&mut self, _class: &str, _span: &span::SpanLoc, _id: span::SpanId) {}
+    };
+}
+
 macro_rules! define_visitor_trait {
-    ($trait_name:ident, $define_visitor:ident, $define_visitor_leaf:ident) => {
+    ($trait_name:ident, $define_unhandled:ident, $define_visitor:ident, $define_visitor_leaf:ident) => {
         pub trait $trait_name {
-            fn unhandled_node_pre(
-                &self,
-                _class: &str,
-                _span: &span::SpanLoc,
-                _id: span::SpanId,
-            ) -> bool {
-                true
-            }
-            fn unhandled_node_post(&self, _class: &str, _span: &span::SpanLoc, _id: span::SpanId) {}
-            fn unhandled_node_leaf(&self, _class: &str, _span: &span::SpanLoc, _id: span::SpanId) {}
+            $define_unhandled!();
             $define_visitor!(Program);
             $define_visitor_leaf!(ProgramHeading);
             $define_visitor!(ProgramBlock);
@@ -206,16 +227,28 @@ macro_rules! define_visitor_trait {
     };
 }
 
-define_visitor_trait!(Visitor, define_visitor, define_visitor_leaf);
-define_visitor_trait!(VisitorMut, define_visitor_mut, define_visitor_leaf_mut);
+define_visitor_trait!(
+    Visitor,
+    define_unhandled_visitor,
+    define_visitor,
+    define_visitor_leaf
+);
+define_visitor_trait!(
+    VisitorMut,
+    define_unhandled_mutating_visitor,
+    define_visitor_mut,
+    define_visitor_leaf_mut
+);
 
 define_visitor_trait!(
     MutatingVisitor,
+    define_unhandled_visitor,
     define_mutating_visitor,
     define_mutating_visitor_leaf
 );
 define_visitor_trait!(
     MutatingVisitorMut,
+    define_unhandled_mutating_visitor,
     define_mutating_visitor_mut,
     define_mutating_visitor_leaf_mut
 );
