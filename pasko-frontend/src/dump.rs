@@ -10,6 +10,7 @@ pub struct ASTDumper<'input> {
     linemap: &'input span::LineMap,
     semantic_context: &'input SemanticContext,
     no_ids: bool,
+    print_ranges: bool,
 }
 
 impl<'input> ASTDumper<'input> {
@@ -23,11 +24,16 @@ impl<'input> ASTDumper<'input> {
             linemap,
             semantic_context,
             no_ids: false,
+            print_ranges: false,
         }
     }
 
     pub fn set_no_ids(&mut self) {
         self.no_ids = true;
+    }
+
+    pub fn set_print_ranges(&mut self) {
+        self.print_ranges = true;
     }
 
     fn emit_line(&mut self, classname: &str, span: &span::SpanLoc, id: span::SpanId) {
@@ -43,6 +49,22 @@ impl<'input> ASTDumper<'input> {
     ) {
         let payload = payload.to_string();
         self.emit_line_impl(classname, span, id, &payload);
+    }
+
+    fn print_dropped_tokens(&self, dropped_tokens: &ast::DroppedTokens) -> String {
+        if dropped_tokens.is_empty() {
+            "".to_string()
+        } else {
+            format!(
+                "dropped tokens: [{}]",
+                dropped_tokens
+                    .iter()
+                    .map(|x| format!("\"{}\"", x.1))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+                    .to_string()
+            )
+        }
     }
 
     fn emit_line_impl(
@@ -151,8 +173,14 @@ impl<'input> ASTDumper<'input> {
     }
 
     fn get_loc(&self, span: &span::SpanLoc) -> String {
-        let (line, col) = self.linemap.offset_to_line_and_col(span.begin());
-        format!("{}:{}", line, col)
+        if !self.print_ranges {
+            let (line, col) = self.linemap.offset_to_line_and_col(span.begin());
+            format!("{}:{}", line, col)
+        } else {
+            let (begin_line, begin_col) = self.linemap.offset_to_line_and_col(span.begin());
+            let (end_line, end_col) = self.linemap.offset_to_line_and_col(span.end());
+            format!("[{}:{} → {}:{}]", begin_line, begin_col, end_line, end_col)
+        }
     }
 
     fn type_to_string(&self, id: span::SpanId) -> String {
@@ -181,11 +209,11 @@ impl<'a> Display for ASTDumper<'a> {
 }
 
 impl<'a> VisitorMut for ASTDumper<'a> {
-    fn unhandled_node_pre(&self, class: &str, span: &span::SpanLoc, _id: span::SpanId) -> bool {
+    fn unhandled_node_pre(&mut self, class: &str, span: &span::SpanLoc, _id: span::SpanId) -> bool {
         panic!("Unhandled node |{}| at {}", class, self.get_loc(span));
     }
 
-    fn unhandled_node_leaf(&self, class: &str, span: &span::SpanLoc, _id: span::SpanId) {
+    fn unhandled_node_leaf(&mut self, class: &str, span: &span::SpanLoc, _id: span::SpanId) {
         panic!("Unhandled leaf node |{}| at {}", class, self.get_loc(span));
     }
 
@@ -713,8 +741,8 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         );
     }
 
-    fn visit_expr_error(&mut self, _n: &ast::ExprError, span: &span::SpanLoc, id: span::SpanId) {
-        self.emit_line("ExprError", span, id);
+    fn visit_expr_error(&mut self, n: &ast::ExprError, span: &span::SpanLoc, id: span::SpanId) {
+        self.emit_line_payload("ExprError", span, id, &self.print_dropped_tokens(&n.1));
     }
 
     fn visit_pre_variable_declaration_part(
@@ -1402,8 +1430,8 @@ impl<'a> VisitorMut for ASTDumper<'a> {
         self.emit_line_payload("StmtGoto", span, id, &format!("label {}", n.0.get()));
     }
 
-    fn visit_stmt_error(&mut self, _n: &ast::StmtError, span: &span::SpanLoc, id: span::SpanId) {
-        self.emit_line("StmtError", span, id);
+    fn visit_stmt_error(&mut self, n: &ast::StmtError, span: &span::SpanLoc, id: span::SpanId) {
+        self.emit_line_payload("StmtError", span, id, &self.print_dropped_tokens(&n.1));
     }
 
     fn visit_pre_stmt_label(

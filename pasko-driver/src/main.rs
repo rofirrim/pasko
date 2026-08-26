@@ -68,6 +68,13 @@ struct DebugFlags {
     #[arg(
         long,
         default_value_t = false,
+        help = "Print ranges when dumping AST"
+    )]
+    ast_dump_print_ranges: bool,
+
+    #[arg(
+        long,
+        default_value_t = false,
         help = "The compiler must fail during parsing"
     )]
     must_fail_parse: bool,
@@ -154,6 +161,9 @@ fn main() -> ExitCode {
         let mut dumper = dump::ASTDumper::new(&semantic_context, &linemap);
         if cli.debug_flags.ast_dump_no_ids {
             dumper.set_no_ids();
+        }
+        if cli.debug_flags.ast_dump_print_ranges {
+            dumper.set_print_ranges();
         }
         program
             .get()
