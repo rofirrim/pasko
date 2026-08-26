@@ -181,6 +181,7 @@ impl LineMap {
         }
     }
 
+    // If the line is empty, returns "start_of_line_offset(line) - 1"
     pub fn end_of_line_offset(&self, line: usize) -> Option<usize> {
         assert!(line > 0);
         if line <= self.line_end.len() {
@@ -246,6 +247,10 @@ impl LineMap {
         let start_offset = self.start_of_line_offset(line);
         let end_offset = self.end_of_line_offset(line);
 
+        if end_offset < start_offset && col == 1 { 
+            return start_offset;
+        }
+
         start_offset.and_then(|start| {
             end_offset.and_then(|end| {
                 let mut current_offset = start;
@@ -262,7 +267,7 @@ impl LineMap {
                     }
                     current_offset += 1;
                 }
-                if current_offset == end {
+                if current_offset > end {
                     None
                 } else {
                     Some(current_offset)
