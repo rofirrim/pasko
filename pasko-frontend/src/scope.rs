@@ -81,6 +81,26 @@ impl Scope {
         current_scope.map.get(name).cloned()
     }
 
+    pub fn get_symbols_of_given_scope(&self, scope: ScopeId) -> Vec<SymbolId> {
+        let current_scope = &self.items[scope.0];
+        current_scope.map.iter().map(|x| *x.1).collect()
+    }
+
+    pub fn get_all_symbols_in_scope(&self, scope: ScopeId) -> Vec<SymbolId> {
+        let mut result = Vec::new();
+
+        let mut current_scope = scope;
+        loop {
+            result.append(&mut self.get_symbols_of_given_scope(current_scope));
+            if current_scope.0 == 0 {
+                break;
+            }
+            current_scope = self.get_parent_scope_id(current_scope);
+        }
+
+        result
+    }
+
     // Note: global scope includes the bottom scope (where program parameters live)
     // and the scope of the program block.
     pub fn lookup_global_scope(&self, name: &str) -> Option<SymbolId> {

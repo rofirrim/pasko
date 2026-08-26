@@ -35,7 +35,16 @@ impl LanguageServer for Backend {
                     },
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
-                completion_provider: None, // Some(CompletionOptions::default()),
+                completion_provider: Some(CompletionOptions {
+                    resolve_provider: Some(false),
+                    trigger_characters: None,
+                    work_done_progress_options: Default::default(),
+                    all_commit_characters: None,
+                    completion_item: Some(CompletionOptionsCompletionItem {
+                        label_details_support: Some(true),
+                    }),
+                    ..Default::default()
+                }),
                 type_definition_provider: Some(TypeDefinitionProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 ..Default::default()
@@ -210,6 +219,92 @@ impl LanguageServer for Backend {
 
         Ok(result)
     }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+
+        let offset = self.compute_offset_from_position(&uri, position);
+
+        let file_info = self.file_info.lock().unwrap();
+        let file_info = file_info.get(&uri);
+
+        let mut items = Vec::new();
+
+        offset
+            .and_then(|offset: usize| {
+                let file_info = file_info?;
+                self.search_scope(&file_info.program, &file_info.semantic_context, offset)
+            })
+            .and_then(|scope: pasko_frontend::scope::ScopeId| {
+                let file_info = file_info?;
+                let ctx = &file_info.semantic_context.as_ref()?;
+                let symbols = ctx.scope.get_all_symbols_in_scope(scope);
+                Some(symbols)
+            })
+            .and_then(|symbols: Vec<pasko_frontend::symbol::SymbolId>| {
+                let file_info = file_info?;
+                let ctx = &file_info.semantic_context.as_ref()?;
+                symbols.iter().for_each(|sym_id| {
+                    let sym = ctx.symbol_map.get_symbol(*sym_id);
+
+                    let completion_kind;
+                    let mut detail = None;
+                    let mut documentation = None;
+                    match sym.get_kind() {
+                        pasko_frontend::symbol::SymbolKind::Variable => {
+                            completion_kind = Some(CompletionItemKind::VARIABLE);
+                            detail = Some("variable".to_string());
+                            documentation = self
+                                .describe_variable_markup(sym, ctx)
+                                .map(|x| Documentation::MarkupContent(x));
+                        }
+                        pasko_frontend::symbol::SymbolKind::Const => {
+                            completion_kind = Some(CompletionItemKind::CONSTANT);
+                            detail = Some("constant".to_string());
+                        }
+                        pasko_frontend::symbol::SymbolKind::Function => {
+                            completion_kind = Some(CompletionItemKind::FUNCTION);
+                            detail = Some("function".to_string());
+                            documentation = Some(Documentation::MarkupContent(
+                                self.describe_function_markup(sym, ctx),
+                            ));
+                        }
+                        pasko_frontend::symbol::SymbolKind::Procedure => {
+                            completion_kind = Some(CompletionItemKind::FUNCTION);
+                            detail = Some("procedure".to_string());
+                            documentation = Some(Documentation::MarkupContent(
+                                self.describe_procedure_markup(sym, ctx),
+                            ));
+                        }
+                        pasko_frontend::symbol::SymbolKind::Type => {
+                            completion_kind = Some(CompletionItemKind::STRUCT);
+                            detail = Some("type".to_string());
+                            documentation = self
+                                .describe_type_markup(sym, ctx)
+                                .map(|x| Documentation::MarkupContent(x));
+                        }
+                        _ => {
+                            completion_kind = None;
+                        }
+                    };
+
+                    if let Some(completion_kind) = completion_kind {
+                        items.push(CompletionItem {
+                            label: sym.get_name().clone(),
+                            detail,
+                            documentation,
+                            kind: Some(completion_kind),
+                            ..Default::default()
+                        });
+                    }
+                });
+                Some(())
+            });
+
+        let results = Some(items);
+        Ok(results.map(CompletionResponse::Array))
+    }
 }
 
 struct LspEmitter<'a> {
@@ -302,9 +397,9 @@ impl<'a> pasko_frontend::diagnostics::DiagnosticEmitter for LspEmitter<'a> {
 
 impl Backend {
     async fn on_change(&self, uri: Url, input: &String, version: Option<i32>) {
-        self.client
-            .log_message(MessageType::INFO, format!("input: {}", input))
-            .await;
+        // self.client
+        //     .log_message(MessageType::INFO, format!("input: {}", input))
+        //     .await;
         let mut diagnostics = pasko_frontend::diagnostics::Diagnostics::new();
 
         // Clear earlier info
@@ -369,16 +464,51 @@ impl Backend {
         let program = program.as_ref()?;
         let semantic_context = semantic_context.as_ref()?;
         let mut ast_identifier_search = ASTIdentifierSearch {
-            offset,
-            semantic_context,
-            found_symbol: None,
+            search: ASTSymbolSearch {
+                offset,
+                semantic_context,
+                found_symbol: None,
+            },
         };
 
         program
             .get()
             .walk_mut(&mut ast_identifier_search, program.loc(), program.id());
 
-        ast_identifier_search.found_symbol
+        ast_identifier_search.search.found_symbol
+    }
+
+    fn search_scope(
+        &self,
+        program: &Option<pasko_frontend::span::SpannedBox<pasko_frontend::ast::Program>>,
+        semantic_context: &Option<pasko_frontend::semantic::SemanticContext>,
+        offset: usize,
+    ) -> Option<pasko_frontend::scope::ScopeId> {
+        let program = program.as_ref()?;
+        let semantic_context = semantic_context.as_ref()?;
+
+        let mut procedure_or_function_search = ASTFunctionOrProcedureSearch {
+            search: ASTSymbolSearch {
+                offset,
+                semantic_context,
+                found_symbol: None,
+            },
+        };
+
+        program.get().walk_mut(
+            &mut procedure_or_function_search,
+            program.loc(),
+            program.id(),
+        );
+
+        let scope =
+            if let Some(func_or_proc_sym_id) = procedure_or_function_search.search.found_symbol {
+                let func_or_proc_sym = semantic_context.symbol_map.get_symbol(func_or_proc_sym_id);
+                func_or_proc_sym.get_scope()?
+            } else {
+                semantic_context.scope.get_global_scope_id()
+            };
+        Some(scope)
     }
 
     fn compute_offset_from_position(&self, uri: &Url, position: Position) -> Option<usize> {
@@ -485,110 +615,149 @@ impl Backend {
         result
     }
 
+    fn describe_function_markup(
+        &self,
+        sym: &pasko_frontend::symbol::Symbol,
+        semantic_context: &pasko_frontend::semantic::SemanticContext,
+    ) -> MarkupContent {
+        let procedure_desc = self.describe_procedure(sym, semantic_context);
+        MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: [
+                "function `",
+                sym.get_name(),
+                "`\n",
+                "---\n",
+                &procedure_desc,
+                "\n",
+            ]
+            .join(""),
+        }
+    }
+
+    fn describe_procedure_markup(
+        &self,
+        sym: &pasko_frontend::symbol::Symbol,
+        semantic_context: &pasko_frontend::semantic::SemanticContext,
+    ) -> MarkupContent {
+        let procedure_desc = self.describe_procedure(sym, semantic_context);
+        MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: [
+                "procedure `",
+                sym.get_name(),
+                "`\n",
+                "---\n",
+                &procedure_desc,
+                "\n",
+            ]
+            .join(""),
+        }
+    }
+
+    fn describe_variable_markup(
+        &self,
+        sym: &pasko_frontend::symbol::Symbol,
+        semantic_context: &pasko_frontend::semantic::SemanticContext,
+    ) -> Option<MarkupContent> {
+        let type_name = semantic_context
+            .type_system
+            .get_type_name(sym.get_type()?, &semantic_context.symbol_map);
+        Some(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: [
+                "variable `",
+                sym.get_name(),
+                "`\n",
+                "---\n",
+                "type: `",
+                &type_name,
+                "`\n",
+            ]
+            .join(""),
+        })
+    }
+
+    fn describe_type_markup(
+        &self,
+        sym: &pasko_frontend::symbol::Symbol,
+        semantic_context: &pasko_frontend::semantic::SemanticContext,
+    ) -> Option<MarkupContent> {
+        let type_name = semantic_context
+            .type_system
+            .get_type_name(sym.get_type()?, &semantic_context.symbol_map);
+        Some(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: [
+                "type `",
+                sym.get_name(),
+                "`\n",
+                "---\n",
+                "alias of: `",
+                &type_name,
+                "`\n",
+            ]
+            .join(""),
+        })
+    }
+
+    fn describe_field_markup(
+        &self,
+        sym: &pasko_frontend::symbol::Symbol,
+        semantic_context: &pasko_frontend::semantic::SemanticContext,
+    ) -> Option<MarkupContent> {
+        let type_name = semantic_context
+            .type_system
+            .get_type_name(sym.get_type()?, &semantic_context.symbol_map);
+        let mut values = vec![
+            "field `",
+            sym.get_name(),
+            "`\n",
+            "---\n",
+            "type: `",
+            &type_name,
+            "`\n",
+        ];
+        let record_type_name;
+        if let Some(associated_record_type) = sym.associated_record_type() {
+            record_type_name = semantic_context
+                .type_system
+                .get_type_name(associated_record_type, &semantic_context.symbol_map);
+            values.append(&mut vec!["\n", "record type: `", &record_type_name, "`\n"]);
+        }
+        Some(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: values.join(""),
+        })
+    }
+
     fn describe_symbol(
         &self,
         sym: &pasko_frontend::symbol::Symbol,
         semantic_context: &pasko_frontend::semantic::SemanticContext,
     ) -> Option<HoverContents> {
         match sym.get_kind() {
-            pasko_frontend::symbol::SymbolKind::Variable => {
-                let type_name = semantic_context
-                    .type_system
-                    .get_type_name(sym.get_type()?, &semantic_context.symbol_map);
-                Some(HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: [
-                        "variable `",
-                        sym.get_name(),
-                        "`\n",
-                        "---\n",
-                        "type: `",
-                        &type_name,
-                        "`\n",
-                    ]
-                    .join(""),
-                }))
-            }
-            pasko_frontend::symbol::SymbolKind::Procedure => {
-                let procedure_desc = self.describe_procedure(sym, semantic_context);
-                Some(HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: [
-                        "procedure `",
-                        sym.get_name(),
-                        "`\n",
-                        "---\n",
-                        &procedure_desc,
-                        "\n",
-                    ]
-                    .join(""),
-                }))
-            }
-            pasko_frontend::symbol::SymbolKind::Function => {
-                let procedure_desc = self.describe_procedure(sym, semantic_context);
-
-                Some(HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: [
-                        "function `",
-                        sym.get_name(),
-                        "`\n",
-                        "---\n",
-                        &procedure_desc,
-                        "\n",
-                    ]
-                    .join(""),
-                }))
-            }
-            pasko_frontend::symbol::SymbolKind::Field => {
-                let type_name = semantic_context
-                    .type_system
-                    .get_type_name(sym.get_type()?, &semantic_context.symbol_map);
-                let mut values = vec![
-                    "field `",
-                    sym.get_name(),
-                    "`\n",
-                    "---\n",
-                    "type: `",
-                    &type_name,
-                    "`\n",
-                ];
-                let record_type_name;
-                if let Some(associated_record_type) = sym.associated_record_type() {
-                    record_type_name = semantic_context
-                        .type_system
-                        .get_type_name(associated_record_type, &semantic_context.symbol_map);
-                    values.append(&mut vec!["\n", "record type: `", &record_type_name, "`\n"]);
-                }
-                Some(HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: values.join(""),
-                }))
-            }
-            pasko_frontend::symbol::SymbolKind::Type => {
-                let type_name = semantic_context
-                    .type_system
-                    .get_type_name(sym.get_type()?, &semantic_context.symbol_map);
-                Some(HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: [
-                        "type `",
-                        sym.get_name(),
-                        "`\n",
-                        "---\n",
-                        "alias of: `",
-                        &type_name,
-                        "`\n",
-                    ]
-                    .join(""),
-                }))
-            }
+            pasko_frontend::symbol::SymbolKind::Variable => Some(HoverContents::Markup(
+                self.describe_variable_markup(sym, semantic_context)?,
+            )),
+            pasko_frontend::symbol::SymbolKind::Procedure => Some(HoverContents::Markup(
+                self.describe_procedure_markup(sym, semantic_context),
+            )),
+            pasko_frontend::symbol::SymbolKind::Function => Some(HoverContents::Markup(
+                self.describe_function_markup(sym, semantic_context),
+            )),
+            pasko_frontend::symbol::SymbolKind::Field => Some(HoverContents::Markup(
+                self.describe_field_markup(sym, semantic_context)?,
+            )),
+            pasko_frontend::symbol::SymbolKind::Type => Some(HoverContents::Markup(
+                self.describe_type_markup(sym, semantic_context)?,
+            )),
             _ => None,
         }
     }
 }
 
-struct ASTIdentifierSearch<'a> {
+struct ASTSymbolSearch<'a> {
     offset: usize,
     semantic_context: &'a pasko_frontend::semantic::SemanticContext,
 
@@ -596,7 +765,7 @@ struct ASTIdentifierSearch<'a> {
     found_symbol: Option<pasko_frontend::symbol::SymbolId>,
 }
 
-impl<'a> ASTIdentifierSearch<'a> {
+impl<'a> ASTSymbolSearch<'a> {
     fn register_symbol(&mut self, id: pasko_frontend::symbol::SymbolId) {
         self.found_symbol = Some(id);
     }
@@ -613,15 +782,53 @@ impl<'a> ASTIdentifierSearch<'a> {
     }
 }
 
-impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
+struct ASTFunctionOrProcedureSearch<'a> {
+    search: ASTSymbolSearch<'a>,
+}
+
+impl<'a> pasko_frontend::visitor::VisitorMut for ASTFunctionOrProcedureSearch<'a> {
     fn unhandled_node_pre(
-        &self,
+        &mut self,
         _class: &str,
         span: &pasko_frontend::span::SpanLoc,
         _id: pasko_frontend::span::SpanId,
     ) -> bool {
         // Limit ourselves to nodes that include the offset we are looking for
-        self.is_in_span(span)
+        self.search.is_in_span(span)
+    }
+
+    fn visit_post_function_definition(
+        &mut self,
+        n: &pasko_frontend::ast::FunctionDefinition,
+        _span: &pasko_frontend::span::SpanLoc,
+        _id: pasko_frontend::span::SpanId,
+    ) {
+        self.search.register_symbol_from_span(n.0.id());
+    }
+
+    fn visit_post_procedure_definition(
+        &mut self,
+        n: &pasko_frontend::ast::ProcedureDefinition,
+        _span: &pasko_frontend::span::SpanLoc,
+        _id: pasko_frontend::span::SpanId,
+    ) {
+        self.search.register_symbol_from_span(n.0.id());
+    }
+}
+
+struct ASTIdentifierSearch<'a> {
+    search: ASTSymbolSearch<'a>,
+}
+
+impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
+    fn unhandled_node_pre(
+        &mut self,
+        _class: &str,
+        span: &pasko_frontend::span::SpanLoc,
+        _id: pasko_frontend::span::SpanId,
+    ) -> bool {
+        // Limit ourselves to nodes that include the offset we are looking for
+        self.search.is_in_span(span)
     }
 
     fn visit_assig_variable(
@@ -630,7 +837,7 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
         _span: &pasko_frontend::span::SpanLoc,
         id: pasko_frontend::span::SpanId,
     ) {
-        self.register_symbol_from_span(id);
+        self.search.register_symbol_from_span(id);
     }
 
     fn visit_post_stmt_procedure_call(
@@ -640,8 +847,8 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
         _id: pasko_frontend::span::SpanId,
     ) {
         let callee = &n.0;
-        if self.is_in_span(callee.loc()) {
-            self.register_symbol_from_span(callee.id());
+        if self.search.is_in_span(callee.loc()) {
+            self.search.register_symbol_from_span(callee.id());
         }
     }
 
@@ -652,8 +859,8 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
         _id: pasko_frontend::span::SpanId,
     ) {
         let callee = &n.0;
-        if self.is_in_span(callee.loc()) {
-            self.register_symbol_from_span(callee.id());
+        if self.search.is_in_span(callee.loc()) {
+            self.search.register_symbol_from_span(callee.id());
         }
     }
 
@@ -664,8 +871,8 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
         _id: pasko_frontend::span::SpanId,
     ) {
         let field = &n.1;
-        if self.is_in_span(field.loc()) {
-            self.register_symbol_from_span(field.id());
+        if self.search.is_in_span(field.loc()) {
+            self.search.register_symbol_from_span(field.id());
         }
     }
 
@@ -675,13 +882,17 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
         span: &pasko_frontend::span::SpanLoc,
         id: pasko_frontend::span::SpanId,
     ) {
-        if !self.is_in_span(span) {
+        if !self.search.is_in_span(span) {
             return;
         }
-        if let Some(ty) = self.semantic_context.get_ast_type(id) {
-            if self.semantic_context.type_system.is_named_type(ty) {
-                let sym_id = self.semantic_context.type_system.named_type_get_symbol(ty);
-                self.register_symbol(sym_id);
+        if let Some(ty) = self.search.semantic_context.get_ast_type(id) {
+            if self.search.semantic_context.type_system.is_named_type(ty) {
+                let sym_id = self
+                    .search
+                    .semantic_context
+                    .type_system
+                    .named_type_get_symbol(ty);
+                self.search.register_symbol(sym_id);
             }
         }
     }
@@ -693,8 +904,8 @@ impl<'a> pasko_frontend::visitor::VisitorMut for ASTIdentifierSearch<'a> {
         _id: pasko_frontend::span::SpanId,
     ) {
         let _ = n.0.iter().try_for_each(|e| {
-            if self.is_in_span(e.loc()) {
-                self.register_symbol_from_span(e.id());
+            if self.search.is_in_span(e.loc()) {
+                self.search.register_symbol_from_span(e.id());
                 return ControlFlow::Break(());
             }
             ControlFlow::Continue(())
