@@ -64,8 +64,10 @@ pub struct StmtWith(pub Vec<SpannedBox<Assig>>, pub SpannedBox<Stmt>);
 #[derive(Debug)]
 pub struct StmtEmpty;
 
+pub type DroppedTokens = Vec<(usize, lexer::Tok, usize)>;
+
 #[derive(Debug)]
-pub struct StmtError(pub ParseError<usize, lexer::Tok, lexer::LexicalError>);
+pub struct StmtError(pub ParseError<usize, lexer::Tok, lexer::LexicalError>, pub DroppedTokens);
 
 #[derive(Debug)]
 pub enum Stmt {
@@ -370,8 +372,10 @@ pub struct ExprConversion(pub SpannedBox<Expr>);
 #[derive(Debug)]
 pub struct ExprBoundIdentifier(pub Spanned<String>);
 
+pub type ErrorPayload = ParseError<usize, lexer::Tok, lexer::LexicalError>;
+
 #[derive(Debug)]
-pub struct ExprError(pub ParseError<usize, lexer::Tok, lexer::LexicalError>);
+pub struct ExprError(pub ErrorPayload, pub DroppedTokens);
 
 #[derive(Debug)]
 pub enum Expr {

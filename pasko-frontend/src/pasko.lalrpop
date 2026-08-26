@@ -330,7 +330,7 @@ OpenStatement : SpannedBox<ast::Stmt> = {
 SimpleStatement : SpannedBox<ast::Stmt> = {
     <start:@L> <assignee:Assignable> ":=" <expr:Expression> <end:@R> =>
         SpannedBox::new(span_loc!(start, end), ast::Stmt::Assignment(ast::StmtAssignment(assignee, expr))),
-    <start:@L> <identifier:Identifier> <actual_parameters:ProcedureActualParameterList?>  <end:@R> => 
+    <start:@L> <identifier:Identifier> <actual_parameters:ArgumentListCommaSeparated<ProcedureActualParameter, CallContextProcedure>?> <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::Stmt::ProcedureCall(ast::StmtProcedureCall(identifier, actual_parameters))),
     <start:@L> "goto" <label:LabelLiteral> <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::Stmt::Goto(ast::StmtGoto(label))),
@@ -338,12 +338,8 @@ SimpleStatement : SpannedBox<ast::Stmt> = {
         SpannedBox::new(span_loc!(start, end), ast::Stmt::Empty(ast::StmtEmpty)),
     <start:@L> <e:!> <end:@R> => {
         parser::diagnose_parse_error(diagnostics, &e.error);
-        SpannedBox::new(span_loc!(start, end), ast::Stmt::Error(ast::StmtError(e.error)))
+        SpannedBox::new(span_loc!(start, end), ast::Stmt::Error(ast::StmtError(e.error, e.dropped_tokens)))
     }
-};
-
-ProcedureActualParameterList : Vec<SpannedBox<ast::Expr>> = {
- "(" <actual_parameters:CommaSeparated<ProcedureActualParameter>> ")" => actual_parameters,
 };
 
 ProcedureActualParameter : SpannedBox<ast::Expr> = {
@@ -636,11 +632,11 @@ SingleExpression : SpannedBox<ast::Expr> = {
     <start:@L> <constant:UnsignedConst> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::Const(ast::ExprConst(constant))),
     <start:@L> "[" <members:OptionalCommaSeparated<SetMember>> "]" <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::SetLiteral(ast::ExprSetLiteral(members))),
     <start:@L> "not" <end_op:@R> <operand:SingleExpression> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::UnOp(ast::ExprUnOp(Spanned::new(span_loc!(start, end_op), ast::UnaryOp::LogicalNot), operand))),
-    <start:@L> <identifier:Identifier> "(" <arguments:CommaSeparated<Expression>> ")" <end:@R> =>
+    <start:@L> <identifier:Identifier> <arguments:ArgumentListCommaSeparated<Expression, CallContextFunction>>  <end:@R> =>
        SpannedBox::new(span_loc!(start, end), ast::Expr::FunctionCall(ast::ExprFunctionCall(identifier, arguments))),
     <start:@L> <e:!> <end:@R> => {
         parser::diagnose_parse_error(diagnostics, &e.error);
-        SpannedBox::new(span_loc!(start, end), ast::Expr::Error(ast::ExprError(e.error)))
+        SpannedBox::new(span_loc!(start, end), ast::Expr::Error(ast::ExprError(e.error, e.dropped_tokens)))
     }
 };
 
@@ -675,6 +671,30 @@ MultiplicativeOperator : Spanned<ast::BinOperand> = {
 };
 
 // Macros
+
+CallContextFunction : String = {
+    => "function".to_string()
+}
+CallContextProcedure : String = {
+    => "procedure".to_string()
+}
+
+ArgumentListCommaSeparated<T, CallContext> : Vec<SpannedBox<ast::Expr>> = {
+    <start:@L> "(" <v:CommaSeparated<T>> ")" <end:@R> => v,
+    <start:@L> "(" <ctx:CallContext> ")" <end:@R> => {
+      let message = format!("no parentheses allowed in a {} call if not passing any parameter", ctx);
+      let error_payload = ast::ErrorPayload::User { error: lexer::LexicalError { start, end, message: message.clone() }};
+      parser::diagnose_parse_error(diagnostics, &error_payload);
+      vec![SpannedBox::new(span_loc!(start, end),
+            ast::Expr::Error(
+                ast::ExprError(
+                  error_payload,
+                  vec![])
+             )
+         )
+        ]
+    }
+}
 
 CommaSeparated<T>: Vec<T> = {
     <mut v:(<T> ",")*> <e:T> =>  { 

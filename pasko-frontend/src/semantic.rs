@@ -1508,7 +1508,17 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
         };
 
         let num_params = params.iter().flatten().count();
-        let num_args = args.len();
+        let mut seen_arg_error = false;
+        let num_args = args
+            .iter()
+            .filter(|x| match x.get() {
+                ast::Expr::Error(_) => {
+                    seen_arg_error = true;
+                    false
+                }
+                _ => true,
+            })
+            .count();
 
         if num_args != num_params {
             self.diagnostics.add(
@@ -1532,6 +1542,11 @@ impl<'ctx> SemanticCheckerVisitor<'ctx> {
                     },
                 ),
             );
+            return false;
+        }
+
+        // We have seen errors but they match the number of parameters. Bail out.
+        if seen_arg_error {
             return false;
         }
 

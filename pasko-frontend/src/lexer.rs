@@ -71,6 +71,10 @@ pub enum Tok {
 
 #[derive(Clone, Debug)]
 enum CommentStyle {
+    // This is only used for the top-level comments as the spec clearly says that { can end with *).
+    TopLevel,
+    // These are used for nested comments which should be seen as an extension and
+    // we don't have to support it so we do that in a stricter way.
     Old,
     New,
 }
@@ -196,15 +200,15 @@ impl<'input> Lexer<'input> {
         self.peek_nth(0)
     }
 
-    fn consume_comment(&mut self, offset: usize, comment_style: CommentStyle) -> (usize, usize) {
+    fn consume_comment(&mut self, offset: usize) -> (usize, usize) {
         let mut offset_end = offset + 1;
-        let mut nesting_style = vec![comment_style];
+        let mut nesting_style = vec![CommentStyle::TopLevel];
         while let Some((_, c2)) = self.peek() {
             self.skip();
             offset_end += 1;
             let current_style = nesting_style.last().unwrap().clone();
             match (c2, current_style) {
-                ('}', CommentStyle::New) => {
+                ('}', CommentStyle::New) | ('}', CommentStyle::TopLevel) => {
                     nesting_style.pop();
                     if nesting_style.is_empty() {
                         break;
@@ -221,7 +225,7 @@ impl<'input> Lexer<'input> {
                         nesting_style.push(CommentStyle::Old);
                     }
                 }
-                ('*', CommentStyle::Old) => {
+                ('*', CommentStyle::Old) | ('*', CommentStyle::TopLevel) => {
                     if let Some((_, ')')) = self.peek() {
                         self.skip();
                         offset_end += 1;
@@ -255,7 +259,7 @@ impl<'input> Iterator for Lexer<'input> {
                 }
                 '{' => {
                     let (offset_end, nesting_level) =
-                        self.consume_comment(offset, CommentStyle::New);
+                        self.consume_comment(offset);
                     if nesting_level != 0 {
                         return Some(Err(LexicalError {
                             start: offset,
@@ -324,7 +328,7 @@ impl<'input> Iterator for Lexer<'input> {
                             // Consume '*'
                             self.skip();
                             let (offset_end, nesting_level) =
-                                self.consume_comment(offset, CommentStyle::Old);
+                                self.consume_comment(offset);
                             if nesting_level != 0 {
                                 return Some(Err(LexicalError {
                                     start: offset,
