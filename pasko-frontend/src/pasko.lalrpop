@@ -55,7 +55,6 @@ extern {
         "end" => lexer::Tok::End,
         "file" => lexer::Tok::File,
         "for" => lexer::Tok::For,
-        "forward" => lexer::Tok::Forward,
         "function" => lexer::Tok::Function,
         "goto" => lexer::Tok::Goto,
         "if" => lexer::Tok::If,
@@ -394,14 +393,14 @@ ProcedureAndFunctionDeclaration : SpannedBox<ast::ProcedureAndFunctionDeclaratio
 };
 
 ProcedureDeclaration : SpannedBox<ast::ProcedureDeclaration> = {
-  <start:@L> "procedure" <identifier:Identifier> <formal_parameters:FormalParameterList?>  ";" "forward" <end:@R> => 
+  <start:@L> "procedure" <identifier:Identifier> <formal_parameters:FormalParameterList?>  ";" <directive:Directive> <end:@R> => 
     SpannedBox::new(span_loc!(start, end), ast::ProcedureDeclaration::Forward(ast::ProcedureForward(identifier, formal_parameters))),
   <start:@L> "procedure" <identifier:Identifier> <formal_parameters:FormalParameterList?>  ";" <procedure_block:Block> <end:@R> => 
     SpannedBox::new(span_loc!(start, end), ast::ProcedureDeclaration::Definition(ast::ProcedureDefinition(identifier, formal_parameters, procedure_block))),
 };
 
 FunctionDeclaration : SpannedBox<ast::FunctionDeclaration> = {
-  <start:@L> "function" <identifier:Identifier> <formal_parameters:FormalParameterList?> ":" <start_id:@L> <result_type:Identifier> <end_id:@R>";" "forward" <end:@R> => 
+  <start:@L> "function" <identifier:Identifier> <formal_parameters:FormalParameterList?> ":" <start_id:@L> <result_type:Identifier> <end_id:@R>";" <directive:Directive> <end:@R> => 
     SpannedBox::new(span_loc!(start, end), ast::FunctionDeclaration::Forward(ast::FunctionForward(identifier, formal_parameters, 
         SpannedBox::new(span_loc!(start_id, end_id), ast::TypeIdentifier(result_type))))),
   <start:@L> "function" <identifier:Identifier> <formal_parameters:FormalParameterList?> ":" <start_id:@L> <result_type:Identifier> <end_id:@R> ";" <function_block:Block> <end:@R> => 
@@ -410,6 +409,15 @@ FunctionDeclaration : SpannedBox<ast::FunctionDeclaration> = {
   // This is an oddity with the way forward declaration works.
   <start:@L> "function" <identifier:Identifier> ";" <function_block:Block> <end:@R> => 
     SpannedBox::new(span_loc!(start, end), ast::FunctionDeclaration::LateDefinition(ast::FunctionLateDefinition(identifier, function_block))),
+};
+
+Directive : Spanned<String> = <start:@L> <s:"identifier"> <end:@R> => {
+    if s != "forward" {
+      let message = format!("expecting directive 'forward'");
+      let error_payload = ast::ErrorPayload::User { error: lexer::LexicalError { start, end, message: message.clone() }};
+      parser::diagnose_parse_error(diagnostics, &error_payload);
+    }
+    Spanned::new(span_loc!(start, end), s.to_string()) 
 };
 
 FormalParameterList : Vec<SpannedBox<ast::FormalParameter>> = {
