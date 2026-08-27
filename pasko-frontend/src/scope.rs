@@ -107,10 +107,6 @@ impl Scope {
         self.lookup_impl(ScopeId(1), name)
     }
 
-    pub fn get_global_scope_id(&self) -> ScopeId {
-        ScopeId(1)
-    }
-
     // Note: global scope includes only the bottom scope (where program parameters live)
     pub fn lookup_program_scope(&self, name: &str) -> Option<SymbolId> {
         self.lookup_impl(ScopeId(0), name)
@@ -129,13 +125,6 @@ impl Scope {
         self.add_entry_to_scope(self.current_scope, name, symbol)
     }
 
-    // Global scope means the program parameters scope and the scope of the top
-    // level block.
-    pub fn add_entry_global_scope(&mut self, name: &str, symbol: SymbolId) {
-        self.add_entry_to_scope(self.get_global_scope_id(), name, symbol)
-    }
-
-    // Program scope means only the program parameters scope.
     pub fn add_entry_program_scope(&mut self, name: &str, symbol: SymbolId) {
         self.add_entry_to_scope(self.get_program_scope_id(), name, symbol)
     }

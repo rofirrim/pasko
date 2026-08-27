@@ -506,7 +506,7 @@ impl Backend {
                 let func_or_proc_sym = semantic_context.symbol_map.get_symbol(func_or_proc_sym_id);
                 func_or_proc_sym.get_scope()?
             } else {
-                semantic_context.scope.get_global_scope_id()
+                semantic_context.scope.get_program_scope_id()
             };
         Some(scope)
     }

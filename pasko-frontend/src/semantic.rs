@@ -124,7 +124,7 @@ impl SemanticContext {
         }
     }
 
-    fn init_global_scope(&mut self) {
+    fn init_program_scope(&mut self) {
         let mut new_sym = Symbol::new();
         new_sym.set_name("integer");
         new_sym.set_kind(SymbolKind::Type);
@@ -2177,7 +2177,6 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
     ) -> bool {
         // Note this also includes the program block.
         self.ctx.label_declarations.push(vec![]);
-        self.ctx.scope.push_scope(None);
         true
     }
 
@@ -2193,7 +2192,6 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                 );
             }
         }
-        self.ctx.scope.pop_scope();
     }
 
     fn visit_label_declaration_part(
@@ -3336,7 +3334,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
         _span: &span::SpanLoc,
         _id: span::SpanId,
     ) -> bool {
-        if self.ctx.scope.get_current_scope_id() == self.ctx.scope.get_global_scope_id() {
+        if self.ctx.scope.get_current_scope_id() == self.ctx.scope.get_program_scope_id() {
             // Check whether program parameters have been declared.
             let program_parameters = self.ctx.program_parameters.clone();
             for (program_param, loc) in program_parameters {
@@ -6507,7 +6505,7 @@ pub fn check_program(
     diagnostics: &mut Diagnostics,
 ) {
     // Init global scope.
-    semantic_context.init_global_scope();
+    semantic_context.init_program_scope();
 
     let mut checker_visitor = SemanticCheckerVisitor {
         ctx: semantic_context,
