@@ -3010,6 +3010,20 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                     "procedure declaration is incompatible with a previous procedure declaration".to_string(),
                      vec![],
                      vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), "previous declaration".to_string())]);
+                } else {
+                    // We should reject these cases.
+                    let prev_sym = self.ctx.symbol_map.get_symbol(prev_sym_id);
+                    self.diagnostics.add_with_extra(
+                        DiagnosticKind::Warning,
+                        *n.0.loc(),
+                        "procedure declaration is redundant".to_string(),
+                        vec![],
+                        vec![Diagnostic::new(
+                            DiagnosticKind::Info,
+                            prev_sym.get_defining_point().unwrap(),
+                            "previous declaration".to_string(),
+                        )],
+                    );
                 }
                 self.ctx.scope.pop_scope();
                 // Nothing else to do at this point.
@@ -3101,6 +3115,20 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                         *n.0.loc(),
                         "function declaration is incompatible with a previous function declaration"
                             .to_string(),
+                        vec![],
+                        vec![Diagnostic::new(
+                            DiagnosticKind::Info,
+                            prev_sym.get_defining_point().unwrap(),
+                            "previous declaration".to_string(),
+                        )],
+                    );
+                } else {
+                    // We should reject these cases.
+                    let prev_sym = self.ctx.symbol_map.get_symbol(prev_sym_id);
+                    self.diagnostics.add_with_extra(
+                        DiagnosticKind::Warning,
+                        *n.0.loc(),
+                        "function declaration is redundant".to_string(),
                         vec![],
                         vec![Diagnostic::new(
                             DiagnosticKind::Info,
@@ -6055,7 +6083,20 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                     );
                     None
                 } else {
+                    // We should reject these cases.
                     let prev_sym = self.ctx.symbol_map.get_symbol_mut(prev_sym_id);
+                    self.diagnostics.add_with_extra(
+                        DiagnosticKind::Warning,
+                        *n.0.loc(),
+                        "function definition is reintroducing parameter declarations"
+                            .to_string(),
+                        vec![],
+                        vec![Diagnostic::new(
+                            DiagnosticKind::Info,
+                            prev_sym.get_defining_point().unwrap(),
+                            "previous declaration".to_string(),
+                        )],
+                    );
                     prev_sym.set_defined(true);
                     prev_sym.set_defining_point(*n.0.loc());
                     prev_sym.set_formal_parameters(formal_parameters);
@@ -6164,6 +6205,12 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                      vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), "previous declaration".to_string())]);
                         None
                     } else {
+                        // We should reject these cases.
+                        let prev_sym = self.ctx.symbol_map.get_symbol_mut(prev_sym_id);
+                        self.diagnostics.add_with_extra(DiagnosticKind::Warning, *n.0.loc(),
+                    "procedure definition is reintroducing parameter declarations".to_string(),
+                     vec![],
+                     vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), "previous declaration".to_string())]);
                         let prev_sym = self.ctx.symbol_map.get_symbol_mut(prev_sym_id);
                         prev_sym.set_formal_parameters(formal_parameters);
                         Some(prev_sym_id)
