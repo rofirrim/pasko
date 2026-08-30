@@ -1020,7 +1020,7 @@ impl<'a> CodegenVisitor<'a> {
     fn compute_function_mangled_name(&self, function_symbol_id: SymbolId) -> String {
         let get_symbol_of_scope = |symbol_id: SymbolId| {
             let symbol = self.semantic_context.symbol_map.get_symbol(symbol_id);
-            let scope_of_symbol = symbol.get_scope();
+            let scope_of_symbol = symbol.get_declaration_scope();
 
             scope_of_symbol.and_then(|scope_of_symbol| {
                 self.semantic_context
@@ -1833,7 +1833,7 @@ impl<'a> CodegenVisitor<'a> {
             .symbol_map
             .get_symbol(function_symbol_id);
 
-        let function_symbol_scope = function_symbol.get_scope().unwrap();
+        let function_symbol_scope = function_symbol.get_declaration_scope().unwrap();
 
         self.semantic_context
             .scope

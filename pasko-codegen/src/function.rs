@@ -2131,7 +2131,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .semantic_context
             .symbol_map
             .get_symbol(function_symbol_id);
-        let function_symbol_scope = function_symbol.get_scope().unwrap();
+        let function_symbol_scope = function_symbol.get_declaration_scope().unwrap();
 
         let enclosing_symbol_id = self.codegen.get_enclosing_function(function_symbol_id);
         // If this is not a nested function, no need to initialise anything.
@@ -2150,7 +2150,7 @@ impl<'a, 'b, 'c> FunctionCodegenVisitor<'a, 'b, 'c> {
             .cloned()
             .map(|sym_id| {
                 let sym = self.codegen.semantic_context.symbol_map.get_symbol(sym_id);
-                let scope_of_sym = sym.get_scope().unwrap();
+                let scope_of_sym = sym.get_declaration_scope().unwrap();
                 let env_levels_up = self
                     .codegen
                     .semantic_context

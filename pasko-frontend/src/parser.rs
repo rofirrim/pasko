@@ -75,3 +75,18 @@ pub fn parse_pasko_program(
 
     r.ok()
 }
+
+// This is an entry point for the LSP
+pub fn parse_pasko_assig(
+    input: &str,
+    diagnostics: &mut diagnostics::Diagnostics,
+) -> Option<span::SpannedBox<ast::Assig>> {
+    let lex = lexer::Lexer::new(input);
+
+    let r = pasko::VariableAccessParser::new().parse(diagnostics, lex);
+    if let Err(x) = &r {
+        diagnose_parse_error(diagnostics, x);
+    }
+
+    r.ok()
+}

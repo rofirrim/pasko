@@ -353,7 +353,7 @@ Assignable : SpannedBox<ast::Assig> = {
     <variable_access:VariableAccess> => variable_access,
 };
 
-VariableAccess : SpannedBox<ast::Assig> = {
+pub VariableAccess : SpannedBox<ast::Assig> = {
     <start:@L> <identifier:Identifier> <end:@R> =>
         SpannedBox::new(span_loc!(start, end), ast::Assig::Variable(ast::AssigVariable(identifier))),
    <start:@L> <variable:VariableAccess> "[" <indexes:CommaSeparated<Expression>> "]" <end:@R> => 

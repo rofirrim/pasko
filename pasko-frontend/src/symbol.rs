@@ -64,7 +64,10 @@ struct SymbolInfo {
     kind: SymbolKind,
     ty: Option<TypeId>,
     def_loc: Option<span::SpanLoc>,
-    scope: Option<scope::ScopeId>,
+    // This is the scope where the symbol is declared.
+    declaration_scope: Option<scope::ScopeId>,
+    // This is the scope that the symbol defines.
+    region_scope: Option<scope::ScopeId>,
     val: Option<Constant>,
     defined: bool,
     required: bool,
@@ -137,12 +140,20 @@ impl Symbol {
         self.info.ty = Some(ty);
     }
 
-    pub fn set_scope(&mut self, scope_id: scope::ScopeId) {
-        self.info.scope = Some(scope_id)
+    pub fn set_declaration_scope(&mut self, scope_id: scope::ScopeId) {
+        self.info.declaration_scope = Some(scope_id)
     }
 
-    pub fn get_scope(&self) -> Option<scope::ScopeId> {
-        self.info.scope
+    pub fn get_declaration_scope(&self) -> Option<scope::ScopeId> {
+        self.info.declaration_scope
+    }
+
+    pub fn set_region_scope(&mut self, scope_id: scope::ScopeId) {
+        self.info.region_scope = Some(scope_id)
+    }
+
+    pub fn get_region_scope(&self) -> Option<scope::ScopeId> {
+        self.info.region_scope
     }
 
     pub fn get_defining_point(&self) -> Option<span::SpanLoc> {

@@ -173,8 +173,7 @@ impl Scope {
     }
 
     // Counts nesting distance crossing scopes with symbols.
-    // FIXME: we could just traverse scopes up if we didn't create an additional scope for each block,
-    // (though this would also remove program scope vs global scope).
+    // FIXME: we could just traverse scopes up rather than counting scopes with symbol.
     pub fn nesting_distance(&self, scope_id: ScopeId, parent_scope: ScopeId) -> usize {
         assert!(self.scope_is_same_or_nested_in(scope_id, parent_scope));
         let mut result = 0usize;

@@ -490,7 +490,7 @@ impl DebugContext {
         let mut function_name;
 
         let function_symbol = semantic_context.symbol_map.get_symbol(function_symbol_id);
-        let function_symbol_scope = function_symbol.get_scope().unwrap();
+        let function_symbol_scope = function_symbol.get_declaration_scope().unwrap();
 
         function_name = function_symbol.get_name().clone();
         if let Some(enclosing_function) = semantic_context
