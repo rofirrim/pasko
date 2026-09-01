@@ -920,6 +920,16 @@ impl<'a> ASTVariableAccess<'a> {
 }
 
 impl<'a> pasko_frontend::visitor::VisitorMut for ASTVariableAccess<'a> {
+    fn unhandled_node_pre(
+        &mut self,
+        _class: &str,
+        span: &pasko_frontend::span::SpanLoc,
+        _id: pasko_frontend::span::SpanId,
+    ) -> bool {
+        // Limit ourselves to nodes that include the offset we are looking for
+        self.is_in_span(span)
+    }
+
     fn visit_pre_assig(
         &mut self,
         _n: &pasko_frontend::ast::Assig,
