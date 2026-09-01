@@ -8,6 +8,10 @@ function foo0(x: integer): integer; forward;
 {
 CHECK: function declaration is redundant
 }
+function foo0(x: integer): integer;
+begin
+ foo0 := x;
+end;
 
 function foo1(x: integer): integer; forward;
 function foo1(x: integer): integer;
@@ -24,6 +28,9 @@ procedure bar0(x: integer); forward;
 {
 CHECK: procedure declaration is redundant
 }
+procedure bar0(x: integer);
+begin
+end;
 
 procedure bar1(x: integer); forward;
 procedure bar1(x: integer);

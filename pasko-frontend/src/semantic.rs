@@ -23,8 +23,9 @@ pub struct SemanticContext {
 
     pub program_parameters: Vec<(String, span::SpanLoc)>,
     pub global_files: Vec<SymbolId>,
-    pending_type_definitions: Vec<SymbolId>,
     label_declarations: Vec<Vec<SymbolId>>,
+
+    pending_definitions: Vec<SymbolId>,
 }
 
 const REQUIRED_PROCEDURES: &[&str] = &[
@@ -70,8 +71,9 @@ impl SemanticContext {
 
             program_parameters: vec![],
             global_files: vec![],
-            pending_type_definitions: vec![],
             label_declarations: vec![],
+
+            pending_definitions: vec![],
         }
     }
 
@@ -104,16 +106,29 @@ impl SemanticContext {
     }
 
     pub fn add_to_pending_definitions(&mut self, sym_id: SymbolId) {
-        self.pending_type_definitions.push(sym_id);
+        self.pending_definitions.push(sym_id);
     }
 
     pub fn remove_from_pending_definitions(&mut self, sym_id: SymbolId) {
         let index = self
-            .pending_type_definitions
+            .pending_definitions
             .iter()
             .position(|x| *x == sym_id)
             .unwrap();
-        self.pending_type_definitions.remove(index);
+        self.pending_definitions.remove(index);
+    }
+
+    pub fn clear_pending_definitions(&mut self, sym_kinds: Vec<SymbolKind>) {
+        self.pending_definitions = self
+            .pending_definitions
+            .iter()
+            .filter(|&sym_id| {
+                let sym = self.symbol_map.get_symbol(*sym_id);
+                // Preserve symbols whose kind is not one in sym_kinds
+                !sym_kinds.contains(&sym.get_kind())
+            })
+            .cloned()
+            .collect();
     }
 
     pub fn required_function_zeroadic_return_type(&self, name: &str) -> TypeId {
@@ -2296,15 +2311,19 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
         _id: span::SpanId,
     ) {
         self.in_type_definition_part = false;
-        for sym_id in &self.ctx.pending_type_definitions {
+        for sym_id in &self.ctx.pending_definitions {
             let sym = self.ctx.symbol_map.get_symbol(*sym_id);
-            self.diagnostics.add(
-                DiagnosticKind::Error,
-                sym.get_defining_point().unwrap(),
-                format!("type-identifier '{}' has not been defined", sym.get_name()),
-            );
+            if sym.get_kind() == SymbolKind::PendingTypeDefinition {
+                self.diagnostics.add(
+                    DiagnosticKind::Error,
+                    sym.get_defining_point().unwrap(),
+                    format!("type-identifier '{}' has not been defined", sym.get_name()),
+                );
+            }
         }
-        self.ctx.pending_type_definitions.clear();
+
+        self.ctx
+            .clear_pending_definitions(vec![SymbolKind::PendingTypeDefinition]);
     }
 
     fn visit_pre_type_definition(
@@ -2974,6 +2993,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
             }
             FunctionProcedureDeclarationStatus::ForwardDeclared(_) => {
                 // This is fine but requires checking equivalence.
+                // We could make it an error, though.
             }
             FunctionProcedureDeclarationStatus::NotDeclared => {
                 // Fine, this is a new declaration.
@@ -3006,8 +3026,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
         let formal_parameters = formal_parameters.unwrap_or_default();
 
         match redeclaration_status {
-            FunctionProcedureDeclarationStatus::ForwardDeclared(prev_sym_id)
-            | FunctionProcedureDeclarationStatus::AlreadyDefined(prev_sym_id) => {
+            FunctionProcedureDeclarationStatus::ForwardDeclared(prev_sym_id) => {
                 if !self.equivalent_procedure_declarations(prev_sym_id, &formal_parameters) {
                     let prev_sym = self.ctx.symbol_map.get_symbol(prev_sym_id);
                     self.diagnostics.add_with_extra(DiagnosticKind::Error, *n.0.loc(),
@@ -3020,7 +3039,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                     self.diagnostics.add_with_extra(
                         DiagnosticKind::Warning,
                         *n.0.loc(),
-                        "procedure declaration is redundant".to_string(),
+                        "procedure declaration is redundant and will be ignored".to_string(),
                         vec![],
                         vec![Diagnostic::new(
                             DiagnosticKind::Info,
@@ -3037,7 +3056,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                 // Register symbol as usual. Happens later.
             }
             _ => {
-                panic!("Unexpected case");
+                unreachable!("Unexpected case");
             }
         }
 
@@ -3051,6 +3070,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
         );
         self.ctx.scope.set_scope_symbol(Some(proc_sym_id));
         self.ctx.set_ast_symbol(n.0.id(), proc_sym_id);
+        self.ctx.add_to_pending_definitions(proc_sym_id);
 
         self.ctx.scope.pop_scope();
         false
@@ -3133,7 +3153,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                     self.diagnostics.add_with_extra(
                         DiagnosticKind::Warning,
                         *n.0.loc(),
-                        "function declaration is redundant".to_string(),
+                        "function declaration is redundant and will be ignored".to_string(),
                         vec![],
                         vec![Diagnostic::new(
                             DiagnosticKind::Info,
@@ -3165,6 +3185,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
         );
         self.ctx.scope.set_scope_symbol(Some(function_sym_id));
         self.ctx.set_ast_symbol(n.0.id(), function_sym_id);
+        self.ctx.add_to_pending_definitions(function_sym_id);
 
         self.ctx.scope.pop_scope();
         false
@@ -3250,6 +3271,8 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                 let return_sym_id = prev_sym.get_return_symbol().unwrap();
                 let return_sym = self.ctx.symbol_map.get_symbol_mut(return_sym_id);
                 return_sym.set_defining_point(*n.0.loc());
+
+                self.ctx.remove_from_pending_definitions(prev_sym_id);
 
                 prev_sym_id
             }
@@ -5627,6 +5650,29 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                             *span,
                             callee_symbol_id,
                         );
+                    } else {
+                        // Check that the callee symbol has zero parameters.
+                        let params = {
+                            let callee_symbol = self.ctx.symbol_map.get_symbol(callee_symbol_id);
+                            callee_symbol.get_formal_parameters().unwrap()
+                        };
+                        let num_params = params.iter().flatten().count();
+                        if num_params > 0 {
+                            self.diagnostics.add(
+                                DiagnosticKind::Error,
+                                *span,
+                                format!(
+                                    "procedure '{}' expects {} {} but 0 arguments were passed",
+                                    procedure_name,
+                                    num_params,
+                                    if num_params == 1 {
+                                        "parameter"
+                                    } else {
+                                        "parameters"
+                                    },
+                                ),
+                            );
+                        }
                     }
 
                     self.ctx.set_ast_symbol(callee.id(), callee_symbol_id);
@@ -5840,7 +5886,8 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                     new_associated_field.set_type(field_type);
                     new_associated_field.set_associated_record(record_var.id());
                     new_associated_field.set_associated_field(field_id);
-                    new_associated_field.set_declaration_scope(self.ctx.scope.get_current_scope_id());
+                    new_associated_field
+                        .set_declaration_scope(self.ctx.scope.get_current_scope_id());
                     new_associated_field.set_defining_point(record_var_loc);
 
                     let new_associated_field_id = self.ctx.new_symbol(new_associated_field);
@@ -5950,6 +5997,25 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
         _span: &span::SpanLoc,
         _id: span::SpanId,
     ) {
+        // Check that all pending symbols have been defined.
+        for sym_id in &self.ctx.pending_definitions {
+            let sym = self.ctx.symbol_map.get_symbol(*sym_id);
+            if sym.get_kind() == SymbolKind::Function || sym.get_kind() == SymbolKind::Procedure {
+                let proc_or_func = if sym.get_kind() == SymbolKind::Function {
+                    "function"
+                } else {
+                    "procedure"
+                };
+                self.diagnostics.add(
+                    DiagnosticKind::Error,
+                    sym.get_defining_point().unwrap(),
+                    format!("{} '{}' has not been defined", proc_or_func, sym.get_name()),
+                );
+            }
+        }
+        self.ctx
+            .clear_pending_definitions(vec![SymbolKind::Function, SymbolKind::Procedure]);
+
         // Propagate the required symbols to the enclosing procedure/function (if any).
         let current_scope_symbol = self
             .ctx
@@ -6111,6 +6177,8 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                     return_sym.set_defined(true);
                     return_sym.set_defining_point(*n.0.loc());
 
+                    self.ctx.remove_from_pending_definitions(prev_sym_id);
+
                     Some(prev_sym_id)
                 }
             }
@@ -6219,6 +6287,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                      vec![Diagnostic::new(DiagnosticKind::Info, prev_sym.get_defining_point().unwrap(), "previous declaration".to_string())]);
                         let prev_sym = self.ctx.symbol_map.get_symbol_mut(prev_sym_id);
                         prev_sym.set_formal_parameters(formal_parameters);
+                        self.ctx.remove_from_pending_definitions(prev_sym_id);
                         Some(prev_sym_id)
                     }
                 } else {
@@ -6236,6 +6305,7 @@ impl<'ctx> MutatingVisitorMut for SemanticCheckerVisitor<'ctx> {
                                 .add_entry(&prev_formal_param_name, prev_formal_param_sym_id);
                         }
                     }
+                    self.ctx.remove_from_pending_definitions(prev_sym_id);
                     Some(prev_sym_id)
                 }.inspect(|&prev_sym_id| {
                     let prev_sym = self.ctx.symbol_map.get_symbol_mut(prev_sym_id);
