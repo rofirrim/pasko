@@ -22,7 +22,7 @@ end.
 
 {
 
-CHECK: *** IR for 'foo_val'
+CHECK: *** IR for '_P.foo_val'
 CHECK-NEXT: function u0:0(i64) system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8, align = 8 ; a
 CHECK-NEXT:     ss1 = explicit_slot 8, align = 8 ; [set-constructor]
@@ -47,9 +47,9 @@ CHECK-NEXT:     v8 = load.i64 v7
 CHECK-NEXT:     call fn1(v8)
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'foo_val' seems OK
+CHECK-NEXT: *** IR for '_P.foo_val' seems OK
 
-CHECK: *** IR for 'foo_ref'
+CHECK: *** IR for '_P.foo_ref'
 CHECK-NEXT: function u0:3(i64) system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8, align = 8 ; [set-constructor]
 CHECK-NEXT:     sig0 = (i64, i64) -> i64 system_v
@@ -70,7 +70,7 @@ CHECK-NEXT:     ! v0 → a
 CHECK-NEXT:     store v4, v0
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'foo_ref' seems OK
+CHECK-NEXT: *** IR for '_P.foo_ref' seems OK
 
 CHECK: *** IR for 'main'
 CHECK-NEXT: function u0:4(i32, i64) -> i32 system_v {

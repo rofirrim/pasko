@@ -15,7 +15,7 @@ end.
 
 {
 
-CHECK: *** IR for 'foo'
+CHECK: *** IR for '_P.foo'
 CHECK-NEXT: function u0:0(i64) system_v {
 CHECK-NEXT:     gv0 = symbol colocated userextname0 ; [string: 'Hello world']
 CHECK-NEXT:     sig0 = (i64, i64, i64) system_v
@@ -32,7 +32,7 @@ CHECK-NEXT:     call fn0(v1, v2, v3)  ; v3 = 11
 CHECK-NEXT:     call fn1(v1)
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'foo' seems OK
+CHECK-NEXT: *** IR for '_P.foo' seems OK
 
 CHECK: *** IR for 'main'
 CHECK-NEXT: function u0:3(i32, i64) -> i32 system_v {
@@ -49,7 +49,7 @@ CHECK-NEXT:     fn0 = u0:4 sig0 ; __pasko_init
 CHECK-NEXT:     fn1 = u0:5 sig1 ; __pasko_finish
 CHECK-NEXT:     fn2 = u0:6 sig2 ; __pasko_get_input
 CHECK-NEXT:     fn3 = u0:7 sig3 ; __pasko_get_output
-CHECK-NEXT:     fn4 = colocated u0:0 sig4 ; foo
+CHECK-NEXT:     fn4 = colocated u0:0 sig4 ; _P.foo
 CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i32, v1: i64):
 CHECK-NEXT:     v2 = iconst.i32 0

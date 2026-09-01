@@ -16,7 +16,7 @@ end.
 
 {
 
-CHECK: *** IR for 'p'
+CHECK: *** IR for '_P.p'
 CHECK-NEXT: function u0:0() system_v {
 CHECK-NEXT: block0:
 CHECK-NEXT:     v0 = iconst.i64 2
@@ -27,6 +27,6 @@ CHECK-NEXT:     v2 = iadd v0, v1  ; v0 = 2, v1 = 1
 CHECK-NEXT:     ! a ← v2 
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'p' seems OK
+CHECK-NEXT: *** IR for '_P.p' seems OK
 
 }

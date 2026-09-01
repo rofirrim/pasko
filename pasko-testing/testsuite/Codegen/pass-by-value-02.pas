@@ -33,7 +33,7 @@ end.
 
 {
 
-CHECK: *** IR for 'sink_2'
+CHECK: *** IR for '_P.sink_2'
 CHECK-NEXT: function u0:0(i64) system_v {
 CHECK-NEXT:     ss0 = explicit_slot 24, align = 8 ; x
 CHECK-NEXT:     ss1 = explicit_slot 24, align = 8 ; [set-constructor]
@@ -83,9 +83,9 @@ CHECK-NEXT:     v29 = load.i64 v28
 CHECK-NEXT:     call fn1(v29)
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'sink_2' seems OK
+CHECK-NEXT: *** IR for '_P.sink_2' seems OK
 
-CHECK: *** IR for 'source_2'
+CHECK: *** IR for '_P.source_2'
 CHECK-NEXT: function u0:3() system_v {
 CHECK-NEXT:     ss0 = explicit_slot 24, align = 8 ; x
 CHECK-NEXT:     ss1 = explicit_slot 24, align = 8 ; [copy-in]
@@ -93,7 +93,7 @@ CHECK-NEXT:     sig0 = (i64) -> i64 system_v
 CHECK-NEXT:     sig1 = (i64) system_v
 CHECK-NEXT:     sig2 = (i64) system_v
 CHECK-NEXT:     fn0 = u0:4 sig0 ; __pasko_set_copy
-CHECK-NEXT:     fn1 = colocated u0:0 sig1 ; sink_2
+CHECK-NEXT:     fn1 = colocated u0:0 sig1 ; _P.sink_2
 CHECK-NEXT:     fn2 = u0:2 sig2 ; __pasko_set_dispose
 CHECK-EMPTY:
 CHECK-NEXT: block0:
@@ -131,6 +131,6 @@ CHECK-NEXT:     v25 = load.i64 v24
 CHECK-NEXT:     call fn2(v25)
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'source_2' seems OK
+CHECK-NEXT: *** IR for '_P.source_2' seems OK
 
 }

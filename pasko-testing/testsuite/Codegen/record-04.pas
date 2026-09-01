@@ -29,7 +29,7 @@ end.
 
 {
 
-CHECK: *** IR for 'foo_2'
+CHECK: *** IR for '_P.foo_2'
 CHECK-NEXT: function u0:0() system_v {
 CHECK-NEXT:     ss0 = explicit_slot 24
 CHECK-EMPTY:
@@ -51,6 +51,6 @@ CHECK-NEXT:     v11 = iadd v9, v10  ; v10 = 8
 CHECK-NEXT:     store v6, v11  ; v6 = 0x1.b333333333333p1
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'foo_2' seems OK
+CHECK-NEXT: *** IR for '_P.foo_2' seems OK
 
 }

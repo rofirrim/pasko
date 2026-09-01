@@ -18,7 +18,7 @@ end.
 
 {
 
-CHECK: *** IR for 'foo'
+CHECK: *** IR for '_P.foo'
 CHECK-NEXT: function u0:0() system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8, align = 8 ; a
 CHECK-NEXT:     ss1 = explicit_slot 8, align = 8 ; [set-constructor-tmp-set]
@@ -76,6 +76,6 @@ CHECK-NEXT:     v22 = load.i64 v21
 CHECK-NEXT:     call fn2(v22)
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'foo' seems OK
+CHECK-NEXT: *** IR for '_P.foo' seems OK
 
 }

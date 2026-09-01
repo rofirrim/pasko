@@ -1045,11 +1045,13 @@ impl<'a> CodegenVisitor<'a> {
 
         let function_name = get_name_of_symbol(function_symbol_id);
 
+        let pasko_prefix = "_P.";
         if nesting_path.is_empty() {
-            function_name
+            format!("{}{}", pasko_prefix, function_name)
         } else {
             let result = format!(
-                "_{}_{}",
+                "{}_{}_{}",
+                pasko_prefix,
                 nesting_path
                     .iter()
                     .rev()

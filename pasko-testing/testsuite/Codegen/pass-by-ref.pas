@@ -21,11 +21,11 @@ end.
 
 {
 
-CHECK: *** IR for 'increment'
+CHECK: *** IR for '_P.increment'
 CHECK-NEXT: function u0:0(i64, i64) system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8, align = 8 ; [by reference argument: m]
 CHECK-NEXT:     sig0 = (i64, i64) system_v
-CHECK-NEXT:     fn0 = colocated u0:0 sig0 ; increment
+CHECK-NEXT:     fn0 = colocated u0:0 sig0 ; _P.increment
 CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i64, v1: i64):
 CHECK-NEXT:     v5 = iconst.i64 0
@@ -39,7 +39,7 @@ CHECK-NEXT:     ! v0 → n
 CHECK-NEXT:     call fn0(v0, v3)
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'increment' seems OK
+CHECK-NEXT: *** IR for '_P.increment' seems OK
 
 CHECK: *** IR for 'main'
 CHECK-NEXT: function u0:1(i32, i64) -> i32 system_v {
@@ -57,7 +57,7 @@ CHECK-NEXT:     fn0 = u0:2 sig0 ; __pasko_init
 CHECK-NEXT:     fn1 = u0:3 sig1 ; __pasko_finish
 CHECK-NEXT:     fn2 = u0:4 sig2 ; __pasko_get_input
 CHECK-NEXT:     fn3 = u0:5 sig3 ; __pasko_get_output
-CHECK-NEXT:     fn4 = colocated u0:0 sig4 ; increment
+CHECK-NEXT:     fn4 = colocated u0:0 sig4 ; _P.increment
 CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i32, v1: i64):
 CHECK-NEXT:     v2 = iconst.i32 0

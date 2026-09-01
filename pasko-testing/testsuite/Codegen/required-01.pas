@@ -112,7 +112,7 @@ end.
 
 {
 
-CHECK: *** IR for 'my_abs_int'
+CHECK: *** IR for '_P.my_abs_int'
 CHECK-NEXT: function u0:0(i64) -> i64 system_v {
 CHECK-NEXT: block0(v0: i64):
 CHECK-NEXT:     ! v0 → x 
@@ -121,9 +121,9 @@ CHECK-NEXT:     ! my_abs_int ← v1
 CHECK-NEXT:     ! v1 → my_abs_int 
 CHECK-NEXT:     return v1
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_abs_int' seems OK
+CHECK-NEXT: *** IR for '_P.my_abs_int' seems OK
 
-CHECK: *** IR for 'my_sqr_int'
+CHECK: *** IR for '_P.my_sqr_int'
 CHECK-NEXT: function u0:1(i64) -> i64 system_v {
 CHECK-NEXT: block0(v0: i64):
 CHECK-NEXT:     ! v0 → x 
@@ -133,9 +133,9 @@ CHECK-NEXT:     ! my_sqr_int ← v1
 CHECK-NEXT:     ! v1 → my_sqr_int 
 CHECK-NEXT:     return v1
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_sqr_int' seems OK
+CHECK-NEXT: *** IR for '_P.my_sqr_int' seems OK
 
-CHECK: *** IR for 'my_abs_real'
+CHECK: *** IR for '_P.my_abs_real'
 CHECK-NEXT: function u0:2(f64) -> f64 system_v {
 CHECK-NEXT: block0(v0: f64):
 CHECK-NEXT:     ! v0 → x 
@@ -144,9 +144,9 @@ CHECK-NEXT:     ! my_abs_real ← v1
 CHECK-NEXT:     ! v1 → my_abs_real 
 CHECK-NEXT:     return v1
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_abs_real' seems OK
+CHECK-NEXT: *** IR for '_P.my_abs_real' seems OK
 
-CHECK: *** IR for 'my_sqr_real'
+CHECK: *** IR for '_P.my_sqr_real'
 CHECK-NEXT: function u0:3(f64) -> f64 system_v {
 CHECK-NEXT: block0(v0: f64):
 CHECK-NEXT:     ! v0 → x 
@@ -156,9 +156,9 @@ CHECK-NEXT:     ! my_sqr_real ← v1
 CHECK-NEXT:     ! v1 → my_sqr_real 
 CHECK-NEXT:     return v1
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_sqr_real' seems OK
+CHECK-NEXT: *** IR for '_P.my_sqr_real' seems OK
 
-CHECK: *** IR for 'my_sin'
+CHECK: *** IR for '_P.my_sin'
 CHECK-NEXT: function u0:4(f64) -> f64 system_v {
 CHECK-NEXT:     sig0 = (f64) -> f64 system_v
 CHECK-NEXT:     fn0 = u0:5 sig0 ; __pasko_sin_f64
@@ -170,9 +170,9 @@ CHECK-NEXT:     ! my_sin ← v1
 CHECK-NEXT:     ! v1 → my_sin 
 CHECK-NEXT:     return v1
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_sin' seems OK
+CHECK-NEXT: *** IR for '_P.my_sin' seems OK
 
-CHECK: *** IR for 'my_cos'
+CHECK: *** IR for '_P.my_cos'
 CHECK-NEXT: function u0:6(f64) -> f64 system_v {
 CHECK-NEXT:     sig0 = (f64) -> f64 system_v
 CHECK-NEXT:     fn0 = u0:7 sig0 ; __pasko_cos_f64
@@ -184,9 +184,9 @@ CHECK-NEXT:     ! my_cos ← v1
 CHECK-NEXT:     ! v1 → my_cos 
 CHECK-NEXT:     return v1
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_cos' seems OK
+CHECK-NEXT: *** IR for '_P.my_cos' seems OK
 
-CHECK: *** IR for 'my_exp'
+CHECK: *** IR for '_P.my_exp'
 CHECK-NEXT: function u0:8(f64) -> f64 system_v {
 CHECK-NEXT:     sig0 = (f64) -> f64 system_v
 CHECK-NEXT:     fn0 = u0:9 sig0 ; __pasko_exp_f64
@@ -198,9 +198,9 @@ CHECK-NEXT:     ! my_exp ← v1
 CHECK-NEXT:     ! v1 → my_exp 
 CHECK-NEXT:     return v1
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_exp' seems OK
+CHECK-NEXT: *** IR for '_P.my_exp' seems OK
 
-CHECK: *** IR for 'my_ln'
+CHECK: *** IR for '_P.my_ln'
 CHECK-NEXT: function u0:10(f64) -> f64 system_v {
 CHECK-NEXT:     sig0 = (f64) -> f64 system_v
 CHECK-NEXT:     fn0 = u0:11 sig0 ; __pasko_ln_f64
@@ -212,9 +212,9 @@ CHECK-NEXT:     ! my_ln ← v1
 CHECK-NEXT:     ! v1 → my_ln 
 CHECK-NEXT:     return v1
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_ln' seems OK
+CHECK-NEXT: *** IR for '_P.my_ln' seems OK
 
-CHECK: *** IR for 'my_sqrt'
+CHECK: *** IR for '_P.my_sqrt'
 CHECK-NEXT: function u0:12(f64) -> f64 system_v {
 CHECK-NEXT: block0(v0: f64):
 CHECK-NEXT:     ! v0 → x 
@@ -223,9 +223,9 @@ CHECK-NEXT:     ! my_sqrt ← v1
 CHECK-NEXT:     ! v1 → my_sqrt 
 CHECK-NEXT:     return v1
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_sqrt' seems OK
+CHECK-NEXT: *** IR for '_P.my_sqrt' seems OK
 
-CHECK: *** IR for 'my_arctan'
+CHECK: *** IR for '_P.my_arctan'
 CHECK-NEXT: function u0:13(f64) -> f64 system_v {
 CHECK-NEXT:     sig0 = (f64) -> f64 system_v
 CHECK-NEXT:     fn0 = u0:14 sig0 ; __pasko_arctan_f64
@@ -237,9 +237,9 @@ CHECK-NEXT:     ! my_arctan ← v1
 CHECK-NEXT:     ! v1 → my_arctan 
 CHECK-NEXT:     return v1
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_arctan' seems OK
+CHECK-NEXT: *** IR for '_P.my_arctan' seems OK
 
-CHECK: *** IR for 'my_trunc'
+CHECK: *** IR for '_P.my_trunc'
 CHECK-NEXT: function u0:15(f64) -> i64 system_v {
 CHECK-NEXT: block0(v0: f64):
 CHECK-NEXT:     ! v0 → x 
@@ -249,9 +249,9 @@ CHECK-NEXT:     ! my_trunc ← v2
 CHECK-NEXT:     ! v2 → my_trunc 
 CHECK-NEXT:     return v2
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_trunc' seems OK
+CHECK-NEXT: *** IR for '_P.my_trunc' seems OK
 
-CHECK: *** IR for 'my_round'
+CHECK: *** IR for '_P.my_round'
 CHECK-NEXT: function u0:16(f64) -> i64 system_v {
 CHECK-NEXT: block0(v0: f64):
 CHECK-NEXT:     ! v0 → x 
@@ -261,17 +261,17 @@ CHECK-NEXT:     ! my_round ← v2
 CHECK-NEXT:     ! v2 → my_round 
 CHECK-NEXT:     return v2
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_round' seems OK
+CHECK-NEXT: *** IR for '_P.my_round' seems OK
 
-CHECK: *** IR for 'my_ord_i'
+CHECK: *** IR for '_P.my_ord_i'
 CHECK-NEXT: function u0:17(i64) -> i64 system_v {
 CHECK-NEXT: block0(v0: i64):
 CHECK-NEXT:     ! v0 → my_ord_i 
 CHECK-NEXT:     return v0
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_ord_i' seems OK
+CHECK-NEXT: *** IR for '_P.my_ord_i' seems OK
 
-CHECK: *** IR for 'my_ord_b'
+CHECK: *** IR for '_P.my_ord_b'
 CHECK-NEXT: function u0:18(i8) -> i64 system_v {
 CHECK-NEXT: block0(v0: i8):
 CHECK-NEXT:     ! v0 → x 
@@ -280,9 +280,9 @@ CHECK-NEXT:     ! my_ord_b ← v1
 CHECK-NEXT:     ! v1 → my_ord_b 
 CHECK-NEXT:     return v1
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_ord_b' seems OK
+CHECK-NEXT: *** IR for '_P.my_ord_b' seems OK
 
-CHECK: *** IR for 'my_ord_c'
+CHECK: *** IR for '_P.my_ord_c'
 CHECK-NEXT: function u0:19(i32) -> i64 system_v {
 CHECK-NEXT: block0(v0: i32):
 CHECK-NEXT:     ! v0 → x 
@@ -291,25 +291,25 @@ CHECK-NEXT:     ! my_ord_c ← v1
 CHECK-NEXT:     ! v1 → my_ord_c 
 CHECK-NEXT:     return v1
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_ord_c' seems OK
+CHECK-NEXT: *** IR for '_P.my_ord_c' seems OK
 
-CHECK: *** IR for 'my_ord_sub'
+CHECK: *** IR for '_P.my_ord_sub'
 CHECK-NEXT: function u0:20(i64) -> i64 system_v {
 CHECK-NEXT: block0(v0: i64):
 CHECK-NEXT:     ! v0 → my_ord_sub 
 CHECK-NEXT:     return v0
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_ord_sub' seems OK
+CHECK-NEXT: *** IR for '_P.my_ord_sub' seems OK
 
-CHECK: *** IR for 'my_ord_enum'
+CHECK: *** IR for '_P.my_ord_enum'
 CHECK-NEXT: function u0:21(i64) -> i64 system_v {
 CHECK-NEXT: block0(v0: i64):
 CHECK-NEXT:     ! v0 → my_ord_enum 
 CHECK-NEXT:     return v0
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_ord_enum' seems OK
+CHECK-NEXT: *** IR for '_P.my_ord_enum' seems OK
 
-CHECK: *** IR for 'my_chr'
+CHECK: *** IR for '_P.my_chr'
 CHECK-NEXT: function u0:22(i64) -> i32 system_v {
 CHECK-NEXT: block0(v0: i64):
 CHECK-NEXT:     ! v0 → x 
@@ -318,9 +318,9 @@ CHECK-NEXT:     ! my_chr ← v1
 CHECK-NEXT:     ! v1 → my_chr 
 CHECK-NEXT:     return v1
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_chr' seems OK
+CHECK-NEXT: *** IR for '_P.my_chr' seems OK
 
-CHECK: *** IR for 'my_succ'
+CHECK: *** IR for '_P.my_succ'
 CHECK-NEXT: function u0:23(i64) -> i64 system_v {
 CHECK-NEXT: block0(v0: i64):
 CHECK-NEXT:     ! v0 → x 
@@ -329,9 +329,9 @@ CHECK-NEXT:     ! my_succ ← v1
 CHECK-NEXT:     ! v1 → my_succ 
 CHECK-NEXT:     return v1
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_succ' seems OK
+CHECK-NEXT: *** IR for '_P.my_succ' seems OK
 
-CHECK: *** IR for 'my_pred'
+CHECK: *** IR for '_P.my_pred'
 CHECK-NEXT: function u0:24(i64) -> i64 system_v {
 CHECK-NEXT: block0(v0: i64):
 CHECK-NEXT:     ! v0 → x 
@@ -340,6 +340,6 @@ CHECK-NEXT:     ! my_pred ← v1
 CHECK-NEXT:     ! v1 → my_pred 
 CHECK-NEXT:     return v1
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_pred' seems OK
+CHECK-NEXT: *** IR for '_P.my_pred' seems OK
 
 }

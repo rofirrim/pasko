@@ -21,7 +21,7 @@ end.
 
 {
 
-CHECK: *** IR for 'foo'
+CHECK: *** IR for '_P.foo'
 CHECK-NEXT: function u0:0(i64) system_v {
 CHECK-NEXT: block0(v0: i64):
 CHECK-NEXT:     v1 = iconst.i64 42
@@ -41,7 +41,7 @@ CHECK-NEXT:     v13 = iadd v7, v12
 CHECK-NEXT:     store v1, v13  ; v1 = 42
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'foo' seems OK
+CHECK-NEXT: *** IR for '_P.foo' seems OK
 
 CHECK: *** IR for 'main'
 CHECK-NEXT: function u0:1(i32, i64) -> i32 system_v {
@@ -62,7 +62,7 @@ CHECK-NEXT:     fn1 = u0:3 sig1 ; __pasko_finish
 CHECK-NEXT:     fn2 = u0:4 sig2 ; __pasko_get_input
 CHECK-NEXT:     fn3 = u0:5 sig3 ; __pasko_get_output
 CHECK-NEXT:     fn4 = %Memcpy sig4
-CHECK-NEXT:     fn5 = colocated u0:0 sig5 ; foo
+CHECK-NEXT:     fn5 = colocated u0:0 sig5 ; _P.foo
 CHECK-EMPTY: 
 CHECK-NEXT: block0(v0: i32, v1: i64):
 CHECK-NEXT:     v2 = iconst.i32 0

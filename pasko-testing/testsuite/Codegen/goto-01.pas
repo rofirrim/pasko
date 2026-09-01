@@ -23,7 +23,7 @@ end.
 
 {
 
-CHECK: *** IR for 'foo'
+CHECK: *** IR for '_P.foo'
 CHECK-NEXT: function u0:0() system_v {
 CHECK-NEXT:     gv0 = symbol colocated userextname0 ; [output-textfile]
 CHECK-NEXT:     gv1 = symbol colocated userextname1 ; [string: 'hello world = ']
@@ -75,6 +75,6 @@ CHECK-NEXT:     call fn0(v12, v13, v14)  ; v14 = 5
 CHECK-NEXT:     call fn2(v12)
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'foo' seems OK
+CHECK-NEXT: *** IR for '_P.foo' seems OK
 
 }

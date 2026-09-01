@@ -36,7 +36,7 @@ end.
 
 {
 
-CHECK: *** IR for 'foo'
+CHECK: *** IR for '_P.foo'
 CHECK-NEXT: function u0:0(i64, i64, i64, i64, i64) system_v {
 CHECK-NEXT: block0(v0: i64, v1: i64, v2: i64, v3: i64, v4: i64):
 CHECK-NEXT:     v5 = iconst.i64 0
@@ -67,9 +67,9 @@ CHECK-NEXT:     v26 = iadd v0, v25
 CHECK-NEXT:     store v16, v26  ; v16 = 0
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'foo' seems OK
+CHECK-NEXT: *** IR for '_P.foo' seems OK
 
-CHECK: *** IR for 'foo2'
+CHECK: *** IR for '_P.foo2'
 CHECK-NEXT: function u0:1(i64, i64, i64, i64, i64) system_v {
 CHECK-NEXT: block0(v0: i64, v1: i64, v2: i64, v3: i64, v4: i64):
 CHECK-NEXT:     v5 = iconst.i64 0
@@ -100,13 +100,13 @@ CHECK-NEXT:     v26 = iadd v0, v25
 CHECK-NEXT:     store v16, v26  ; v16 = 0
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'foo2' seems OK
+CHECK-NEXT: *** IR for '_P.foo2' seems OK
 
-CHECK: *** IR for 'mymain1'
+CHECK: *** IR for '_P.mymain1'
 CHECK-NEXT: function u0:2() system_v {
 CHECK-NEXT:     gv0 = symbol colocated userextname0 ; a
 CHECK-NEXT:     sig0 = (i64, i64, i64, i64, i64) system_v
-CHECK-NEXT:     fn0 = colocated u0:0 sig0 ; foo
+CHECK-NEXT:     fn0 = colocated u0:0 sig0 ; _P.foo
 CHECK-EMPTY: 
 CHECK-NEXT: block0:
 CHECK-NEXT:     v0 = global_value.i64 gv0
@@ -117,16 +117,16 @@ CHECK-NEXT:     v4 = iconst.i64 30
 CHECK-NEXT:     call fn0(v0, v1, v2, v3, v4)  ; v1 = 1, v2 = 10, v3 = 2, v4 = 30
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'mymain1' seems OK
+CHECK-NEXT: *** IR for '_P.mymain1' seems OK
 
-CHECK: *** IR for 'mymain2'
+CHECK: *** IR for '_P.mymain2'
 CHECK-NEXT: function u0:3() system_v {
 CHECK-NEXT:     ss0 = explicit_slot 2320, align = 8 ; [copy-in]
 CHECK-NEXT:     gv0 = symbol colocated userextname0 ; a
 CHECK-NEXT:     sig0 = (i64, i64, i64) -> i64 system_v
 CHECK-NEXT:     sig1 = (i64, i64, i64, i64, i64) system_v
 CHECK-NEXT:     fn0 = %Memcpy sig0
-CHECK-NEXT:     fn1 = colocated u0:1 sig1 ; foo2
+CHECK-NEXT:     fn1 = colocated u0:1 sig1 ; _P.foo2
 CHECK-EMPTY: 
 CHECK-NEXT: block0:
 CHECK-NEXT:     v0 = global_value.i64 gv0
@@ -140,6 +140,6 @@ CHECK-NEXT:     v7 = iconst.i64 30
 CHECK-NEXT:     call fn1(v1, v4, v5, v6, v7)  ; v4 = 1, v5 = 10, v6 = 2, v7 = 30
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'mymain2' seems OK
+CHECK-NEXT: *** IR for '_P.mymain2' seems OK
 
 }

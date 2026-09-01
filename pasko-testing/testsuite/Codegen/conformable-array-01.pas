@@ -19,7 +19,7 @@ end.
 
 {
 
-CHECK: *** IR for 'init'
+CHECK: *** IR for '_P.init'
 CHECK-NEXT: function u0:0(i64, i64, i64) system_v {
 CHECK-NEXT: block0(v0: i64, v1: i64, v2: i64):
 CHECK-NEXT:     v3 = iconst.i64 8
@@ -36,6 +36,6 @@ CHECK-NEXT:     v10 = iadd v0, v9
 CHECK-NEXT:     store v2, v10
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'init' seems OK
+CHECK-NEXT: *** IR for '_P.init' seems OK
 
 }

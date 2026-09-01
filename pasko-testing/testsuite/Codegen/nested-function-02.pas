@@ -40,7 +40,7 @@ end.
 
 {
 
-CHECK: *** IR for 'test'
+CHECK: *** IR for '_P.test'
 CHECK-NEXT: function u0:0(i64, i64, i64, i64) system_v {
 CHECK-NEXT:     ss0 = explicit_slot 16, align = 8 ; [function] one_function
 CHECK-NEXT:     ss1 = explicit_slot 8
@@ -79,9 +79,9 @@ CHECK-NEXT:     ! v14 → x
 CHECK-NEXT:     store v14, v15
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'test' seems OK
+CHECK-NEXT: *** IR for '_P.test' seems OK
 
-CHECK: *** IR for 'my_function'
+CHECK: *** IR for '_P.my_function'
 CHECK-NEXT: function u0:1() -> i64 system_v {
 CHECK-NEXT: block0:
 CHECK-NEXT:     v0 = iconst.i64 3
@@ -89,9 +89,9 @@ CHECK-NEXT:     ! my_function ← v0
 CHECK-NEXT:     ! v0 → my_function 
 CHECK-NEXT:     return v0  ; v0 = 3
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'my_function' seems OK
+CHECK-NEXT: *** IR for '_P.my_function' seems OK
 CHECK-EMPTY:
-CHECK-NEXT: *** IR for 'foo'
+CHECK-NEXT: *** IR for '_P.foo'
 CHECK-NEXT: function u0:2() system_v {
 CHECK-NEXT:     gv0 = symbol colocated userextname0 ; q
 CHECK-NEXT:     gv1 = symbol colocated userextname4 ; [output-textfile]
@@ -102,8 +102,8 @@ CHECK-NEXT:     sig3 = (i64, i64, i64) system_v
 CHECK-NEXT:     sig4 = (i64) system_v
 CHECK-NEXT:     sig5 = (i64) system_v
 CHECK-NEXT:     fn0 = u0:3 sig0 ; __pasko_pointer_new
-CHECK-NEXT:     fn1 = colocated u0:1 sig1 ; my_function
-CHECK-NEXT:     fn2 = colocated u0:0 sig2 ; test
+CHECK-NEXT:     fn1 = colocated u0:1 sig1 ; _P.my_function
+CHECK-NEXT:     fn2 = colocated u0:0 sig2 ; _P.test
 CHECK-NEXT:     fn3 = u0:4 sig3 ; __pasko_write_textfile_i64
 CHECK-NEXT:     fn4 = u0:5 sig4 ; __pasko_write_textfile_newline
 CHECK-NEXT:     fn5 = u0:6 sig5 ; __pasko_pointer_dispose
@@ -132,6 +132,6 @@ CHECK-NEXT:     v15 = load.i64 v14
 CHECK-NEXT:     call fn5(v15)
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'foo' seems OK
+CHECK-NEXT: *** IR for '_P.foo' seems OK
 
 }

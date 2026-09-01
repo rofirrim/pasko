@@ -45,7 +45,7 @@ end.
 
 {
 
-CHECK: *** IR for '_level0_level1_level2'
+CHECK: *** IR for '_P._level0_level1_level2'
 CHECK-NEXT: function u0:0(i64) system_v {
 CHECK-NEXT: block0(v0: i64):
 CHECK-NEXT:     v1 = iconst.i64 6
@@ -72,15 +72,15 @@ CHECK-NEXT:     v14 = iconst.i64 113
 CHECK-NEXT:     ! z1 ← v14 
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for '_level0_level1_level2' seems OK
+CHECK-NEXT: *** IR for '_P._level0_level1_level2' seems OK
 
-CHECK: *** IR for '_level0_level1'
+CHECK: *** IR for '_P._level0_level1'
 CHECK-NEXT: function u0:1(i64) system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8, align = 8 ; y0
 CHECK-NEXT:     ss1 = explicit_slot 8, align = 8 ; y1
 CHECK-NEXT:     ss2 = explicit_slot 24, align = 8 ; [nested-environment]
 CHECK-NEXT:     sig0 = (i64) system_v
-CHECK-NEXT:     fn0 = colocated u0:0 sig0 ; _level0_level1_level2
+CHECK-NEXT:     fn0 = colocated u0:0 sig0 ; _P._level0_level1_level2
 CHECK-EMPTY:
 CHECK-NEXT: block0(v0: i64):
 CHECK-NEXT:     v1 = iconst.i64 202
@@ -105,15 +105,15 @@ CHECK-NEXT:     v12 = stack_addr.i64 ss2
 CHECK-NEXT:     call fn0(v12)
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for '_level0_level1' seems OK
+CHECK-NEXT: *** IR for '_P._level0_level1' seems OK
 
-CHECK: *** IR for 'level0'
+CHECK: *** IR for '_P.level0'
 CHECK-NEXT: function u0:2() system_v {
 CHECK-NEXT:     ss0 = explicit_slot 8, align = 8 ; x0
 CHECK-NEXT:     ss1 = explicit_slot 8, align = 8 ; x1
 CHECK-NEXT:     ss2 = explicit_slot 24, align = 8 ; [nested-environment]
 CHECK-NEXT:     sig0 = (i64) system_v
-CHECK-NEXT:     fn0 = colocated u0:1 sig0 ; _level0_level1
+CHECK-NEXT:     fn0 = colocated u0:1 sig0 ; _P._level0_level1
 CHECK-EMPTY:
 CHECK-NEXT: block0:
 CHECK-NEXT:     v0 = iconst.i64 100
@@ -132,6 +132,6 @@ CHECK-NEXT:     v7 = stack_addr.i64 ss2
 CHECK-NEXT:     call fn0(v7)
 CHECK-NEXT:     return
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'level0' seems OK
+CHECK-NEXT: *** IR for '_P.level0' seems OK
 
 }

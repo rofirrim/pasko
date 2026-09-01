@@ -19,21 +19,21 @@ end.
 
 {
 
-CHECK: *** IR for 'lbound'
+CHECK: *** IR for '_P.lbound'
 CHECK-NEXT: function u0:0(i64, i64, i64) -> i64 system_v {
 CHECK-NEXT: block0(v0: i64, v1: i64, v2: i64):
 CHECK-NEXT:     ! v1 → lbound 
 CHECK-NEXT:     return v1
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'lbound' seems OK
+CHECK-NEXT: *** IR for '_P.lbound' seems OK
 
-CHECK: *** IR for 'ubound'
+CHECK: *** IR for '_P.ubound'
 CHECK-NEXT: function u0:1(i64, i64, i64) -> i64 system_v {
 CHECK-NEXT: block0(v0: i64, v1: i64, v2: i64):
 CHECK-NEXT:     ! v2 → ubound 
 CHECK-NEXT:     return v2
 CHECK-NEXT: }
-CHECK-NEXT: *** IR for 'ubound' seems OK
+CHECK-NEXT: *** IR for '_P.ubound' seems OK
 
 }
 
