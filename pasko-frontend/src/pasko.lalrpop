@@ -329,7 +329,7 @@ OpenStatement : SpannedBox<ast::Stmt> = {
 SimpleStatement : SpannedBox<ast::Stmt> = {
     <start:@L> <assignee:Assignable> ":=" <expr:Expression> <end:@R> =>
         SpannedBox::new(span_loc!(start, end), ast::Stmt::Assignment(ast::StmtAssignment(assignee, expr))),
-    <start:@L> <identifier:Identifier> <actual_parameters:ArgumentListCommaSeparated<ProcedureActualParameter, CallContextProcedure>?> <end:@R> => 
+    <start:@L> <identifier:Identifier> <actual_parameters:ArgumentListCommaSeparated<ProcedureActualParameter, ContextProcedure>?> <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::Stmt::ProcedureCall(ast::StmtProcedureCall(identifier, actual_parameters))),
     <start:@L> "goto" <label:LabelLiteral> <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::Stmt::Goto(ast::StmtGoto(label))),
@@ -393,17 +393,17 @@ ProcedureAndFunctionDeclaration : SpannedBox<ast::ProcedureAndFunctionDeclaratio
 };
 
 ProcedureDeclaration : SpannedBox<ast::ProcedureDeclaration> = {
-  <start:@L> "procedure" <identifier:Identifier> <formal_parameters:FormalParameterList?>  ";" <directive:Directive> <end:@R> => 
+  <start:@L> "procedure" <identifier:Identifier> <formal_parameters:FormalParameterList<ContextProcedure>>  ";" <directive:Directive> <end:@R> => 
     SpannedBox::new(span_loc!(start, end), ast::ProcedureDeclaration::Forward(ast::ProcedureForward(identifier, formal_parameters))),
-  <start:@L> "procedure" <identifier:Identifier> <formal_parameters:FormalParameterList?>  ";" <procedure_block:Block> <end:@R> => 
+  <start:@L> "procedure" <identifier:Identifier> <formal_parameters:FormalParameterList<ContextProcedure>>  ";" <procedure_block:Block> <end:@R> => 
     SpannedBox::new(span_loc!(start, end), ast::ProcedureDeclaration::Definition(ast::ProcedureDefinition(identifier, formal_parameters, procedure_block))),
 };
 
 FunctionDeclaration : SpannedBox<ast::FunctionDeclaration> = {
-  <start:@L> "function" <identifier:Identifier> <formal_parameters:FormalParameterList?> ":" <start_id:@L> <result_type:Identifier> <end_id:@R>";" <directive:Directive> <end:@R> => 
+  <start:@L> "function" <identifier:Identifier> <formal_parameters:FormalParameterList<ContextFunction>> ":" <start_id:@L> <result_type:Identifier> <end_id:@R>";" <directive:Directive> <end:@R> => 
     SpannedBox::new(span_loc!(start, end), ast::FunctionDeclaration::Forward(ast::FunctionForward(identifier, formal_parameters, 
         SpannedBox::new(span_loc!(start_id, end_id), ast::TypeIdentifier(result_type))))),
-  <start:@L> "function" <identifier:Identifier> <formal_parameters:FormalParameterList?> ":" <start_id:@L> <result_type:Identifier> <end_id:@R> ";" <function_block:Block> <end:@R> => 
+  <start:@L> "function" <identifier:Identifier> <formal_parameters:FormalParameterList<ContextFunction>> ":" <start_id:@L> <result_type:Identifier> <end_id:@R> ";" <function_block:Block> <end:@R> => 
     SpannedBox::new(span_loc!(start, end), ast::FunctionDeclaration::Definition(ast::FunctionDefinition(identifier, formal_parameters,
          SpannedBox::new(span_loc!(start_id, end_id), ast::TypeIdentifier(result_type)), function_block))),
   // This is an oddity with the way forward declaration works.
@@ -420,8 +420,15 @@ Directive : Spanned<String> = <start:@L> <s:"identifier"> <end:@R> => {
     Spanned::new(span_loc!(start, end), s.to_string()) 
 };
 
-FormalParameterList : Vec<SpannedBox<ast::FormalParameter>> = {
-    "(" <list:SemicolonSeparated<FormalParameter>> ")" => list,
+FormalParameterList<Context> : Option<Vec<SpannedBox<ast::FormalParameter>>> = {
+    "(" <list:SemicolonSeparated<FormalParameter>> ")" => Some(list),
+    <start:@L> "(" <ctx:Context> ")" <end:@R> => { 
+      let message = format!("no parentheses allowed for a {} that does not have formal parameters", ctx);
+      let error_payload = ast::ErrorPayload::User { error: lexer::LexicalError { start, end, message: message.clone() }};
+      parser::diagnose_parse_error(diagnostics, &error_payload);
+      None
+    },
+    => None
 };
 
 FormalParameter : SpannedBox<ast::FormalParameter> = {
@@ -431,9 +438,9 @@ FormalParameter : SpannedBox<ast::FormalParameter> = {
     <start:@L> "var" <identifiers:CommaSeparated<Identifier>> ":" <start_id:@L> <type_identifier:Identifier> <end:@R> =>
         SpannedBox::new(span_loc!(start, end), ast::FormalParameter::Variable(ast::FormalParameterVariable(identifiers,
               SpannedBox::new(span_loc!(start_id, end), ast::TypeIdentifier(type_identifier))))),
-    <start:@L> "procedure" <identifier:Identifier> <formal_parameters:FormalParameterList?> <end:@R> => 
+    <start:@L> "procedure" <identifier:Identifier> <formal_parameters:FormalParameterList<ContextProcedure>> <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::FormalParameter::Procedure(ast::FormalParameterProcedure(identifier, formal_parameters))),
-    <start:@L> "function" <identifier:Identifier> <formal_parameters:FormalParameterList?> ":" <start_id:@L> <result_type:Identifier> <end:@R> => 
+    <start:@L> "function" <identifier:Identifier> <formal_parameters:FormalParameterList<ContextFunction>> ":" <start_id:@L> <result_type:Identifier> <end:@R> => 
         SpannedBox::new(span_loc!(start, end), ast::FormalParameter::Function(ast::FormalParameterFunction(identifier, formal_parameters, 
               SpannedBox::new(span_loc!(start_id, end), ast::TypeIdentifier(result_type))))),
     // conformable array parameters
@@ -640,7 +647,7 @@ SingleExpression : SpannedBox<ast::Expr> = {
     <start:@L> <constant:UnsignedConst> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::Const(ast::ExprConst(constant))),
     <start:@L> "[" <members:OptionalCommaSeparated<SetMember>> "]" <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::SetLiteral(ast::ExprSetLiteral(members))),
     <start:@L> "not" <end_op:@R> <operand:SingleExpression> <end:@R> => SpannedBox::new(span_loc!(start, end), ast::Expr::UnOp(ast::ExprUnOp(Spanned::new(span_loc!(start, end_op), ast::UnaryOp::LogicalNot), operand))),
-    <start:@L> <identifier:Identifier> <arguments:ArgumentListCommaSeparated<Expression, CallContextFunction>>  <end:@R> =>
+    <start:@L> <identifier:Identifier> <arguments:ArgumentListCommaSeparated<Expression, ContextFunction>>  <end:@R> =>
        SpannedBox::new(span_loc!(start, end), ast::Expr::FunctionCall(ast::ExprFunctionCall(identifier, arguments))),
     <start:@L> <e:!> <end:@R> => {
         parser::diagnose_parse_error(diagnostics, &e.error);
@@ -680,27 +687,20 @@ MultiplicativeOperator : Spanned<ast::BinOperand> = {
 
 // Macros
 
-CallContextFunction : String = {
+ContextFunction : String = {
     => "function".to_string()
 }
-CallContextProcedure : String = {
+ContextProcedure : String = {
     => "procedure".to_string()
 }
 
-ArgumentListCommaSeparated<T, CallContext> : Vec<SpannedBox<ast::Expr>> = {
+ArgumentListCommaSeparated<T, Context> : Vec<SpannedBox<ast::Expr>> = {
     <start:@L> "(" <v:CommaSeparated<T>> ")" <end:@R> => v,
-    <start:@L> "(" <ctx:CallContext> ")" <end:@R> => {
+    <start:@L> "(" <ctx:Context> ")" <end:@R> => {
       let message = format!("no parentheses allowed in a {} call if not passing any parameter", ctx);
       let error_payload = ast::ErrorPayload::User { error: lexer::LexicalError { start, end, message: message.clone() }};
       parser::diagnose_parse_error(diagnostics, &error_payload);
-      vec![SpannedBox::new(span_loc!(start, end),
-            ast::Expr::Error(
-                ast::ExprError(
-                  error_payload,
-                  vec![])
-             )
-         )
-        ]
+      vec![]
     }
 }
 
