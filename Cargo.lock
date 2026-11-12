@@ -1045,9 +1045,6 @@ dependencies = [
 name = "pasko-lsp"
 version = "0.1.0"
 dependencies = [
- "env_logger",
- "log",
- "pasko-codegen",
  "pasko-frontend",
  "tokio",
  "tower-lsp",
